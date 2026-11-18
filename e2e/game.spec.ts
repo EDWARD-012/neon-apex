@@ -5,16 +5,37 @@ import { expect, type Page, test } from '@playwright/test'
 // do not depend on how fast the machine can draw frames. CI machines have
 // no graphics card and draw very slowly.
 
-type State = { mode: string; kind: string; phase: string; clock: number; place: number; lap: number; laps: number; speed: number; finished: boolean; lapTimes: number[] }
+type State = {
+  mode: string
+  kind: string
+  phase: string
+  clock: number
+  place: number
+  lap: number
+  laps: number
+  speed: number
+  finished: boolean
+  out: boolean
+  lapTimes: number[]
+  drift: number
+  pursuit: { busted: number; escape: number; heat: number; outcome: string | null }
+  police: number
+  traffic: number
+  weather: string
+}
 const state = (page: Page) => page.evaluate(() => (window as any).__neon.state() as State)
 const forward = (page: Page, seconds: number) => page.evaluate((s) => (window as any).__neon.game.fastForward(s), seconds)
 // Low graphics on CI, where every frame is drawn in software.
 const open = (page: Page, query = '') => page.goto(`./?test${process.env.CI ? '&quality=low' : ''}${query}`)
 
-async function startRace(page: Page, button = '#go-race') {
-  await page.locator(button).click()
-  await expect(page.locator('#hud')).toBeVisible()
+// Main menu, then Quick race, pick the event, Start, and skip the fly-in.
+async function quickRace(page: Page, kind = 'race') {
+  await page.locator('#go-quick').click()
+  await page.locator(`#kind button[data-value="${kind}"]`).click()
+  await page.locator('#go-race').click()
+  await expect(page.locator('#intro')).toBeVisible()
   await forward(page, 3.2)
+  await expect(page.locator('#hud')).toBeVisible({ timeout: 15000 })
   expect((await state(page)).phase).toBe('racing')
 }
 
@@ -57,7 +78,7 @@ test('the title screen draws the city', async ({ page }) => {
 
 test('the car moves under the player’s control', async ({ page, isMobile }) => {
   await open(page)
-  await startRace(page)
+  await quickRace(page)
   const throttleSeen = () => expect.poll(() => page.evaluate(() => (window as any).__neon.game.race.playerInput.throttle), { timeout: 15000 }).toBe(1)
   if (isMobile) {
     await expect(page.locator('#touch')).toBeVisible()
@@ -77,21 +98,29 @@ test('the car moves under the player’s control', async ({ page, isMobile }) =>
   await expect.poll(async () => Number(await page.locator('#speed').textContent()), { timeout: 15000 }).toBeGreaterThan(0)
 })
 
-test('a race runs to the results table', async ({ page }) => {
+test('a race runs to the results table, and the replay plays it back', async ({ page }) => {
   await open(page, '&autopilot&laps=1')
-  await startRace(page)
+  await quickRace(page)
+  expect((await state(page)).traffic).toBeGreaterThan(0)
   await forward(page, 120)
   expect((await state(page)).finished).toBe(true)
   await expect(page.locator('#results')).toBeVisible({ timeout: 20000 })
   await expect(page.locator('#standings tr')).toHaveCount(7)
   await expect(page.locator('#result-note')).toContainText('racing line')
+  await page.locator('#watch').click()
+  await expect(page.locator('#replay-ui')).toBeVisible()
+  await expect.poll(() => page.evaluate(() => (window as any).__neon.game.replayTime), { timeout: 15000 }).toBeGreaterThan(0)
+  await page.locator('#rp-cam').click()
+  await expect(page.locator('#rp-cam')).toHaveText('Chase')
+  await page.locator('#rp-exit').click()
+  await expect(page.locator('#results')).toBeVisible()
   await page.locator('#to-menu').click()
   await expect(page.locator('#menu')).toBeVisible()
 })
 
 test('time trial saves a ghost of the best lap', async ({ page }) => {
   await open(page, '&autopilot&laps=2&seed=ghost-test')
-  await startRace(page, '#go-trial')
+  await quickRace(page, 'trial')
   await forward(page, 140)
   const s = await state(page)
   expect(s.kind).toBe('trial')
@@ -99,16 +128,26 @@ test('time trial saves a ghost of the best lap', async ({ page }) => {
   const saved = await page.evaluate(() => localStorage.getItem('neon-apex/ghost/ghost-test'))
   expect(saved).not.toBeNull()
   expect(JSON.parse(saved as string).time).toBeCloseTo(Math.min(...s.lapTimes), 2)
-  // Racing the same track again shows the ghost's time in the HUD.
   await expect(page.locator('#results')).toBeVisible({ timeout: 20000 })
   await page.locator('#again').click()
-  await expect(page.locator('#ghost-row')).toBeVisible()
+  await forward(page, 3.2)
+  await expect(page.locator('#ghost-row')).toBeVisible({ timeout: 15000 })
   await expect(page.locator('#ghost-time')).not.toHaveText('none yet', { timeout: 15000 })
+})
+
+test('a pursuit puts police on the road and shows the meters', async ({ page }) => {
+  await open(page, '&autopilot')
+  await quickRace(page, 'pursuit')
+  await forward(page, 10)
+  const s = await state(page)
+  expect(s.police).toBeGreaterThanOrEqual(2)
+  await expect(page.locator('#pursuit')).toBeVisible({ timeout: 15000 })
+  await expect(page.locator('#goal')).toContainText('patrol car')
 })
 
 test('pause stops the race and resume carries on', async ({ page, isMobile }) => {
   await open(page)
-  await startRace(page)
+  await quickRace(page)
   if (isMobile) await page.locator('#touch-pause').click()
   else await page.keyboard.press('Escape')
   await expect(page.locator('#pause')).toBeVisible({ timeout: 15000 })
@@ -122,9 +161,37 @@ test('pause stops the race and resume carries on', async ({ page, isMobile }) =>
 
 test('a new random track goes into the address bar', async ({ page }) => {
   await open(page)
+  await page.locator('#go-quick').click()
   await page.locator('#new-track').click()
   await expect(page.locator('#track-name')).toContainText('Track #')
   expect(new URL(page.url()).searchParams.get('seed')).toMatch(/^random-/)
   await page.locator('#tonight').click()
   await expect(page.locator('#track-name')).toHaveText("Tonight's track")
+})
+
+test('the career pays out, and cash buys a car in the garage', async ({ page }) => {
+  await open(page, '&autopilot')
+  await page.locator('#go-career').click()
+  // Only the first tier is open at the start.
+  await expect(page.locator('.event[data-event="first-night"]')).toBeEnabled()
+  await expect(page.locator('.event[data-event="downpour"]')).toBeDisabled()
+  await page.locator('.event[data-event="first-night"]').click()
+  await forward(page, 3.2)
+  await forward(page, 200)
+  await expect(page.locator('#results')).toBeVisible({ timeout: 20000 })
+  await expect(page.locator('#reward')).toContainText('cash')
+  const cash = await page.evaluate(() => (window as any).__neon.progress().cash)
+  expect(cash).toBeGreaterThan(0)
+
+  // Give the career enough cash for the Kite and buy it.
+  await page.evaluate(() => localStorage.setItem('neon-apex/career', JSON.stringify({ cash: 7000, owned: ['vanta'], won: {} })))
+  await open(page)
+  await page.locator('#go-garage').click()
+  await page.locator('#car-list button[data-car="volt"]').click()
+  await expect(page.locator('#car-action')).toBeDisabled()
+  await page.locator('#car-list button[data-car="kite"]').click()
+  await expect(page.locator('#car-action')).toHaveText('Buy for 6,000')
+  await page.locator('#car-action').click()
+  await expect(page.locator('#car-action')).toHaveText('Driving this one')
+  await expect(page.locator('#garage-cash')).toHaveText('1,000')
 })
