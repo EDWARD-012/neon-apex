@@ -115,7 +115,7 @@ export function stepCar(car: CarState, input: CarInput, dt: number, track: Track
       accel -= input.brake * CAR.engine * 0.6
     }
   }
-  if (input.handbrake) accel -= Math.sign(vf) * 5
+  if (input.handbrake) accel -= Math.sign(vf) * 3
   const resist = CAR.drag * vf * Math.abs(vf) + CAR.roll * Math.sign(vf)
   const next = vf + (accel - resist) * dt
   // Rolling resistance alone must not push the car backwards.
@@ -141,7 +141,11 @@ export function stepCar(car: CarState, input: CarInput, dt: number, track: Track
   const holding = car.drifting && input.throttle > 0.5 && Math.abs(input.steer) > 0.3
   const recovery = holding ? Math.min(car.gripRecovery, 0.3) : car.gripRecovery
   const grip = CAR.driftGrip + (CAR.grip - CAR.driftGrip) * recovery
+  const sideways = Math.abs(vr)
   vr *= Math.exp(-grip * dt)
+  // Arcade rule: while sliding, most of the sideways speed the tyres take
+  // away goes back into forward speed, so a good drift does not cost a lot.
+  if (car.drifting && vf > 0) vf += (sideways - Math.abs(vr)) * 0.65
 
   car.vx = fx * vf + rx * vr
   car.vz = fz * vf + rz * vr
