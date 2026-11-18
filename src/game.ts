@@ -283,12 +283,12 @@ export class Game {
       this.recording = []
     }
     if (player.finishTime !== null && this.finishedAt === 0) {
-      this.finishedAt = this.time
+      this.finishedAt = performance.now()
       const place = race.position(player)
       flash(this.kind === 'trial' ? 'Finished' : `${ordinal(place)} place`)
       this.bankDrift()
     }
-    if (this.mode === 'race' && this.finishedAt > 0 && this.time - this.finishedAt > 3) {
+    if (this.mode === 'race' && this.finishedAt > 0 && performance.now() - this.finishedAt > 3000) {
       this.mode = 'results'
       this.onResults?.()
     }

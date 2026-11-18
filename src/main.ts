@@ -44,7 +44,15 @@ await document.fonts.load('700 italic 40px "Chakra Petch"').catch(() => undefine
 await document.fonts.load('700 40px "Chakra Petch"').catch(() => undefined)
 
 const settings = loadSettings()
-const game = new Game($('view') as HTMLCanvasElement, settings, params.has('autopilot'))
+let game: Game
+try {
+  game = new Game($('view') as HTMLCanvasElement, settings, params.has('autopilot'))
+} catch {
+  // three.js throws when the browser cannot create a WebGL context, for
+  // example with hardware acceleration switched off.
+  $('loading').textContent = 'This game needs WebGL, and your browser could not start it. Turning on hardware acceleration usually fixes this.'
+  throw new Error('WebGL is not available')
+}
 game.input.bindTouch($('touch'))
 
 function trackLabel() {

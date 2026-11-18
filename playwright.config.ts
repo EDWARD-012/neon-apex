@@ -25,8 +25,24 @@ export default defineConfig({
   projects: [
     // E2E_CHROME_CHANNEL=chrome uses an installed Chrome instead of
     // Playwright's own Chromium build.
-    { name: 'chromium', use: { ...devices['Desktop Chrome'], channel: process.env.E2E_CHROME_CHANNEL } },
-    { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
+    {
+      name: 'chromium',
+      use: {
+        ...devices['Desktop Chrome'],
+        channel: process.env.E2E_CHROME_CHANNEL,
+        // Without a GPU, Chrome only draws WebGL through SwiftShader.
+        launchOptions: process.env.CI ? { args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'] } : {},
+      },
+    },
+    {
+      name: 'firefox',
+      use: {
+        ...devices['Desktop Firefox'],
+        // Headless Firefox on a machine without a GPU refuses WebGL unless
+        // told to fall back to software rendering.
+        launchOptions: { firefoxUserPrefs: { 'webgl.force-enabled': true, 'webgl.disabled': false, 'gfx.webrender.software': true } },
+      },
+    },
     { name: 'webkit', use: { ...devices['Desktop Safari'] } },
     { name: 'phone', use: { ...devices['iPhone 13 landscape'] } },
   ],
