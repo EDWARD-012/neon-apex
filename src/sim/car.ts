@@ -5,6 +5,8 @@ import { locate, type Track } from './track'
 // Because the velocity is rotated into the new heading only through that
 // grip, it lags behind when grip is low, and that lag is the drift.
 
+export type CarSpec = typeof CAR
+
 export const CAR = {
   topSpeed: 72, // m/s, about 260 km/h
   engine: 16, // m/s² at a standstill, fading to zero at top speed
@@ -20,7 +22,9 @@ export const CAR = {
   driftGrip: 1.4,
   yawResponse: 9,
   halfWidth: 1.0,
-  radius: 2.1, // for car-to-car contact
+  // Car-to-car contact treats each car as two circles, one over each axle.
+  radius: 1.05,
+  axle: 1.25,
   nitroBoost: 1.75,
   nitroTop: 1.22,
   nitroBurn: 0.3, // tank per second
@@ -41,6 +45,9 @@ export interface CarInput {
 export const idle: CarInput = { throttle: 0, brake: 0, steer: 0, handbrake: false, nitro: false }
 
 export interface CarState {
+  // Handling numbers for this car. The shared CAR is the default and the
+  // one the racing line plans with.
+  spec: CarSpec
   x: number
   z: number
   heading: number
@@ -63,8 +70,9 @@ export interface CarState {
   hint: number
 }
 
-export function createCar(x: number, z: number, heading: number, track: Track): CarState {
+export function createCar(x: number, z: number, heading: number, track: Track, spec: CarSpec = CAR): CarState {
   return {
+    spec,
     x,
     z,
     heading,
@@ -88,6 +96,7 @@ export const forwardSpeed = (car: CarState) => car.vx * Math.sin(car.heading) + 
 export const speedOf = (car: CarState) => Math.hypot(car.vx, car.vz)
 
 export function stepCar(car: CarState, input: CarInput, dt: number, track: Track) {
+  const S = car.spec
   const fx = Math.sin(car.heading)
   const fz = Math.cos(car.heading)
   // Right-hand vector when facing along (fx, fz) with y up.
@@ -98,41 +107,41 @@ export function stepCar(car: CarState, input: CarInput, dt: number, track: Track
 
   // Nitro burns only while the car is actually rolling forwards.
   car.nitroOn = input.nitro && car.nitro > 0 && vf > 3 && input.throttle > 0
-  if (car.nitroOn) car.nitro = Math.max(0, car.nitro - CAR.nitroBurn * dt)
+  if (car.nitroOn) car.nitro = Math.max(0, car.nitro - S.nitroBurn * dt)
 
-  const top = CAR.topSpeed * (car.nitroOn ? CAR.nitroTop : 1)
+  const top = S.topSpeed * (car.nitroOn ? S.nitroTop : 1)
   let accel = 0
   if (input.throttle > 0) {
-    if (vf >= -0.5) accel += input.throttle * CAR.engine * (car.nitroOn ? CAR.nitroBoost : 1) * Math.max(0, 1 - vf / top)
-    else accel += input.throttle * CAR.brake
+    if (vf >= -0.5) accel += input.throttle * S.engine * (car.nitroOn ? S.nitroBoost : 1) * Math.max(0, 1 - vf / top)
+    else accel += input.throttle * S.brake
   }
   car.braking = false
   if (input.brake > 0) {
     if (vf > 0.5) {
-      accel -= input.brake * CAR.brake
+      accel -= input.brake * S.brake
       car.braking = true
-    } else if (vf > -CAR.reverseTop) {
-      accel -= input.brake * CAR.engine * 0.6
+    } else if (vf > -S.reverseTop) {
+      accel -= input.brake * S.engine * 0.6
     }
   }
   if (input.handbrake) accel -= Math.sign(vf) * 3
-  const resist = CAR.drag * vf * Math.abs(vf) + CAR.roll * Math.sign(vf)
+  const resist = S.drag * vf * Math.abs(vf) + S.roll * Math.sign(vf)
   const next = vf + (accel - resist) * dt
   // Rolling resistance alone must not push the car backwards.
   vf = input.throttle === 0 && input.brake === 0 && Math.sign(next) !== Math.sign(vf) ? 0 : next
-  vf = Math.max(vf, -CAR.reverseTop)
+  vf = Math.max(vf, -S.reverseTop)
 
   // Steering: the yaw rate a bicycle model would give, capped by how much
   // sideways pull the tyres have at this speed. Lock eases off with speed.
   const speed = Math.abs(vf)
-  const lock = CAR.maxSteer * (1 - 0.6 * Math.min(1, speed / CAR.topSpeed))
+  const lock = S.maxSteer * (1 - 0.6 * Math.min(1, speed / S.topSpeed))
   car.steer += (input.steer * lock - car.steer) * Math.min(1, 12 * dt)
-  const geometric = (vf * Math.tan(car.steer)) / CAR.wheelbase
-  const cap = CAR.lateralLimit / Math.max(speed, 4)
+  const geometric = (vf * Math.tan(car.steer)) / S.wheelbase
+  const cap = S.lateralLimit / Math.max(speed, 4)
   // A right turn turns the heading the negative way.
   let yawTarget = -Math.max(-cap, Math.min(cap, geometric))
   if (input.handbrake && speed > 10) yawTarget *= 1.7
-  car.yawRate += (yawTarget - car.yawRate) * Math.min(1, CAR.yawResponse * dt)
+  car.yawRate += (yawTarget - car.yawRate) * Math.min(1, S.yawResponse * dt)
 
   // Grip. The handbrake breaks it; holding throttle and steering into a
   // slide keeps it low, which is how a drift is held through a corner.
@@ -140,7 +149,7 @@ export function stepCar(car: CarState, input: CarInput, dt: number, track: Track
   else car.gripRecovery = Math.min(1, car.gripRecovery + dt / 0.7)
   const holding = car.drifting && input.throttle > 0.5 && Math.abs(input.steer) > 0.3
   const recovery = holding ? Math.min(car.gripRecovery, 0.3) : car.gripRecovery
-  const grip = CAR.driftGrip + (CAR.grip - CAR.driftGrip) * recovery
+  const grip = S.driftGrip + (S.grip - S.driftGrip) * recovery
   const sideways = Math.abs(vr)
   vr *= Math.exp(-grip * dt)
   // Arcade rule: while sliding, most of the sideways speed the tyres take
@@ -167,7 +176,7 @@ export function stepCar(car: CarState, input: CarInput, dt: number, track: Track
 function collideWithBarriers(car: CarState, track: Track) {
   const where = locate(track, car.x, car.z, car.hint)
   car.hint = where.i
-  const limit = barrierOffset(track) - CAR.halfWidth
+  const limit = barrierOffset(track) - car.spec.halfWidth
   if (Math.abs(where.d) <= limit) return
   const side = Math.sign(where.d)
   const nx = track.nx[where.i] * side
@@ -193,19 +202,34 @@ function collideWithBarriers(car: CarState, track: Track) {
 
 // Pushes two overlapping cars apart and trades the part of their velocity
 // along the line between them, like two equal masses with a soft bounce.
+// Each car is two circles, front and rear, so cars can run side by side a
+// metre apart without touching but still hit nose to tail.
 export function collideCars(a: CarState, b: CarState): number {
-  const dx = b.x - a.x
-  const dz = b.z - a.z
-  const dist = Math.hypot(dx, dz)
-  const min = CAR.radius * 2
-  if (dist >= min || dist === 0) return 0
-  const ux = dx / dist
-  const uz = dz / dist
-  const push = (min - dist) / 2
-  a.x -= ux * push
-  a.z -= uz * push
-  b.x += ux * push
-  b.z += uz * push
+  const reach = a.spec.axle + b.spec.axle + a.spec.radius + b.spec.radius
+  if (Math.abs(b.x - a.x) > reach || Math.abs(b.z - a.z) > reach) return 0
+  const min = a.spec.radius + b.spec.radius
+  let best = 0
+  let ux = 0
+  let uz = 0
+  for (const sa of [-1, 1]) {
+    const ax = a.x + Math.sin(a.heading) * a.spec.axle * sa
+    const az = a.z + Math.cos(a.heading) * a.spec.axle * sa
+    for (const sb of [-1, 1]) {
+      const bx = b.x + Math.sin(b.heading) * b.spec.axle * sb
+      const bz = b.z + Math.cos(b.heading) * b.spec.axle * sb
+      const dist = Math.hypot(bx - ax, bz - az)
+      if (dist < min && min - dist > best && dist > 1e-6) {
+        best = min - dist
+        ux = (bx - ax) / dist
+        uz = (bz - az) / dist
+      }
+    }
+  }
+  if (best === 0) return 0
+  a.x -= (ux * best) / 2
+  a.z -= (uz * best) / 2
+  b.x += (ux * best) / 2
+  b.z += (uz * best) / 2
   const closing = (a.vx - b.vx) * ux + (a.vz - b.vz) * uz
   if (closing <= 0) return 0
   const j = closing * 0.6

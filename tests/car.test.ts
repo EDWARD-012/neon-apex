@@ -75,13 +75,25 @@ describe('car physics', () => {
     expect(b).toEqual(a)
   })
 
-  it('two cars that overlap are pushed apart', () => {
+  it('a car running into the back of another pushes it on', () => {
     const a = start()
     const b = start()
-    b.x += 1
-    a.vx = 5
-    collideCars(a, b)
-    expect(Math.hypot(b.x - a.x, b.z - a.z)).toBeCloseTo(CAR.radius * 2, 6)
-    expect(b.vx).toBeGreaterThan(0)
+    // b is 3 m straight ahead of a, so a's front circle overlaps b's rear one.
+    b.x += Math.sin(b.heading) * 3
+    b.z += Math.cos(b.heading) * 3
+    a.vx = Math.sin(a.heading) * 10
+    a.vz = Math.cos(a.heading) * 10
+    expect(collideCars(a, b)).toBeGreaterThan(0)
+    expect(b.vx * Math.sin(b.heading) + b.vz * Math.cos(b.heading)).toBeGreaterThan(0)
+  })
+
+  it('two cars side by side a metre apart do not touch', () => {
+    const a = start()
+    const b = start()
+    // 2.9 m apart sideways: 1 m of air between two 1.9 m wide cars.
+    b.x += -Math.cos(b.heading) * 2.9
+    b.z += Math.sin(b.heading) * 2.9
+    expect(collideCars(a, b)).toBe(0)
+    expect(Math.hypot(b.x - a.x, b.z - a.z)).toBeCloseTo(2.9, 6)
   })
 })

@@ -22,21 +22,36 @@ export function drive(car: CarState, driver: Driver, track: Track, line: RacingL
   const i = car.hint
   const speed = Math.max(0, forwardSpeed(car))
 
-  // Look for a car close ahead in our lane and pick a side to pass on.
+  // Is the racing line blocked by a car close ahead, or one alongside that
+  // we are in the middle of passing? If so, take a side and keep it until
+  // the line is clear. Checking the line itself, not our current lane,
+  // stops the car from drifting back into the one it is passing.
   driver.laneTimer -= dt
   if (driver.laneTimer <= 0) {
+    const keep = Math.sign(driver.laneTarget)
     driver.laneTarget = 0
+    const room = track.width / 2 - 2.2
     for (const other of others) {
       if (other === car) continue
-      const ahead = ((other.hint - i + n) % n) * track.spacing
-      if (ahead <= 0 || ahead > 22) continue
+      let gap = other.hint - i
+      if (gap > n / 2) gap -= n
+      if (gap < -n / 2) gap += n
+      const metres = gap * track.spacing
+      if (metres <= -7 || metres > 24) continue
       const theirs = (other.x - track.x[other.hint]) * track.nx[other.hint] + (other.z - track.z[other.hint]) * track.nz[other.hint]
-      const ours = line.offset[i] + driver.lane
-      if (Math.abs(theirs - ours) > 3) continue
-      const room = track.width / 2 - 2.2
-      const goRight = theirs < 0 ? theirs + 3.6 <= room : theirs - 3.6 < -room
-      driver.laneTarget = Math.max(-room, Math.min(room, theirs + (goRight ? 3.6 : -3.6))) - line.offset[i]
-      driver.laneTimer = 1.2
+      if (Math.abs(theirs - line.offset[i]) > 3.2 && keep === 0) continue
+      const rightOk = theirs + 3.8 <= room
+      const leftOk = theirs - 3.8 >= -room
+      let side = keep !== 0 ? keep : theirs < 0 ? 1 : -1
+      if (side > 0 && !rightOk) side = -1
+      if (side < 0 && !leftOk) side = 1
+      if (Math.abs(theirs - line.offset[i]) > 3.2) {
+        // Already clear of it to one side: stay there while alongside.
+        if (metres < -2) continue
+        side = keep
+      }
+      driver.laneTarget = Math.max(-room, Math.min(room, theirs + side * 3.8)) - line.offset[i]
+      driver.laneTimer = 0.5
       break
     }
   }
