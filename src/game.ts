@@ -1,30 +1,56 @@
-import { Color, type Group, MathUtils, Object3D, SpotLight, Vector3 } from 'three'
+import { Color, type Group, MathUtils, type MeshBasicMaterial, type MeshStandardMaterial, Object3D, SpotLight, Vector3 } from 'three'
 import { Sound } from './audio'
+import type { EventKind, Outcome } from './career'
+import { bumper, finishOrbit, heli, INTRO_SECONDS, intro, tv, tvCameras } from './cinema'
 import { Input } from './input'
-import { buildCity } from './render/city'
+import { applyWeather, type Weather, weatherFor } from './render/atmosphere'
 import { type CarModel, createCarModel } from './render/carModel'
-import { Particles, Skids } from './render/effects'
+import { buildCity } from './render/city'
+import { Particles, Rain, Skids, Trails } from './render/effects'
+import { Garage } from './render/garage'
 import { spot } from './render/textures'
 import { buildTrackMeshes } from './render/trackMesh'
 import { type Quality, World } from './render/world'
-import { CAR, forwardSpeed, speedOf } from './sim/car'
+import { type Replay, Recorder } from './replay'
+import { CAR, type CarState, forwardSpeed, speedOf } from './sim/car'
+import { carById, CARS, type Shape } from './sim/cars'
 import { Race, type Racer, STEP } from './sim/race'
 
-export type Mode = 'menu' | 'race' | 'paused' | 'results'
-export type Kind = 'race' | 'trial'
+export type Mode = 'menu' | 'garage' | 'intro' | 'race' | 'paused' | 'results' | 'replay'
+
+// Everything needed to start an event, from the career or quick race.
+export interface EventSpec {
+  kind: EventKind
+  title: string
+  seed: string
+  laps: number
+  rivals: number
+  skill: number
+  traffic: number
+  police?: number
+  weather: Weather | 'auto'
+  target?: number
+  careerId?: string
+}
 
 export interface Settings {
   seed: string
   laps: number
   color: string
+  car: string
   quality: Quality
   sound: boolean
+  traffic: boolean
+  weather: Weather | 'auto'
+  kind: EventKind
 }
 
 interface View {
-  racer: Racer
+  car: CarState
   model: CarModel
   prev: { x: number; z: number; heading: number }
+  racer: Racer | null
+  police: boolean
 }
 
 interface Ghost {
@@ -32,6 +58,9 @@ interface Ghost {
   // t, x, z, heading, repeated.
   samples: number[]
 }
+
+export type ReplayCamera = 'tv' | 'chase' | 'heli' | 'bumper'
+export const REPLAY_CAMERAS: ReplayCamera[] = ['tv', 'chase', 'heli', 'bumper']
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement
 
@@ -54,30 +83,51 @@ export function formatTime(seconds: number | null | undefined): string {
   return `${m}:${s.toFixed(2).padStart(5, '0')}`
 }
 
+const RIVAL_SHAPES: Shape[] = ['vanta', 'kite', 'brute', 'volt']
+
 export class Game {
   readonly world: World
   readonly input = new Input()
   readonly sound = new Sound()
+  readonly garage: Garage
   settings: Settings
   race!: Race
+  event!: EventSpec
+  weather: Weather = 'clear'
   mode: Mode = 'menu'
-  kind: Kind = 'race'
   timeScale = 1
-  onResults: (() => void) | null = null
+  onResults: ((outcome: Outcome) => void) | null = null
+  // Lets the screenshot script place the camera by hand.
+  cameraOverride: ((camera: import('three').PerspectiveCamera) => void) | null = null
+  camMode: 'chase' | 'hood' = 'chase'
+
+  // Replay state, read by the replay controls.
+  replay: Replay | null = null
+  replayTime = 0
+  replaySpeed = 1
+  replayPlaying = true
+  replayCamera: ReplayCamera = 'tv'
+  replayFollow = 0
 
   private readonly autopilot: boolean
   private readonly spotTexture = spot()
   private builtSeed = ''
   private scenery: Group[] = []
-  private beacons: { opacity: number } | null = null
+  private materials: { road: MeshStandardMaterial; facade: MeshStandardMaterial; dome: MeshBasicMaterial; beacons: MeshBasicMaterial } | null = null
   private views: View[] = []
   private ghostModel: CarModel | null = null
   private ghost: Ghost | null = null
-  private recording: number[] = []
+  private ghostRecording: number[] = []
+  private recorder: Recorder | null = null
   private readonly smoke: Particles
+  private readonly spray: Particles
   private readonly sparks: Particles
   private readonly skids = new Skids()
+  private readonly trails = new Trails(64)
+  private readonly rain = new Rain()
+  private raining = false
   private readonly headlight: SpotLight
+  private cameras: Vector3[] = []
   private acc = 0
   private last = performance.now()
   private time = 0
@@ -88,27 +138,29 @@ export class Game {
   private camLook = new Vector3()
   private fov = 62
   private shake = 0
-  camMode: 'chase' | 'hood' = 'chase'
-  // Lets the screenshot script place the camera by hand.
-  cameraOverride: ((camera: import('three').PerspectiveCamera) => void) | null = null
   private follow = 0
   private followTimer = 0
+  private introTime = 0
   private lastCount = 0
   private lapsSeen = 0
-  private finishedAt = 0
-  private driftScore = 0
-  private driftQuiet = 0
-  driftTotal = 0
+  private endAt = 0
+  private slowUntil = 0
+  private finishCamera = false
+  private finishTime = 0
   private wrongShown = false
+  private nextLightning = 8
+  private thunderAt = 0
 
   constructor(canvas: HTMLCanvasElement, settings: Settings, autopilot = false) {
     this.settings = settings
     this.autopilot = autopilot
     this.world = new World(canvas, settings.quality)
+    this.garage = new Garage(this.world.environment, this.spotTexture)
     this.sound.setEnabled(settings.sound)
     this.smoke = new Particles(900, this.spotTexture, '#c9cad6', { grow: 3.2 })
+    this.spray = new Particles(900, this.spotTexture, '#aab4d0', { grow: 2.4 })
     this.sparks = new Particles(400, this.spotTexture, '#ffb347', { additive: true, gravity: 14, brightness: 3 })
-    this.world.scene.add(this.smoke.points, this.sparks.points, this.skids.mesh)
+    this.world.scene.add(this.smoke.points, this.spray.points, this.sparks.points, this.skids.mesh, this.trails.mesh, this.rain.lines)
     this.headlight = new SpotLight('#dfe9ff', 70, 90, 0.4, 0.6, 1)
     this.headlight.target = new Object3D()
     window.addEventListener('resize', () => this.world.resize())
@@ -119,51 +171,75 @@ export class Game {
     return this.race.player
   }
 
-  // Builds the race, and the track and city meshes if the track changed.
-  private setup(kind: Kind | 'attract') {
-    const attract = kind === 'attract'
+  // Builds the race and everything drawn for it. The city is only rebuilt
+  // when the track changes.
+  private setup(spec: EventSpec, attract: boolean) {
+    this.event = spec
+    const car = carById(this.settings.car)
+    const rivalCars = Array.from({ length: spec.rivals }, (_, k) => CARS[(k + 1) % CARS.length])
     this.race = new Race({
-      seed: this.settings.seed,
-      laps: attract ? 99 : this.settings.laps,
-      rivals: kind === 'trial' ? 0 : 5,
+      seed: spec.seed,
+      laps: spec.kind === 'elimination' || spec.kind === 'pursuit' ? 99 : spec.laps,
+      rivals: spec.rivals,
+      skill: spec.skill,
+      traffic: spec.traffic,
+      police: spec.police,
+      mode: spec.kind === 'elimination' ? 'elimination' : spec.kind === 'pursuit' ? 'pursuit' : 'circuit',
       playerColor: this.settings.color,
+      playerSpec: car.spec,
+      rivalSpecs: rivalCars.map((c) => c.spec),
       autopilot: attract || this.autopilot,
     })
-    if (this.builtSeed !== this.settings.seed) {
+    if (this.builtSeed !== spec.seed) {
       for (const g of this.scenery) this.world.scene.remove(g)
       const track = buildTrackMeshes(this.race.track)
       const city = buildCity(this.race.track)
       this.scenery = [track, city.group]
-      this.beacons = city.beacons
+      this.materials = { road: track.userData.road, facade: city.facade, dome: city.dome, beacons: city.beacons }
       this.world.scene.add(track, city.group)
-      this.builtSeed = this.settings.seed
+      this.cameras = tvCameras(this.race.track)
+      this.builtSeed = spec.seed
     }
+    this.weather = spec.weather === 'auto' ? weatherFor(spec.seed) : spec.weather
+    const m = this.materials!
+    this.raining = applyWeather(this.world, this.weather, m.road, m.facade, m.dome)
+    this.rain.lines.visible = this.raining
+    this.sound.setRain(this.raining && !attract)
+
     for (const v of this.views) this.world.scene.remove(v.model.group)
-    this.views = this.race.racers.map((racer) => {
-      const model = createCarModel(racer.color, this.spotTexture)
-      this.world.scene.add(model.group)
-      return { racer, model, prev: { x: racer.car.x, z: racer.car.z, heading: racer.car.heading } }
+    this.views = []
+    this.race.racers.forEach((racer, k) => {
+      const shape = racer.player ? car.shape : RIVAL_SHAPES[(k + 1) % RIVAL_SHAPES.length]
+      this.addView(racer.car, createCarModel(racer.color, this.spotTexture, { shape }), racer, false)
     })
+    for (const t of this.race.traffic) this.addView(t.car, createCarModel(t.color, this.spotTexture, { shape: t.shape, glow: false }), null, false)
+    for (const cop of this.race.police) this.addView(cop, createCarModel('#14161c', this.spotTexture, { shape: 'police', glow: false }), null, true)
+
     this.headlight.removeFromParent()
-    const playerModel = this.views[this.views.length - 1].model.group
+    const playerModel = this.views[this.race.racers.length - 1].model.group
     this.headlight.position.set(0, 0.8, 2.0)
     this.headlight.target.position.set(0, 0, 30)
     playerModel.add(this.headlight, this.headlight.target)
+
     this.skids.clear()
+    this.trails.clear()
     this.acc = 0
     this.lastCount = 0
     this.lapsSeen = 0
-    this.finishedAt = 0
-    this.driftScore = 0
-    this.driftTotal = 0
-    this.recording = []
+    this.endAt = 0
+    this.slowUntil = 0
+    this.finishCamera = false
+    this.timeScale = 1
     this.wrongShown = false
+    this.replay = null
+    this.recorder = attract ? null : new Recorder(this.allCars())
     this.ghostModel?.group.removeFromParent()
     this.ghostModel = null
     this.ghost = null
-    if (kind === 'trial') {
-      this.ghost = loadGhost(this.settings.seed)
-      this.ghostModel = createCarModel('#9fe8ff', this.spotTexture, true)
+    this.ghostRecording = []
+    if (spec.kind === 'trial') {
+      this.ghost = loadGhost(spec.seed)
+      this.ghostModel = createCarModel('#9fe8ff', this.spotTexture, { shape: car.shape, ghost: true })
       this.ghostModel.group.visible = false
       this.world.scene.add(this.ghostModel.group)
     }
@@ -171,21 +247,51 @@ export class Game {
     this.camPos.set(0, 0, 0)
   }
 
+  private addView(car: CarState, model: CarModel, racer: Racer | null, police: boolean) {
+    this.world.scene.add(model.group)
+    this.views.push({ car, model, prev: { x: car.x, z: car.z, heading: car.heading }, racer, police })
+  }
+
+  // Racers, then traffic, then police: the same order the views use.
+  private allCars(): CarState[] {
+    return [...this.race.racers.map((r) => r.car), ...this.race.traffic.map((t) => t.car), ...this.race.police]
+  }
+
   showMenu() {
     this.mode = 'menu'
-    this.kind = 'race'
-    this.setup('attract')
+    this.world.show(this.world.scene)
+    this.setup({ kind: 'race', title: '', seed: this.settings.seed, laps: 99, rivals: 5, skill: 1, traffic: 8, weather: this.settings.weather }, true)
     // Run the attract race on a little so the cars are already moving.
     for (let t = 0; t < 9; t += STEP) this.race.step()
     this.snapViews()
     this.follow = 0
   }
 
-  start(kind: Kind) {
-    this.kind = kind
-    this.setup(kind)
-    this.mode = 'race'
+  showGarage() {
+    this.mode = 'garage'
+    this.world.show(this.garage.scene)
+    this.refreshGarage()
+  }
+
+  refreshGarage(carId = this.settings.car) {
+    this.garage.show(carById(carId).shape, this.settings.color)
+  }
+
+  start(spec: EventSpec) {
+    this.world.show(this.world.scene)
+    this.setup(spec, false)
+    this.mode = 'intro'
+    this.introTime = 0
+    this.input.take('any')
     this.sound.start()
+  }
+
+  skipIntro() {
+    if (this.mode !== 'intro') return
+    this.mode = 'race'
+    this.camPos.set(0, 0, 0)
+    $('intro').classList.add('hidden')
+    $('hud').classList.remove('hidden')
   }
 
   setQuality(quality: Quality) {
@@ -195,21 +301,30 @@ export class Game {
 
   // Advances the simulation without drawing, for the browser tests.
   fastForward(seconds: number) {
+    this.skipIntro()
     for (let t = 0; t < seconds; t += STEP) this.tick()
     this.snapViews()
   }
 
   private snapViews() {
-    for (const v of this.views) v.prev = { x: v.racer.car.x, z: v.racer.car.z, heading: v.racer.car.heading }
+    for (const v of this.views) v.prev = { x: v.car.x, z: v.car.z, heading: v.car.heading }
   }
 
   private frame = (now: number) => {
     const dt = Math.min(0.1, (now - this.last) / 1000)
     this.last = now
     this.time += dt
+    if (this.mode === 'intro') {
+      this.introTime += dt
+      if (this.introTime >= INTRO_SECONDS || this.input.take('any')) this.skipIntro()
+    }
     if (this.mode === 'race') this.keys()
-    if (this.mode !== 'paused') {
+    if (this.mode === 'race' || this.mode === 'results' || this.mode === 'menu') {
       if (this.mode === 'race') this.race.playerInput = this.input.read(dt)
+      if (this.slowUntil > 0 && now > this.slowUntil) {
+        this.slowUntil = 0
+        this.timeScale = 1
+      }
       this.acc += dt * this.timeScale
       let steps = 0
       while (this.acc >= STEP && steps < 48) {
@@ -219,7 +334,15 @@ export class Game {
       }
       if (steps >= 48) this.acc = 0
     }
-    this.draw(this.mode === 'paused' ? 0 : dt)
+    if (this.mode === 'replay' && this.replay) {
+      if (this.replayPlaying) this.replayTime = Math.min(this.replay.duration, this.replayTime + dt * this.replaySpeed)
+      this.replay.apply(this.replayTime)
+      this.acc = 0
+    }
+    if (this.mode === 'garage') {
+      this.garage.update(this.time, this.world.camera, window.innerWidth > 900)
+      this.world.render()
+    } else this.draw(this.mode === 'paused' ? 0 : dt)
     requestAnimationFrame(this.frame)
   }
 
@@ -241,14 +364,40 @@ export class Game {
     $('pause').classList.add('hidden')
   }
 
+  startReplay() {
+    if (!this.recorder) return
+    this.replay = this.recorder.finish(-1)
+    this.recorder = null
+    this.mode = 'replay'
+    // Start just before the green light.
+    this.replayTime = 0
+    this.replayPlaying = true
+    this.replaySpeed = 1
+    this.replayCamera = 'tv'
+    this.replayFollow = this.race.racers.length - 1
+    this.skids.clear()
+    this.trails.clear()
+  }
+
   // One fixed physics step plus the race events that come out of it.
   private tick() {
-    for (const v of this.views) v.prev = { x: v.racer.car.x, z: v.racer.car.z, heading: v.racer.car.heading }
+    for (const v of this.views) v.prev = { x: v.car.x, z: v.car.z, heading: v.car.heading }
     const before = this.race.phase
+    const copsBefore = this.race.police.length
     this.race.step()
-    if (this.mode === 'menu') return
+    // Patrol cars that joined the chase need a model.
+    for (let k = copsBefore; k < this.race.police.length; k++) {
+      const cop = this.race.police[k]
+      this.addView(cop, createCarModel('#14161c', this.spotTexture, { shape: 'police', glow: false }), null, true)
+    }
+    if (this.mode === 'menu') {
+      this.race.events = []
+      return
+    }
+    if (this.recorder && this.race.clock > -1) this.recorder.sample(this.race.clock)
     const race = this.race
     const player = this.player
+    const now = performance.now()
 
     if (race.phase === 'countdown') {
       const count = Math.ceil(-race.clock)
@@ -263,73 +412,101 @@ export class Game {
       this.sound.beep(true)
     }
 
-    // Ghost: record the current lap, 30 times a second.
-    if (this.kind === 'trial' && player.checkpoints >= 1 && player.finishTime === null) {
-      if (Math.round(race.clock / STEP) % 4 === 0) {
-        this.recording.push(+(race.clock - player.lapStart).toFixed(3), +player.car.x.toFixed(2), +player.car.z.toFixed(2), +player.car.heading.toFixed(3))
+    for (const e of race.events) {
+      if (e.type === 'nearMiss') {
+        player.car.nitro = Math.min(1, player.car.nitro + 0.15)
+        popup('Near miss', 'cyan')
+        this.sound.whoosh()
+      } else if (e.type === 'driftBank') {
+        popup(`+${e.points.toLocaleString('en')} drift`, 'gold')
+      } else if (e.type === 'driftLost') {
+        popup('Drift lost', 'red')
+      } else if (e.type === 'eliminated') {
+        const out = race.racers[e.id]
+        if (out.player) flash('Eliminated', 'warn')
+        else popup(`${out.name} is out`, 'red')
+      } else if (e.type === 'copJoined') {
+        popup(`Heat ${race.pursuit.heat}: another patrol car`, 'red')
+      } else if (e.type === 'busted') {
+        flash('Busted', 'warn')
+      } else if (e.type === 'escaped') {
+        flash('Escaped')
+        this.slowMotion(now)
+      } else if (e.type === 'contact') {
+        this.shake = Math.min(1, this.shake + e.strength * 0.04)
       }
     }
+    race.events = []
 
+    // Ghost: record the current lap, 30 times a second.
+    if (this.event.kind === 'trial' && player.checkpoints >= 1 && player.finishTime === null) {
+      if (Math.round(race.clock / STEP) % 4 === 0) {
+        this.ghostRecording.push(+(race.clock - player.lapStart).toFixed(3), +player.car.x.toFixed(2), +player.car.z.toFixed(2), +player.car.heading.toFixed(3))
+      }
+    }
     if (player.lapTimes.length > this.lapsSeen) {
       this.lapsSeen = player.lapTimes.length
       const lap = player.lapTimes[this.lapsSeen - 1]
-      if (this.kind === 'trial' && (!this.ghost || lap < this.ghost.time)) {
-        this.ghost = { time: lap, samples: this.recording }
-        saveGhost(this.settings.seed, this.ghost)
-        if (this.lapsSeen < race.laps) flash(`New best ${formatTime(lap)}`, 'small')
-      } else if (this.lapsSeen < race.laps) {
+      const more = this.event.kind === 'elimination' || this.lapsSeen < race.laps
+      if (this.event.kind === 'trial' && (!this.ghost || lap < this.ghost.time)) {
+        this.ghost = { time: lap, samples: this.ghostRecording }
+        saveGhost(this.event.seed, this.ghost)
+        if (more) flash(`New best ${formatTime(lap)}`, 'small')
+      } else if (more && this.event.kind !== 'elimination') {
         flash(this.lapsSeen === race.laps - 1 ? 'Final lap' : `Lap ${formatTime(lap)}`, 'small')
       }
-      this.recording = []
-    }
-    if (player.finishTime !== null && this.finishedAt === 0) {
-      this.finishedAt = performance.now()
-      const place = race.position(player)
-      flash(this.kind === 'trial' ? 'Finished' : `${ordinal(place)} place`)
-      this.bankDrift()
-    }
-    if (this.mode === 'race' && this.finishedAt > 0 && performance.now() - this.finishedAt > 3000) {
-      this.mode = 'results'
-      this.onResults?.()
+      this.ghostRecording = []
     }
 
-    // Drift points for the player: speed times slip angle, held together
-    // while the slide lasts, banked when it ends, lost on a hard hit.
-    const car = player.car
-    if (car.impact > 4 && this.driftScore > 0) {
-      this.driftScore = 0
-      $('drift').className = ''
+    // How the event ends: crossing the line, being knocked out, or the
+    // chase ending one way or the other.
+    if (this.endAt === 0 && this.mode === 'race') {
+      if (player.finishTime !== null) {
+        const place = race.position(player)
+        const label = this.event.kind === 'elimination' ? 'Last car running' : this.event.kind === 'race' ? `${ordinal(place)} place` : 'Finished'
+        flash(label)
+        race.bankDrift()
+        this.slowMotion(now)
+        this.endAt = now + 3200
+      } else if (player.out || race.pursuit.outcome) {
+        this.endAt = now + 2600
+      }
     }
-    if (race.phase === 'racing' && car.drifting && player.finishTime === null) {
-      this.driftScore += speedOf(car) * car.slip * STEP * 9
-      this.driftQuiet = 0
-    } else if (this.driftScore > 0) {
-      this.driftQuiet += STEP
-      if (this.driftQuiet > 0.45) this.bankDrift()
-    }
+    if (this.mode === 'race' && this.endAt > 0 && now > this.endAt) this.showResults()
   }
 
-  private bankDrift() {
-    if (this.driftScore < 30) {
-      this.driftScore = 0
-      $('drift').className = ''
-      return
-    }
-    this.driftTotal += Math.round(this.driftScore)
-    const el = $('drift')
-    el.textContent = `+${Math.round(this.driftScore).toLocaleString('en')} drift`
-    el.className = ''
-    void el.offsetWidth
-    el.className = 'bank'
-    this.driftScore = 0
+  private slowMotion(now: number) {
+    this.timeScale = 0.3
+    this.slowUntil = now + 2400
+    this.finishCamera = true
+    this.finishTime = this.time
+  }
+
+  private showResults() {
+    this.mode = 'results'
+    this.finishCamera = false
+    this.timeScale = 1
+    const race = this.race
+    const player = this.player
+    this.onResults?.({
+      place: race.position(player),
+      points: race.drift.total,
+      escaped: race.pursuit.outcome === 'escaped',
+      bestLap: player.lapTimes.length ? Math.min(...player.lapTimes) : undefined,
+      referenceLap: race.line.lapTime,
+    })
   }
 
   private draw(dt: number) {
-    const alpha = this.acc / STEP
-    const race = this.race
+    const alpha = this.mode === 'replay' ? 1 : this.acc / STEP
+    const cam = this.world.camera
+    let trail = 0
     for (const v of this.views) {
-      const car = v.racer.car
+      const car = v.car
       const g = v.model.group
+      const hidden = v.racer?.out ?? false
+      g.visible = !hidden
+      if (hidden) continue
       g.position.set(MathUtils.lerp(v.prev.x, car.x, alpha), 0, MathUtils.lerp(v.prev.z, car.z, alpha))
       g.rotation.y = v.prev.heading + (car.heading - v.prev.heading) * alpha
       for (const wheel of v.model.wheels) wheel.rotation.x = car.wheelSpin
@@ -338,21 +515,33 @@ export class Game {
       // Body lean: roll out of the turn and pitch under braking.
       v.model.body.rotation.z = MathUtils.lerp(v.model.body.rotation.z, MathUtils.clamp(car.yawRate * speed * -0.0035, -0.07, 0.07), 0.2)
       v.model.body.rotation.x = MathUtils.lerp(v.model.body.rotation.x, car.braking ? 0.025 : 0, 0.15)
-      v.model.tail.color.setScalar(0).add(new Color('#ff1a2e').multiplyScalar(car.braking ? 5 : 1.6))
+      v.model.tail.color.copy(TAIL).multiplyScalar(car.braking ? 5 : 1.6)
       for (const flame of v.model.flames) {
         flame.visible = car.nitroOn
         if (car.nitroOn) flame.scale.set(1, 1, 0.7 + Math.random() * 0.6)
+      }
+      if (v.model.siren) {
+        const phase = Math.floor(this.time * 7) % 2
+        v.model.siren.red.color.copy(RED).multiplyScalar(phase ? 5 : 0.4)
+        v.model.siren.blue.color.copy(BLUE).multiplyScalar(phase ? 0.4 : 5)
+      }
+      // Tail light streaks once a car is properly moving.
+      const c = Math.cos(g.rotation.y)
+      const s = Math.sin(g.rotation.y)
+      for (const [lx, ly, lz] of v.model.tailLights) {
+        this.trails.push(trail++, g.position.x + lx * c + lz * s, ly, g.position.z - lx * s + lz * c, speed > 24 || car.nitroOn)
       }
       if (dt > 0) this.tyres(v, dt)
     }
     if (dt > 0) {
       this.smoke.update(dt)
+      this.spray.update(dt)
       this.sparks.update(dt)
     }
-    if (this.beacons) this.beacons.opacity = Math.sin(this.time * 3) > 0.6 ? 1 : 0.15
+    if (this.materials) this.materials.beacons.opacity = Math.sin(this.time * 3) > 0.6 ? 1 : 0.15
 
     if (this.ghostModel) {
-      const sample = this.ghost && this.player.checkpoints >= 1 && this.player.finishTime === null ? ghostAt(this.ghost, race.clock - this.player.lapStart) : null
+      const sample = this.ghost && this.player.checkpoints >= 1 && this.player.finishTime === null && this.mode === 'race' ? ghostAt(this.ghost, this.race.clock - this.player.lapStart) : null
       this.ghostModel.group.visible = sample !== null
       if (sample) {
         this.ghostModel.group.position.set(sample[0], 0, sample[1])
@@ -361,17 +550,43 @@ export class Game {
     }
 
     this.camera(dt)
-    if (this.mode !== 'menu') this.hud()
-    const player = this.player.car
-    const { rpm } = gearOf(Math.abs(forwardSpeed(player)))
-    const active = this.mode === 'race' || this.mode === 'results'
-    this.sound.update(rpm, this.mode === 'race' ? race.playerInput.throttle : 0.3, player.slip * (speedOf(player) > 8 ? 1 : 0), player.nitroOn, active && race.phase !== 'countdown')
+    this.trails.update(cam.position.x, cam.position.y, cam.position.z)
+    if (this.raining) {
+      this.rain.update(this.time, cam.position.x, cam.position.y, cam.position.z)
+      this.lightning(dt)
+    }
+    if (this.mode === 'race' || this.mode === 'results' || this.mode === 'paused') this.hud()
+    const followed = this.mode === 'replay' ? this.race.racers[this.replayFollow].car : this.player.car
+    const { rpm } = gearOf(Math.abs(forwardSpeed(followed)))
+    const active = this.mode === 'race' || this.mode === 'results' || this.mode === 'replay'
+    const throttle = this.mode === 'race' ? this.race.playerInput.throttle : 0.5
+    this.sound.update(rpm, throttle, followed.slip * (speedOf(followed) > 8 ? 1 : 0), followed.nitroOn, active && this.race.phase !== 'countdown' && this.replayPlaying)
+    let nearest = Infinity
+    for (const cop of this.race.police) nearest = Math.min(nearest, Math.hypot(cop.x - followed.x, cop.z - followed.z))
+    this.sound.siren(active && this.race.police.length ? Math.max(0, 1 - nearest / 260) : 0)
+    const boost = followed.nitroOn ? 0.85 : MathUtils.clamp((speedOf(followed) - 55) / 30, 0, 0.35)
+    this.world.setSpeedEffect(this.mode === 'race' ? boost : this.mode === 'replay' ? boost * 0.6 : 0)
     this.world.render()
   }
 
-  // Smoke, skid marks and sparks for one car.
+  private lightning(dt: number) {
+    this.nextLightning -= dt
+    if (this.nextLightning <= 0) {
+      this.world.flash = 1
+      this.nextLightning = 9 + Math.random() * 14
+      this.thunderAt = this.time + 0.8 + Math.random() * 1.6
+      // A second, smaller flicker straight after the first.
+      window.setTimeout(() => (this.world.flash = 0.6), 120)
+    }
+    if (this.thunderAt > 0 && this.time > this.thunderAt) {
+      this.thunderAt = 0
+      if (this.mode !== 'menu') this.sound.thunder()
+    }
+  }
+
+  // Smoke, spray, skid marks and sparks for one car.
   private tyres(v: View, dt: number) {
-    const car = v.racer.car
+    const car = v.car
     const fx = Math.sin(car.heading)
     const fz = Math.cos(car.heading)
     const speed = speedOf(car)
@@ -379,12 +594,20 @@ export class Game {
     for (const side of [-1, 1]) {
       const wx = car.x - fx * 1.38 + -fz * 0.86 * side
       const wz = car.z - fz * 1.38 + fx * 0.86 * side
-      this.skids.mark(`${v.racer.id}${side}`, wx, wz, skidding)
+      if (v.racer) this.skids.mark(`${v.racer.id}${side}`, wx, wz, skidding && !this.raining)
       if (car.drifting) {
         const rate = Math.min(1, car.slip * 2) * 40 * dt
         for (let k = 0; k < rate; k++) {
           if (Math.random() > rate - k) break
           this.smoke.emit(wx, 0.4, wz, car.vx * 0.25 + (Math.random() - 0.5) * 2, 0.8 + Math.random(), car.vz * 0.25 + (Math.random() - 0.5) * 2, 1.4, 1.2)
+        }
+      }
+      // Rain: a fine spray off the back wheels at speed.
+      if (this.raining && speed > 15) {
+        const rate = Math.min(1, speed / 60) * 30 * dt
+        for (let k = 0; k < rate; k++) {
+          if (Math.random() > rate - k) break
+          this.spray.emit(wx, 0.3, wz, car.vx * 0.55 + (Math.random() - 0.5) * 3, 1 + Math.random() * 1.5, car.vz * 0.55 + (Math.random() - 0.5) * 3, 0.7, 0.8)
         }
       }
     }
@@ -393,7 +616,7 @@ export class Game {
       for (let k = 0; k < n; k++) {
         this.sparks.emit(car.x, 0.6, car.z, (Math.random() - 0.5) * 16, 2 + Math.random() * 5, (Math.random() - 0.5) * 16, 0.4 + Math.random() * 0.3, 0.35)
       }
-      if (v.racer.player) {
+      if (v.racer?.player && this.mode === 'race') {
         this.sound.hit(car.impact)
         this.shake = Math.min(1, this.shake + car.impact * 0.06)
       }
@@ -407,31 +630,60 @@ export class Game {
       this.cameraOverride(cam)
       return
     }
-    let target: Racer = this.player
+    if (this.mode === 'intro') {
+      intro(this.race.track, this.player.car, this.introTime, cam)
+      this.fov = cam.fov
+      $('speedlines').style.opacity = '0'
+      return
+    }
+    if (this.mode === 'replay') {
+      const car = this.race.racers[this.replayFollow].car
+      if (this.replayCamera === 'tv') tv(this.cameras, car, cam)
+      else if (this.replayCamera === 'heli') heli(car, this.time, cam)
+      else if (this.replayCamera === 'bumper') bumper(car, cam)
+      else this.chase(this.views[this.replayFollow], dt)
+      $('speedlines').style.opacity = '0'
+      return
+    }
+    if (this.finishCamera) {
+      finishOrbit(this.player.car, this.time - this.finishTime, cam)
+      this.fov = cam.fov
+      $('speedlines').style.opacity = '0'
+      return
+    }
     if (this.mode === 'menu') {
       this.followTimer += dt
       if (this.followTimer > 7) {
         this.followTimer = 0
         this.follow = (this.follow + 1) % this.race.racers.length
       }
-      target = this.race.racers[this.follow]
+      const g = this.views[this.follow].model.group
+      // Slow orbit round whichever car is being watched.
+      const a = this.time * 0.18
+      this.camPos.set(g.position.x + Math.sin(a) * 10, 2.6 + Math.sin(this.time * 0.3) * 0.8, g.position.z + Math.cos(a) * 10)
+      cam.position.copy(this.camPos)
+      cam.lookAt(g.position.x, 0.9, g.position.z)
+      cam.fov = 50
+      cam.updateProjectionMatrix()
+      $('speedlines').style.opacity = '0'
+      return
     }
-    const view = this.views[target.id]
+    this.chase(this.views[this.race.racers.length - 1], dt)
+  }
+
+  private chase(view: View, dt: number) {
+    const cam = this.world.camera
     const g = view.model.group
-    const car = target.car
+    const car = view.car
     const speed = speedOf(car)
     const fx = Math.sin(g.rotation.y)
     const fz = Math.cos(g.rotation.y)
     let pos: Vector3
     let look: Vector3
-    if (this.mode === 'menu') {
-      // Slow orbit round whichever car is being watched.
-      const a = this.time * 0.18
-      pos = new Vector3(g.position.x + Math.sin(a) * 10, 2.6 + Math.sin(this.time * 0.3) * 0.8, g.position.z + Math.cos(a) * 10)
-      look = new Vector3(g.position.x, 0.9, g.position.z)
-    } else if (this.camMode === 'hood') {
+    if (this.camMode === 'hood' && this.mode !== 'replay') {
       pos = new Vector3(g.position.x + fx * 0.2, 1.3, g.position.z + fz * 0.2)
       look = new Vector3(g.position.x + fx * 30, 1.0, g.position.z + fz * 30)
+      this.camPos.copy(pos)
     } else {
       // Behind the car, looking partly along where it is going, so a drift
       // shows the car sideways on screen.
@@ -441,14 +693,11 @@ export class Game {
       if (this.camPos.lengthSq() === 0 || dt === 0) this.camDir.copy(want)
       else this.camDir.lerp(want, 1 - Math.exp(-dt * 5)).normalize()
       const back = 6.6 + speed * 0.02
-      const out = new Vector3(g.position.x - this.camDir.x * back, 2.45 + speed * 0.006, g.position.z - this.camDir.z * back)
-      this.camPos.copy(out)
-      pos = out
+      pos = new Vector3(g.position.x - this.camDir.x * back, 2.45 + speed * 0.006, g.position.z - this.camDir.z * back)
+      this.camPos.copy(pos)
       look = new Vector3(g.position.x + fx * 6, 1.2, g.position.z + fz * 6)
     }
-    const snap = this.camPos.lengthSq() === 0 || dt === 0
-    const k = snap ? 1 : 1 - Math.exp(-dt * (this.mode === 'menu' ? 3 : 9))
-    this.camPos.lerp(pos, k)
+    const snap = this.camLook.lengthSq() === 0 || dt === 0
     this.camLook.lerp(look, snap ? 1 : 1 - Math.exp(-dt * 14))
     cam.position.copy(this.camPos)
     if (this.shake > 0.001) {
@@ -456,43 +705,61 @@ export class Game {
       cam.position.y += (Math.random() - 0.5) * this.shake * 0.5
       this.shake *= Math.exp(-dt * 6)
     }
-    if (car.nitroOn && this.mode !== 'menu') {
+    if (car.nitroOn) {
       cam.position.x += (Math.random() - 0.5) * 0.05
       cam.position.y += (Math.random() - 0.5) * 0.05
     }
     cam.lookAt(this.camLook)
-    const fov = this.mode === 'menu' ? 50 : 60 + Math.min(14, speed * 0.17) + (car.nitroOn ? 7 : 0)
+    const fov = 60 + Math.min(14, speed * 0.17) + (car.nitroOn ? 7 : 0)
     this.fov += (fov - this.fov) * (dt > 0 ? 1 - Math.exp(-dt * 4) : 0)
     cam.fov = this.fov
     cam.updateProjectionMatrix()
-    $('speedlines').style.opacity = this.mode === 'menu' ? '0' : String(MathUtils.clamp((speed - 50) / 25, 0, 0.6) + (car.nitroOn ? 0.35 : 0))
+    $('speedlines').style.opacity = String(MathUtils.clamp((speed - 50) / 25, 0, 0.6) + (car.nitroOn ? 0.35 : 0))
   }
 
   private hud() {
     const race = this.race
     const player = this.player
     const car = player.car
+    const kind = this.event.kind
     const speed = Math.abs(forwardSpeed(car))
+    const running = race.racers.filter((r) => !r.out).length
     $('place').textContent = String(race.position(player))
-    $('field').textContent = String(race.racers.length)
-    $('lap').textContent = `${race.lapOf(player)}/${race.laps}`
+    $('field').textContent = String(kind === 'elimination' ? running : race.racers.length)
+    $('place-row').classList.toggle('hidden', kind === 'drift' || kind === 'pursuit' || kind === 'trial')
+    $('lap').textContent = kind === 'elimination' ? String(race.lapOf(player)) : `${race.lapOf(player)}/${race.laps}`
+    $('lap-row').classList.toggle('hidden', kind === 'pursuit')
     const current = player.checkpoints >= 1 && player.finishTime === null ? race.clock - player.lapStart : player.checkpoints >= 1 ? player.lapTimes.at(-1) ?? 0 : 0
     $('lap-time').textContent = formatTime(Math.max(0, current))
     $('best-lap').textContent = player.lapTimes.length ? formatTime(Math.min(...player.lapTimes)) : 'none yet'
-    $('ghost-row').classList.toggle('hidden', this.kind !== 'trial')
+    $('ghost-row').classList.toggle('hidden', kind !== 'trial')
     $('ghost-time').textContent = this.ghost ? formatTime(this.ghost.time) : 'none yet'
     $('speed').textContent = String(Math.round(speed * 3.6))
-    const { gear } = gearOf(speed)
-    $('gear').textContent = String(gear)
+    $('gear').textContent = String(gearOf(speed).gear)
     $('gauge-fill').style.strokeDashoffset = String(1 - Math.min(1, speed / (CAR.topSpeed * CAR.nitroTop)))
     $('nitro-fill').style.transform = `scaleX(${car.nitro})`
     document.querySelector('.gauge')?.classList.toggle('boost', car.nitroOn)
-    const drift = $('drift')
-    if (this.driftScore >= 30) {
-      drift.textContent = `${Math.round(this.driftScore).toLocaleString('en')} drift`
-      drift.className = 'live'
+
+    // The goal line under the place: what this event wants from the player.
+    let goal = ''
+    if (kind === 'drift') goal = `${race.drift.total.toLocaleString('en')} / ${(this.event.target ?? 0).toLocaleString('en')} drift points`
+    else if (kind === 'elimination') goal = `${running} cars left. Last place is out at the end of each lap.`
+    else if (kind === 'trial') goal = `Target lap ${formatTime(race.line.lapTime * (this.event.target ?? 1.12))}`
+    else if (kind === 'pursuit') goal = `Heat ${race.pursuit.heat}. Get ${300} m clear of every patrol car.`
+    $('goal').textContent = goal
+    $('goal').classList.toggle('hidden', goal === '')
+    $('pursuit').classList.toggle('hidden', kind !== 'pursuit')
+    if (kind === 'pursuit') {
+      $('busted-fill').style.transform = `scaleX(${race.pursuit.busted})`
+      $('escape-fill').style.transform = `scaleX(${race.pursuit.escape})`
     }
-    const wrong = player.wrongWay > 1 && player.finishTime === null
+
+    const drift = $('drift')
+    if (race.drift.score >= 30) {
+      drift.textContent = `${Math.round(race.drift.score).toLocaleString('en')} drift`
+      drift.className = 'live'
+    } else if (drift.className === 'live') drift.className = ''
+    const wrong = player.wrongWay > 1 && player.finishTime === null && kind !== 'pursuit'
     if (wrong !== this.wrongShown) {
       this.wrongShown = wrong
       const banner = $('banner')
@@ -530,15 +797,20 @@ export class Game {
     const heading = this.player.car.heading
     const px = this.player.car.x
     const pz = this.player.car.z
+    const c = Math.cos(-heading)
+    const s = Math.sin(-heading)
     const toMap = (x: number, z: number): [number, number] => {
       const dx = (x - px) * scale
       const dz = (z - pz) * scale
-      const c = Math.cos(-heading)
-      const s = Math.sin(-heading)
       // Facing +z means up on the map; the car's right (-x) is right on the map.
-      const rx = -(dx * c + dz * s)
-      const ry = -(-dx * s + dz * c)
-      return [size / 2 + rx, size / 2 + ry]
+      return [size / 2 - (dx * c + dz * s), size / 2 - (-dx * s + dz * c)]
+    }
+    const dot = (x: number, z: number, r: number, color: string) => {
+      const [mx, my] = toMap(x, z)
+      g.fillStyle = color
+      g.beginPath()
+      g.arc(mx, my, r, 0, Math.PI * 2)
+      g.fill()
     }
     g.clearRect(0, 0, size, size)
     g.save()
@@ -562,14 +834,10 @@ export class Game {
     const [sx, sy] = toMap(track.x[0], track.z[0])
     g.fillStyle = '#fff'
     g.fillRect(sx - 4, sy - 4, 8, 8)
-    for (const racer of this.race.racers) {
-      if (racer.player) continue
-      const [x, y] = toMap(racer.car.x, racer.car.z)
-      g.fillStyle = racer.color
-      g.beginPath()
-      g.arc(x, y, 5, 0, Math.PI * 2)
-      g.fill()
-    }
+    for (const t of this.race.traffic) dot(t.car.x, t.car.z, 3, 'rgba(200,200,210,0.6)')
+    const flashOn = Math.floor(this.time * 6) % 2 === 0
+    for (const cop of this.race.police) dot(cop.x, cop.z, 6, flashOn ? '#ff3040' : '#3060ff')
+    for (const racer of this.race.racers) if (!racer.player && !racer.out) dot(racer.car.x, racer.car.z, 5, racer.color)
     g.fillStyle = this.settings.color
     g.beginPath()
     g.moveTo(size / 2, size / 2 - 9)
@@ -580,6 +848,10 @@ export class Game {
     g.restore()
   }
 }
+
+const TAIL = new Color('#ff1a2e')
+const RED = new Color('#ff2030')
+const BLUE = new Color('#2050ff')
 
 let flashTimer = 0
 export function flash(text: string, extra = '') {
@@ -592,6 +864,17 @@ export function flash(text: string, extra = '') {
   flashTimer = window.setTimeout(() => {
     if (el.className.startsWith('show')) el.className = ''
   }, 1200)
+}
+
+// Short messages that rise and fade at the side of the screen.
+export function popup(text: string, tone: 'cyan' | 'gold' | 'red') {
+  const box = $('popups')
+  const el = document.createElement('div')
+  el.className = `pop ${tone}`
+  el.textContent = text
+  box.prepend(el)
+  window.setTimeout(() => el.remove(), 1600)
+  while (box.children.length > 4) box.lastChild?.remove()
 }
 
 export function ordinal(n: number): string {

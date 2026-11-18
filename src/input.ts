@@ -27,7 +27,9 @@ export class Input {
   private pressed = new Set<string>()
 
   constructor() {
+    window.addEventListener('pointerdown', () => this.pressed.add('any'))
     window.addEventListener('keydown', (e) => {
+      this.pressed.add('any')
       const action = KEYS[e.code]
       if (action) {
         this.held.add(action)
