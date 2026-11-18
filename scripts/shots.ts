@@ -1,12 +1,11 @@
-// Takes the screenshots and GIF frames the README uses by playing the built
-// game in a headless browser. Run with: npm run shots
+// Takes the screenshots and the GIF frames the README uses by playing the
+// built game in a headless browser. Run with: npm run shots
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { chromium, type Page } from '@playwright/test'
 import { preview } from 'vite'
 
 const OUT = 'docs'
 const FRAMES = 'node_modules/.cache/shots'
-const SEED = 'readme'
 
 const server = await preview({ preview: { port: 4176, strictPort: true } })
 const base = 'http://localhost:4176/'
@@ -16,61 +15,113 @@ const browser = await chromium.launch({
   args: process.platform === 'darwin' ? ['--use-angle=metal', '--enable-gpu'] : [],
 })
 
-const neon = (page: Page, code: string) => page.evaluate(code)
+const run = (page: Page, code: string) => page.evaluate(code)
 
 async function open(page: Page, query: string) {
-  await page.goto(`${base}?test&seed=${SEED}${query}`)
+  await page.goto(`${base}?test${query}`)
   await page.waitForFunction(() => (window as unknown as { __neon?: unknown }).__neon)
-  await page.waitForTimeout(800)
+  await page.waitForTimeout(1000)
 }
+
+// Jumps every one-off animation to its end so a still shows a settled page.
+const settle = (page: Page) =>
+  page.evaluate(() => {
+    for (const a of document.getAnimations()) if (a.effect?.getComputedTiming().iterations !== Infinity) a.finish()
+  })
 
 mkdirSync(OUT, { recursive: true })
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
+const shot = async (name: string) => {
+  await settle(page)
+  await page.screenshot({ path: `${OUT}/${name}.jpg`, quality: 85 })
+}
 
-// Title screen.
-await open(page, '')
-await page.waitForTimeout(1200)
-await page.screenshot({ path: `${OUT}/title.jpg`, quality: 85 })
-// The same screen at the size link previews use.
+// Title screen, and the same at link-preview size.
+await open(page, '&seed=readme&weather=clear')
+await page.waitForTimeout(1500)
+await shot('title')
 await page.setViewportSize({ width: 1200, height: 630 })
 await page.waitForTimeout(600)
 await page.screenshot({ path: 'public/og.jpg', quality: 85 })
 await page.setViewportSize({ width: 1280, height: 720 })
 
-// Nitro and a drift, driven with the keyboard.
-await open(page, '')
-await page.locator('#go-race').click()
-await page.waitForTimeout(3300)
+// Career and garage.
+await page.click('#go-career')
+await page.waitForTimeout(500)
+await shot('career')
+await page.click('#career .back')
+await page.click('#go-garage')
+await page.click('#car-list button[data-car="brute"]')
+await page.waitForTimeout(1500)
+await shot('garage')
+await page.click('#garage .back')
+
+// Rain: nitro on a wet road, driven with the keyboard.
+await open(page, '&seed=readme&weather=rain')
+await run(page, `window.__neon.begin(window.__neon.quickSpec('race'))`)
+await run(page, 'window.__neon.game.fastForward(3.2)')
 await page.keyboard.down('ArrowUp')
-await page.waitForTimeout(3200)
+await page.waitForTimeout(3500)
 await page.keyboard.down('ShiftLeft')
 await page.waitForTimeout(900)
-await page.screenshot({ path: `${OUT}/nitro.jpg`, quality: 85 })
+await shot('nitro')
 await page.keyboard.up('ShiftLeft')
+// A drift: hold the handbrake until the car is really sliding.
 await page.keyboard.down('ArrowRight')
 await page.keyboard.down('Space')
-// Wait until the car really is sliding, so the picture shows a drift.
-await page.waitForFunction(() => (window as any).__neon.game.race.player.car.slip > 0.35, null, { timeout: 3000, polling: 16 })
+await page.waitForFunction(() => (window as any).__neon.game.race.player.car.slip > 0.35, null, { timeout: 4000, polling: 16 })
 await page.keyboard.up('Space')
 await page.waitForTimeout(150)
-await page.screenshot({ path: `${OUT}/drift.jpg`, quality: 85 })
+await shot('drift')
 await page.keyboard.up('ArrowRight')
 await page.keyboard.up('ArrowUp')
 
-// Results after a one-lap race, the player driven by the AI.
-await open(page, '&autopilot&laps=1')
-await page.locator('#go-race').click()
-await neon(page, 'window.__neon.game.fastForward(120)')
-await page.locator('#results').waitFor({ state: 'visible', timeout: 10000 })
-await page.waitForTimeout(800)
-await page.screenshot({ path: `${OUT}/results.jpg`, quality: 85 })
+// The fly-in before a race, part of the way through.
+await open(page, '&seed=readme&weather=dusk')
+await run(page, `window.__neon.begin(window.__neon.quickSpec('race'))`)
+await page.waitForTimeout(3000)
+await shot('intro')
 
-// GIF frames: the start of a race in real time, the player on autopilot.
+// A pursuit at dusk, from behind the nearest patrol car.
+await open(page, '&seed=readme&weather=dusk&autopilot')
+await run(page, `window.__neon.begin({ ...window.__neon.quickSpec('pursuit'), police: 3 })`)
+await run(page, 'window.__neon.game.fastForward(14)')
+await run(
+  page,
+  `window.__neon.game.cameraOverride = (cam) => {
+    const g = window.__neon.game
+    const p = g.race.player.car
+    let cop = g.race.police[0]
+    for (const c of g.race.police) if (Math.hypot(c.x - p.x, c.z - p.z) < Math.hypot(cop.x - p.x, cop.z - p.z)) cop = c
+    const fx = Math.sin(cop.heading), fz = Math.cos(cop.heading)
+    cam.position.set(cop.x - fx * 7 + fz * 1.5, 2.4, cop.z - fz * 7 - fx * 1.5)
+    cam.lookAt((cop.x + p.x) / 2, 1, (cop.z + p.z) / 2)
+    cam.fov = 55
+    cam.updateProjectionMatrix()
+  }`,
+)
+await page.waitForTimeout(800)
+await shot('pursuit')
+
+// Results after a one-lap race, then the replay from the TV cameras.
+await open(page, '&seed=readme&weather=clear&autopilot&laps=1')
+await run(page, `window.__neon.begin(window.__neon.quickSpec('race'))`)
+await run(page, 'window.__neon.game.fastForward(120)')
+await page.locator('#results').waitFor({ state: 'visible', timeout: 15000 })
+await page.waitForTimeout(800)
+await shot('results')
+await page.click('#watch')
+await run(page, 'window.__neon.game.replayTime = 14')
+await page.waitForTimeout(1200)
+await shot('replay')
+
+// GIF frames: the start of a race in the rain, in real time.
 rmSync(FRAMES, { recursive: true, force: true })
 mkdirSync(FRAMES, { recursive: true })
 const film = await browser.newPage({ viewport: { width: 960, height: 540 } })
-await open(film, '&autopilot')
-await film.locator('#go-race').click()
+await open(film, '&seed=readme&weather=rain&autopilot')
+await run(film, `window.__neon.begin(window.__neon.quickSpec('race'))`)
+await run(film, 'window.__neon.game.skipIntro()')
 await film.waitForTimeout(2600)
 const frames: { file: string; at: number }[] = []
 const started = Date.now()
