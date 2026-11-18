@@ -1,0 +1,86 @@
+import {
+  AdditiveBlending,
+  Color,
+  CylinderGeometry,
+  FogExp2,
+  Group,
+  HemisphereLight,
+  Mesh,
+  MeshBasicMaterial,
+  MeshStandardMaterial,
+  PlaneGeometry,
+  Scene,
+  SpotLight,
+  type Texture,
+  TorusGeometry,
+} from 'three'
+import type { Shape } from '../sim/cars'
+import { type CarModel, createCarModel } from './carModel'
+
+// The garage: a dark showroom with a turntable, a neon ring on the floor and
+// two spotlights, used to look at and pick cars.
+export class Garage {
+  readonly scene = new Scene()
+  private readonly turntable = new Group()
+  private model: CarModel | null = null
+  private readonly spot: Texture
+  private readonly ring: MeshBasicMaterial
+
+  constructor(environment: Texture, spot: Texture) {
+    this.spot = spot
+    this.scene.background = new Color('#06060d')
+    this.scene.fog = new FogExp2('#06060d', 0.03)
+    this.scene.environment = environment
+    this.scene.add(new HemisphereLight('#8090ff', '#100c18', 0.9))
+    for (const [x, color] of [
+      [-6, '#ff4fa8'],
+      [6, '#5ff3ff'],
+    ] as const) {
+      const light = new SpotLight(color, 45, 30, 0.5, 0.8, 1.6)
+      light.position.set(x, 7, 3)
+      light.target = this.turntable
+      this.scene.add(light)
+    }
+    const key = new SpotLight('#ffffff', 30, 30, 0.45, 0.9, 1.6)
+    key.position.set(0, 9, -4)
+    key.target = this.turntable
+    this.scene.add(key)
+
+    const floor = new Mesh(new PlaneGeometry(80, 80).rotateX(-Math.PI / 2), new MeshStandardMaterial({ color: '#0b0b12', roughness: 0.42, metalness: 0.2, envMapIntensity: 0.5 }))
+    this.scene.add(floor)
+    const plate = new Mesh(new CylinderGeometry(3.6, 3.7, 0.12, 64), new MeshStandardMaterial({ color: '#15151f', roughness: 0.3, metalness: 0.8 }))
+    plate.position.y = 0.06
+    this.turntable.add(plate)
+    this.ring = new MeshBasicMaterial({ color: new Color('#3df5ff').multiplyScalar(2.5), toneMapped: false })
+    const ring = new Mesh(new TorusGeometry(3.75, 0.04, 8, 96).rotateX(Math.PI / 2), this.ring)
+    ring.position.y = 0.1
+    this.scene.add(ring)
+    const halo = new Mesh(new PlaneGeometry(12, 12).rotateX(-Math.PI / 2), new MeshBasicMaterial({ map: spot, color: '#3a5cff', transparent: true, opacity: 0.12, blending: AdditiveBlending, depthWrite: false }))
+    halo.position.y = 0.01
+    this.scene.add(halo, this.turntable)
+    // Neon strips on the back wall.
+    for (let k = 0; k < 7; k++) {
+      const strip = new Mesh(new PlaneGeometry(0.12, 6), new MeshBasicMaterial({ color: new Color(k % 2 ? '#ff2d95' : '#3df5ff').multiplyScalar(2), toneMapped: false }))
+      strip.position.set(-9 + k * 3, 3, -12)
+      this.scene.add(strip)
+    }
+  }
+
+  show(shape: Shape, color: string) {
+    if (this.model) this.turntable.remove(this.model.group)
+    this.model = createCarModel(color, this.spot, { shape })
+    this.model.group.position.y = 0.12
+    this.turntable.add(this.model.group)
+    this.ring.color.set(color).multiplyScalar(2.5)
+  }
+
+  update(time: number, camera: import('three').PerspectiveCamera, wide: boolean) {
+    this.turntable.rotation.y = time * 0.35
+    // On a wide screen the car sits right of centre, clear of the menu.
+    const a = 0.6 + Math.sin(time * 0.2) * 0.12
+    camera.position.set(Math.sin(a) * 8.4, 2.4, Math.cos(a) * 8.4)
+    camera.lookAt(wide ? -2.2 : 0, 0.7, 0)
+    camera.fov = 42
+    camera.updateProjectionMatrix()
+  }
+}

@@ -89,6 +89,7 @@ export function buildTrackMeshes(track: Track): Group {
     new MeshStandardMaterial({ map, roughnessMap: roughness, roughness: 1, metalness: 0.05, envMapIntensity: 1.6 }),
   )
   group.add(road)
+  group.userData.road = road.material
 
   // Painted lines: solid edges and a dashed centre line.
   const lines: Parameters<typeof quads>[1] = []

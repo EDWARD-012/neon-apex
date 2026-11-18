@@ -150,21 +150,25 @@ export function sign(text: string, color: string): CanvasTexture {
 
 // The night sky behind everything: a gradient with a purple city glow on the
 // horizon and a scatter of faint stars.
-export function sky(): CanvasTexture {
+export function sky(kind: 'clear' | 'rain' | 'dusk' = 'clear'): CanvasTexture {
   const rng: Rng = createRng('sky')
   const { el, g } = canvas(64, 512)
   const grad = g.createLinearGradient(0, 0, 0, 512)
-  grad.addColorStop(0, '#02030a')
-  grad.addColorStop(0.42, '#070a1e')
-  grad.addColorStop(0.5, '#2a1240')
-  grad.addColorStop(0.53, '#3b1446')
-  grad.addColorStop(0.6, '#0b0b16')
-  grad.addColorStop(1, '#050508')
+  const stops: Record<string, [number, string][]> = {
+    clear: [[0, '#02030a'], [0.42, '#070a1e'], [0.5, '#2a1240'], [0.53, '#3b1446'], [0.6, '#0b0b16'], [1, '#050508']],
+    // Low cloud lit orange from below by the city.
+    rain: [[0, '#07080d'], [0.38, '#151622'], [0.5, '#3a2a30'], [0.54, '#3d2d2c'], [0.6, '#0e0e14'], [1, '#050508']],
+    // Last light: deep violet overhead, hot pink and orange at the horizon.
+    dusk: [[0, '#14103a'], [0.3, '#3a1e5c'], [0.44, '#a83d6e'], [0.5, '#ff7a4d'], [0.53, '#ffb067'], [0.6, '#2b1630'], [1, '#0a0710']],
+  }
+  for (const [at, color] of stops[kind]) grad.addColorStop(at, color)
   g.fillStyle = grad
   g.fillRect(0, 0, 64, 512)
-  for (let k = 0; k < 40; k++) {
-    g.fillStyle = `rgba(255,255,255,${0.2 + rng() * 0.5})`
-    g.fillRect(rng() * 64, rng() * 200, 1, 1)
+  if (kind === 'clear') {
+    for (let k = 0; k < 40; k++) {
+      g.fillStyle = `rgba(255,255,255,${0.2 + rng() * 0.5})`
+      g.fillRect(rng() * 64, rng() * 200, 1, 1)
+    }
   }
   return texture(el)
 }

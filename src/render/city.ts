@@ -114,7 +114,7 @@ function towers(boxes: Box[], rng: () => number) {
   return geo
 }
 
-export function buildCity(track: Track): { group: Group; beacons: MeshBasicMaterial } {
+export function buildCity(track: Track): { group: Group; beacons: MeshBasicMaterial; facade: MeshStandardMaterial; dome: MeshBasicMaterial } {
   const rng = createRng(`city/${track.seed}`)
   const group = new Group()
   const distance = distanceField(track)
@@ -150,10 +150,8 @@ export function buildCity(track: Track): { group: Group; beacons: MeshBasicMater
     }
   }
   const { map, glow } = facade(track.seed)
-  const buildings = new Mesh(
-    towers(boxes, rng),
-    new MeshStandardMaterial({ map, emissiveMap: glow, emissive: '#ffffff', emissiveIntensity: 1.05, roughness: 0.75, metalness: 0.25 }),
-  )
+  const facadeMaterial = new MeshStandardMaterial({ map, emissiveMap: glow, emissive: '#ffffff', emissiveIntensity: 1.05, roughness: 0.75, metalness: 0.25 })
+  const buildings = new Mesh(towers(boxes, rng), facadeMaterial)
   group.add(buildings)
 
   // Neon signs on the faces of buildings close to the road, turned to face
@@ -194,7 +192,7 @@ export function buildCity(track: Track): { group: Group; beacons: MeshBasicMater
   const ground = new Mesh(new PlaneGeometry(6000, 6000).rotateX(-Math.PI / 2), new MeshStandardMaterial({ color: '#0d0e13', roughness: 0.95 }))
   ground.position.y = -0.02
   group.add(ground)
-  const dome = new Mesh(new SphereGeometry(2400, 32, 16), new MeshBasicMaterial({ map: sky(), side: BackSide, fog: false, depthWrite: false }))
-  group.add(dome)
-  return { group, beacons }
+  const domeMaterial = new MeshBasicMaterial({ map: sky(), side: BackSide, fog: false, depthWrite: false })
+  group.add(new Mesh(new SphereGeometry(2400, 32, 16), domeMaterial))
+  return { group, beacons, facade: facadeMaterial, dome: domeMaterial }
 }
