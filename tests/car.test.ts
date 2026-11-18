@@ -1,0 +1,87 @@
+import { describe, expect, it } from 'vitest'
+import { CAR, type CarInput, collideCars, createCar, forwardSpeed, idle, speedOf, stepCar } from '../src/sim/car'
+import { STEP } from '../src/sim/race'
+import { buildTrack, locate, pointAt } from '../src/sim/track'
+
+const track = buildTrack('physics')
+const start = () => {
+  const p = pointAt(track, 20, 0)
+  return createCar(p.x, p.z, p.heading, track)
+}
+const run = (car = start(), input: CarInput, seconds: number) => {
+  for (let t = 0; t < seconds; t += STEP) stepCar(car, input, STEP, track)
+  return car
+}
+const full = { ...idle, throttle: 1 }
+
+describe('car physics', () => {
+  it('accelerates, and never past top speed without nitro', () => {
+    const car = start()
+    run(car, full, 1)
+    expect(forwardSpeed(car)).toBeGreaterThan(10)
+    // A straight line long enough to max out does not exist on every track,
+    // so this one runs on a track with no barriers in the way.
+    const open = { ...track, width: 1e6 }
+    for (let t = 0; t < 40; t += STEP) stepCar(car, full, STEP, open)
+    expect(speedOf(car)).toBeLessThanOrEqual(CAR.topSpeed + 0.01)
+    expect(speedOf(car)).toBeGreaterThan(CAR.topSpeed * 0.9)
+  })
+
+  it('nitro adds speed and drains the tank', () => {
+    const plain = run(start(), full, 2)
+    const boosted = start()
+    boosted.nitro = 1
+    run(boosted, { ...full, nitro: true }, 2)
+    expect(forwardSpeed(boosted)).toBeGreaterThan(forwardSpeed(plain) + 2)
+    expect(boosted.nitro).toBeLessThan(0.5)
+  })
+
+  it('brakes to a stop and then reverses slowly', () => {
+    const car = run(start(), full, 2)
+    run(car, { ...idle, brake: 1 }, 1.5)
+    expect(forwardSpeed(car)).toBeLessThanOrEqual(0.5)
+    run(car, { ...idle, brake: 1 }, 6)
+    expect(forwardSpeed(car)).toBeLessThan(0)
+    expect(forwardSpeed(car)).toBeGreaterThanOrEqual(-CAR.reverseTop - 0.01)
+  })
+
+  it('steering right turns the car right', () => {
+    const car = run(start(), full, 1.5)
+    const before = car.heading
+    run(car, { ...full, steer: 1 }, 0.4)
+    // Facing +z, right is -x, which is the negative heading direction.
+    expect(car.heading).toBeLessThan(before)
+  })
+
+  it('the handbrake makes the car slide', () => {
+    const grip = run(start(), full, 2.5)
+    run(grip, { ...full, steer: 1 }, 0.5)
+    const slide = run(start(), full, 2.5)
+    run(slide, { ...full, steer: 1, handbrake: true }, 0.5)
+    expect(slide.slip).toBeGreaterThan(grip.slip + 0.1)
+    expect(slide.drifting).toBe(true)
+  })
+
+  it('barriers keep the car on the track', () => {
+    const car = start()
+    for (let t = 0; t < 8; t += STEP) stepCar(car, { ...full, steer: 1 }, STEP, track)
+    const where = locate(track, car.x, car.z)
+    expect(Math.abs(where.d)).toBeLessThanOrEqual(track.width / 2 + 0.8)
+  })
+
+  it('is deterministic', () => {
+    const a = run(start(), { ...full, steer: 0.3 }, 3)
+    const b = run(start(), { ...full, steer: 0.3 }, 3)
+    expect(b).toEqual(a)
+  })
+
+  it('two cars that overlap are pushed apart', () => {
+    const a = start()
+    const b = start()
+    b.x += 1
+    a.vx = 5
+    collideCars(a, b)
+    expect(Math.hypot(b.x - a.x, b.z - a.z)).toBeCloseTo(CAR.radius * 2, 6)
+    expect(b.vx).toBeGreaterThan(0)
+  })
+})
