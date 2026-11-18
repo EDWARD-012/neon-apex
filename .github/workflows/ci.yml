@@ -26,7 +26,8 @@ jobs:
         with:
           path: dist
 
-  # Plays the game in Chromium, Firefox and WebKit, and at phone size.
+  # Plays the game in Chromium and WebKit, and at phone size. Firefox runs
+  # locally only; see playwright.config.ts.
   e2e:
     runs-on: ubuntu-latest
     steps:
@@ -36,7 +37,7 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium firefox webkit
+      - run: npx playwright install --with-deps chromium webkit
       - run: npm run e2e
 
   deploy:

@@ -119,7 +119,7 @@ npx playwright install
 npm run e2e
 ```
 
-The browser tests play the built game in Playwright's Chromium, Firefox and WebKit, and at a phone-sized landscape viewport with touch controls. They check that the city actually renders, that the car responds to the keyboard or the touch buttons, that a race runs through to the results table, that a time trial saves a ghost and shows it on the next run, that pause freezes the race clock, and that a random track's seed goes into the address bar. Any console error fails a test. CI runs all of it on every push and only publishes the site if everything passes.
+The browser tests play the built game in Playwright's Chromium, Firefox and WebKit, and at a phone-sized landscape viewport with touch controls. CI runs all of them except Firefox: GitHub's machines have no graphics card, and headless Firefox finds no way to start WebGL there, so Firefox runs on a local machine only. They check that the city actually renders, that the car responds to the keyboard or the touch buttons, that a race runs through to the results table, that a time trial saves a ghost and shows it on the next run, that pause freezes the race clock, and that a random track's seed goes into the address bar. Any console error fails a test. CI runs the unit tests and the browser tests on every push and only publishes the site if both pass.
 
 `npm run shots` retakes the screenshots and the GIF in this README by playing the game in a headless browser, and `npm run diagram` redraws the racing line picture. The GIF step needs Python with Pillow.
 
