@@ -214,7 +214,11 @@ function templateFor(shape: CarShape, variant: number): Template | undefined {
     const names = (shape === 'van' ? VANS : SEDANS).filter((n) => traffic.has(n))
     return names.length ? traffic.get(names[Math.abs(variant) % names.length]) : undefined
   }
+  // Patrol cars are the pack's sedan, heavy units its SUV and interceptors
+  // its sports car, all in police paint.
   if (shape === 'police') return traffic.get('sedan')
+  if (shape === 'police-heavy') return traffic.get('suv') ?? traffic.get('sedan')
+  if (shape === 'police-fast') return traffic.get('sport') ?? traffic.get('sedan')
   return templates.get(shape)
 }
 
@@ -532,7 +536,7 @@ export function makeAssetCar(shape: CarShape, color: string, variant = 0): Asset
   // A patrol car: the pack's sedan in dark paint with white doors, a light
   // bar on the roof and a push bar on the nose.
   let siren: AssetCar['siren'] = null
-  if (shape === 'police') {
+  if (shape.startsWith('police')) {
     const dark = new Map<Material, Material>()
     model.traverse((o) => {
       const mesh = o as Mesh

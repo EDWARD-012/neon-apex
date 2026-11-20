@@ -3,7 +3,7 @@ import { CAR, type CarSpec } from './car'
 // The cars in the game. Each one is the shared CAR with a few numbers
 // changed, so they feel different without needing different physics.
 
-export type Shape = 'vanta' | 'kite' | 'brute' | 'volt' | 'sedan' | 'van' | 'police'
+export type Shape = 'vanta' | 'kite' | 'brute' | 'volt' | 'sedan' | 'van' | 'police' | 'police-heavy' | 'police-fast'
 
 export interface CarDef {
   id: string
@@ -54,6 +54,10 @@ export const CARS: CarDef[] = [
 
 export const TRAFFIC_SPEC = make({ topSpeed: 34, engine: 6, lateralLimit: 12, grip: 9 })
 export const POLICE_SPEC = make({ topSpeed: 76, engine: 16.5, lateralLimit: 19, grip: 9.5 })
+// Heat 3 brings heavy units: slower, but twice the weight and hard to hurt.
+export const HEAVY_SPEC = make({ topSpeed: 70, engine: 15, lateralLimit: 17, grip: 9, mass: 2, toughness: 2.5 })
+// Heat 5 brings interceptors: quicker than any stock car.
+export const INTERCEPTOR_SPEC = make({ topSpeed: 82, engine: 19, lateralLimit: 20, grip: 10, mass: 0.9 })
 
 export function carById(id: string): CarDef {
   return CARS.find((c) => c.id === id) ?? CARS[0]

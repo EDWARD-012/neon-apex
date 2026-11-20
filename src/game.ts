@@ -201,6 +201,7 @@ export class Game {
   private lapsSeen = 0
   // How far the damage warnings have gone this race: 0, 1 or 2.
   private damageWarned = 0
+  private boxedShown = false
   private endAt = 0
   private slowUntil = 0
   private finishCamera = false
@@ -309,7 +310,7 @@ export class Game {
       this.addView(racer.car, createCarModel(racer.color, this.spotTexture, { shape, bank: this.wheelBank }), racer, false)
     })
     this.race.traffic.forEach((t, k) => this.addView(t.car, createCarModel(t.color, this.spotTexture, { shape: t.shape, glow: false, bank: this.wheelBank, variant: k }), null, false))
-    for (const cop of this.race.police) this.addView(cop, createCarModel('#14161c', this.spotTexture, { shape: 'police', glow: false, bank: this.wheelBank }), null, true)
+    for (const cop of this.race.police) this.addView(cop, createCarModel('#14161c', this.spotTexture, { shape: copShape(this.race, cop), glow: false, bank: this.wheelBank }), null, true)
 
     // By day the cars cast real shadows, and the headlight pools and
     // underglow that only make sense in the dark are hidden.
@@ -502,7 +503,7 @@ export class Game {
     // Patrol cars that joined the chase need a model.
     for (let k = copsBefore; k < this.race.police.length; k++) {
       const cop = this.race.police[k]
-      this.addView(cop, createCarModel('#14161c', this.spotTexture, { shape: 'police', glow: false, bank: this.wheelBank }), null, true)
+      this.addView(cop, createCarModel('#14161c', this.spotTexture, { shape: copShape(this.race, cop), glow: false, bank: this.wheelBank }), null, true)
     }
     if (this.mode === 'menu') {
       this.race.events = []
@@ -622,10 +623,14 @@ export class Game {
           this.shake = 1
           this.slowMotion(now)
         } else popup(`${out.name} is wrecked`, 'red')
+      } else if (e.type === 'heatUp') {
+        popup(`Heat ${e.heat}: ${HEAT_NEWS[e.heat] ?? 'more police'}`, 'red')
       } else if (e.type === 'copJoined') {
-        popup(`Heat ${race.pursuit.heat}: another patrol car`, 'red')
+        // The heat message covers it.
       } else if (e.type === 'busted') {
         flash('Busted', 'warn')
+        // The camera circles the arrest.
+        this.slowMotion(now)
       } else if (e.type === 'escaped') {
         flash('Escaped')
         this.slowMotion(now)
@@ -1200,6 +1205,16 @@ export class Game {
     $('goal').textContent = goal
     $('goal').classList.toggle('hidden', goal === '')
     $('pursuit').classList.toggle('hidden', !chased)
+    // A warning while the busted meter fills: keep moving.
+    const boxed = chased && race.pursuit.busted > 0.3 && !race.pursuit.outcome && !player.out
+    if (boxed !== this.boxedShown) {
+      this.boxedShown = boxed
+      const banner = $('banner')
+      if (boxed) {
+        banner.textContent = 'Boxed in: keep moving'
+        banner.className = 'hold warn'
+      } else if (banner.textContent?.startsWith('Boxed')) banner.className = ''
+    }
     if (chased) {
       $('busted-fill').style.transform = `scaleX(${race.pursuit.busted})`
       $('escape-fill').style.transform = `scaleX(${race.pursuit.escape})`
@@ -1364,6 +1379,15 @@ export function popup(text: string, tone: 'cyan' | 'gold' | 'red') {
 export function ordinal(n: number): string {
   const s = n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'
   return `${n}${s}`
+}
+
+// What each heat level brings, for the message when it arrives.
+const HEAT_NEWS: Record<number, string> = { 2: 'patrol cars in pairs', 3: 'a heavy unit joins', 4: 'more units ahead', 5: 'interceptors' }
+
+// The model for a police car, by the kind of unit.
+function copShape(race: Race, cop: CarState): 'police' | 'police-heavy' | 'police-fast' {
+  const kind = race.copKind.get(cop)
+  return kind === 'heavy' ? 'police-heavy' : kind === 'interceptor' ? 'police-fast' : 'police'
 }
 
 function ghostKey(seed: string) {

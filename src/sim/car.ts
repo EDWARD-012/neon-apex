@@ -31,6 +31,9 @@ export const CAR = {
   // Divides the damage from every hit. Armour raises it, a lighter body
   // lowers it.
   toughness: 1,
+  // Relative weight in car-to-car hits: a heavier car is pushed less and
+  // takes less of the knock.
+  mass: 1,
 }
 
 // Drift boost. Holding a drift for 1 s and then 3 s charges a small and
@@ -435,7 +438,8 @@ function collideWithBarriers(car: CarState, track: Track) {
 }
 
 // Pushes two overlapping cars apart and trades the part of their velocity
-// along the line between them, like two equal masses with a soft bounce.
+// along the line between them, like two masses with a soft bounce. Equal
+// masses share it evenly; a heavier car moves less and feels it less.
 // Each car is two circles, front and rear, so cars can run side by side a
 // metre apart without touching but still hit nose to tail.
 export function collideCars(a: CarState, b: CarState): number {
@@ -460,18 +464,21 @@ export function collideCars(a: CarState, b: CarState): number {
     }
   }
   if (best === 0) return 0
-  a.x -= (ux * best) / 2
-  a.z -= (uz * best) / 2
-  b.x += (ux * best) / 2
-  b.z += (uz * best) / 2
+  // Each car's share of the push: the other car's part of the total mass.
+  const shareA = b.spec.mass / (a.spec.mass + b.spec.mass)
+  const shareB = 1 - shareA
+  a.x -= ux * best * shareA
+  a.z -= uz * best * shareA
+  b.x += ux * best * shareB
+  b.z += uz * best * shareB
   const closing = (a.vx - b.vx) * ux + (a.vz - b.vz) * uz
   if (closing <= 0) return 0
-  recordHit(a, ux, uz, closing)
-  recordHit(b, -ux, -uz, closing)
-  const j = closing * 0.6
-  a.vx -= j * ux
-  a.vz -= j * uz
-  b.vx += j * ux
-  b.vz += j * uz
+  recordHit(a, ux, uz, closing * 2 * shareA)
+  recordHit(b, -ux, -uz, closing * 2 * shareB)
+  const j = closing * 1.2
+  a.vx -= j * shareA * ux
+  a.vz -= j * shareA * uz
+  b.vx += j * shareB * ux
+  b.vz += j * shareB * uz
   return closing
 }

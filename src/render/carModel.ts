@@ -198,6 +198,8 @@ const DEFS: Record<CarShape, Def> = {
     sport: false,
   },
   police: { ...SEDAN, exhausts: 2 },
+  'police-heavy': { ...SEDAN, exhausts: 2 },
+  'police-fast': { ...SEDAN, exhausts: 2 },
 }
 
 // Station values at any point along a car, linearly.
@@ -498,7 +500,7 @@ export function createCarModel(color: string, spot: Texture, options: ModelOptio
 
   // Police light bar, flashed by the game.
   let siren: CarModel['siren'] = null
-  if (shape === 'police') {
+  if (shape.startsWith('police')) {
     const red = new MeshBasicMaterial({ color: new Color('#ff2030').multiplyScalar(4), toneMapped: false })
     const blue = new MeshBasicMaterial({ color: new Color('#2050ff').multiplyScalar(4), toneMapped: false })
     const roofTop = at(def, -0.1).top

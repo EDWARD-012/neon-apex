@@ -3,8 +3,8 @@ import { CAR, type CarInput, type CarSpec, type CarState, collideCars, createCar
 import { racingLine, type RacingLine } from './line'
 import { createRng } from './rng'
 import { buildTrack, locate, pointAt, type Track } from './track'
-import { POLICE_SPEC } from './cars'
-import { chase } from './police'
+import { HEAVY_SPEC, INTERCEPTOR_SPEC, POLICE_SPEC } from './cars'
+import { chase, type CopRole } from './police'
 import { driveTraffic, spawnTraffic, type TrafficCar } from './traffic'
 
 // One race: a track, a grid of cars, and the rules for laps and places.
@@ -78,6 +78,7 @@ export type RaceEvent =
   | { type: 'driftLost' }
   | { type: 'eliminated'; id: number }
   | { type: 'copJoined' }
+  | { type: 'heatUp'; heat: number }
   | { type: 'busted' }
   | { type: 'escaped' }
   | { type: 'spotted' }
@@ -98,7 +99,30 @@ export interface Pursuit {
   sinceJoin: number
 }
 
-export const MAX_POLICE = 4
+export const MAX_POLICE = 7
+export const MAX_HEAT = 5
+// Seconds of chase between heat levels.
+export const HEAT_STEP = 40
+
+// The kinds of police unit. Patrol cars from the start, heavy units from
+// heat 3, interceptors at heat 5.
+export type CopKind = 'patrol' | 'heavy' | 'interceptor'
+const COP_SPECS: Record<CopKind, CarSpec> = { patrol: POLICE_SPEC, heavy: HEAVY_SPEC, interceptor: INTERCEPTOR_SPEC }
+// Who joins as the heat reaches each level: a pair at heat 2, one to drive
+// ahead and box the player in, a heavy unit at 3, another blocker at 4 and
+// two interceptors at 5.
+const REINFORCEMENTS: Record<number, [CopKind, CopRole][]> = {
+  2: [
+    ['patrol', 'ram'],
+    ['patrol', 'block'],
+  ],
+  3: [['heavy', 'ram']],
+  4: [['patrol', 'block']],
+  5: [
+    ['interceptor', 'ram'],
+    ['interceptor', 'ram'],
+  ],
+}
 export const ESCAPE_DISTANCE = 300
 // A waiting patrol car sees the player go past this close and this fast.
 export const SPOT_RANGE = 30
@@ -148,6 +172,9 @@ export class Race {
   readonly escapes: number[] = []
   // Patrol cars the player has wrecked, which stay where they stopped.
   readonly wreckedCops = new Set<CarState>()
+  // What each police car is, and how it chases.
+  readonly copKind = new Map<CarState, CopKind>()
+  readonly copRole = new Map<CarState, CopRole>()
   // Takedowns so far: rivals, and the heat at each patrol car wrecked.
   readonly takedowns = { rivals: 0, cops: [] as number[] }
   // When the player last hit each car, for takedowns.
@@ -231,10 +258,14 @@ export class Race {
     }
     const side = this.line.offset[best] > 0 ? -1 : 1
     const at = pointAt(track, best * track.spacing, side * (track.width / 2 - 0.5))
-    const fresh = createCar(at.x, at.z, at.heading, track, POLICE_SPEC)
+    const fresh = createCar(at.x, at.z, at.heading, track, COP_SPECS[(reuse && this.copKind.get(reuse)) || 'patrol'])
     fresh.nitro = 0
     if (reuse) Object.assign(reuse, fresh)
-    else this.police.push(fresh)
+    else {
+      this.police.push(fresh)
+      this.copKind.set(fresh, 'patrol')
+      this.copRole.set(fresh, 'ram')
+    }
     this.parked.add(reuse ?? fresh)
   }
 
@@ -277,11 +308,11 @@ export class Race {
     }
   }
 
-  // A patrol car on the road some distance behind the player.
-  private addCop(behind: number) {
+  // A police car on the road some distance behind the player.
+  private addCop(behind: number, kind: CopKind = 'patrol', role: CopRole = 'ram') {
     const where = locate(this.track, this.player.car.x, this.player.car.z, this.player.car.hint)
     const at = pointAt(this.track, where.s - behind, this.police.length % 2 === 0 ? -3 : 3)
-    const cop = createCar(at.x, at.z, at.heading, this.track, POLICE_SPEC)
+    const cop = createCar(at.x, at.z, at.heading, this.track, COP_SPECS[kind])
     cop.nitro = 0
     if (this.phase === 'racing') {
       const v = Math.max(20, forwardSpeed(this.player.car))
@@ -289,6 +320,23 @@ export class Race {
       cop.vz = Math.cos(at.heading) * v
     }
     this.police.push(cop)
+    this.copKind.set(cop, kind)
+    this.copRole.set(cop, role)
+  }
+
+  // The heat goes up a level, and the units for that level join, as many
+  // as fit under the limit of cars after the player at once.
+  private heatUp(limit: number) {
+    const p = this.pursuit
+    p.sinceJoin = 0
+    if (p.heat >= MAX_HEAT) return
+    p.heat++
+    this.events.push({ type: 'heatUp', heat: p.heat })
+    ;(REINFORCEMENTS[p.heat] ?? []).forEach(([kind, role], k) => {
+      if (this.activeCops.length >= limit) return
+      this.addCop(220 + k * 30, kind, role)
+      this.events.push({ type: 'copJoined' })
+    })
   }
 
   get player(): Racer {
@@ -336,7 +384,7 @@ export class Race {
     const hunting = this.phase === 'racing' && !this.pursuit.outcome && this.player.finishTime === null && !this.player.out
     for (const cop of this.police) {
       const wrecked = this.wreckedCops.has(cop)
-      const input = wrecked ? (forwardSpeed(cop) > 1 ? { ...idle, brake: 1 } : idle) : hunting && !this.parked.has(cop) ? chase(cop, this.player.car, this.track, this.line) : idle
+      const input = wrecked ? (forwardSpeed(cop) > 1 ? { ...idle, brake: 1 } : idle) : hunting && !this.parked.has(cop) ? chase(cop, this.player.car, this.track, this.line, this.copRole.get(cop)) : idle
       stepCar(cop, input, dt, this.track)
     }
     for (const racer of this.racers) {
@@ -460,14 +508,9 @@ export class Race {
       p.outcome = 'escaped'
       this.events.push({ type: 'escaped' })
     }
-    // Heat rises over time, and each level brings one more patrol car.
+    // Heat rises over time, and each level brings more police.
     p.sinceJoin += dt
-    if (p.sinceJoin > 40 && this.activeCops.length < MAX_POLICE) {
-      p.sinceJoin = 0
-      p.heat++
-      this.addCop(220)
-      this.events.push({ type: 'copJoined' })
-    }
+    if (p.sinceJoin > HEAT_STEP) this.heatUp(MAX_POLICE)
   }
 
   // Police in a race. A waiting patrol car that sees the player go past
@@ -504,12 +547,7 @@ export class Race {
       Object.assign(p, { busted: 0, escape: 0, heat: 1, sinceJoin: 0 })
     } else {
       p.sinceJoin += dt
-      if (p.sinceJoin > 40 && cops.length < this.patrols) {
-        p.sinceJoin = 0
-        p.heat++
-        this.addCop(220)
-        this.events.push({ type: 'copJoined' })
-      }
+      if (p.sinceJoin > HEAT_STEP) this.heatUp(this.patrols)
     }
   }
 
