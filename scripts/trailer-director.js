@@ -17,7 +17,7 @@ async () => {
     { at: 10.4, for: 3, big: 'Five rivals', small: 'AI that drives a computed racing line' },
     { at: 16.2, for: 3, big: 'Lose the police', small: 'Pursuits with rising heat' },
     { at: 22.2, for: 3, big: 'Four cars', small: 'A career with twelve events' },
-    { at: 27, for: 4, big: 'Play it free', small: 'neon-apex-ten.vercel.app', align: 'centre' },
+    { at: 27, for: 4, big: 'Play it free', small: 'apex.edward7780.com', align: 'centre' },
   ]
   const draw = (t) => {
     g.drawImage(view, 0, 0, comp.width, comp.height)
