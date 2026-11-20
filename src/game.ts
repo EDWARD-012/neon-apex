@@ -1,5 +1,5 @@
 import { Color, type Group, type Material, MathUtils, type Mesh, type MeshStandardMaterial, Object3D, SpotLight, Vector3 } from 'three'
-import { Sound } from './audio'
+import { type EngineKind, Sound } from './audio'
 import type { EventKind, Outcome } from './career'
 import { bumper, finishOrbit, heli, INTRO_SECONDS, intro, tv, tvCameras } from './cinema'
 import { Input } from './input'
@@ -67,6 +67,9 @@ interface Debris {
   spin: Vector3
   age: number
 }
+
+// Which engine each of the player's cars has.
+const ENGINES: Partial<Record<Shape, EngineKind>> = { vanta: 'v12', kite: 'turbo4', brute: 'v8', volt: 'electric' }
 
 export type CameraMode = 'chase' | 'far' | 'cockpit' | 'hood' | 'bumper' | 'drone'
 export const CAMERA_MODES: CameraMode[] = ['chase', 'far', 'cockpit', 'hood', 'bumper', 'drone']
@@ -209,6 +212,7 @@ export class Game {
   private setup(spec: EventSpec, attract: boolean) {
     this.event = spec
     const car = carById(this.settings.car)
+    this.sound.setEngine(ENGINES[car.shape] ?? 'v12')
     const rivalCars = Array.from({ length: spec.rivals }, (_, k) => CARS[(k + 1) % CARS.length])
     this.race = new Race({
       seed: spec.seed,
