@@ -189,6 +189,25 @@ test('the race HUD shows the standings with gaps, the time, the map and the spee
   await expect(page.locator('#speed')).toBeVisible()
 })
 
+test('the driving aids in Settings are kept and used in the race', async ({ page }) => {
+  await open(page)
+  await page.locator('#go-settings').click()
+  await page.locator('#brake-assist button[data-value="on"]').click()
+  await page.locator('#stability button[data-value="off"]').click()
+  await open(page)
+  await page.locator('#go-settings').click()
+  await expect(page.locator('#brake-assist button.on')).toHaveAttribute('data-value', 'on')
+  await expect(page.locator('#stability button.on')).toHaveAttribute('data-value', 'off')
+  await page.locator('#settings-screen .back').click()
+  await quickRace(page, 'race', false)
+  await forward(page, 1)
+  const aids = await page.evaluate(() => {
+    const race = (window as any).__neon.game.race
+    return { brake: race.brakeHelp, raw: race.playerInput.raw, drift: race.playerInput.assist }
+  })
+  expect(aids).toEqual({ brake: true, raw: true, drift: true })
+})
+
 test('pause stops the race and resume carries on', async ({ page, isMobile }) => {
   await open(page)
   await quickRace(page)

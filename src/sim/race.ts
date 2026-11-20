@@ -1,4 +1,4 @@
-import { createDriver, drive, type Driver } from './ai'
+import { brakingAid, createDriver, drive, type Driver } from './ai'
 import { CAR, type CarInput, type CarSpec, type CarState, collideCars, createCar, forwardSpeed, idle, speedOf, stepCar } from './car'
 import { racingLine, type RacingLine } from './line'
 import { createRng } from './rng'
@@ -131,8 +131,10 @@ export class Race {
   readonly checkpointGap: number
   private readonly autopilot: Driver | null
   private sinceFirstFinish = 0
-  // The latest input for the player's car, set by the game each frame.
+  // The latest input for the player's car, set by the game each frame, and
+  // whether the braking aid is on.
   playerInput: CarInput = idle
+  brakeHelp = false
   readonly traffic: TrafficCar[]
   readonly mode: 'circuit' | 'elimination' | 'pursuit'
   readonly police: CarState[] = []
@@ -351,7 +353,7 @@ export class Race {
           input = { ...idle, brake: 0.4 }
         } else if (racer.driver) input = drive(racer.car, racer.driver, this.track, this.line, cars, dt)
         else if (this.autopilot) input = drive(racer.car, this.autopilot, this.track, this.line, cars, dt)
-        else input = this.playerInput
+        else input = this.brakeHelp ? brakingAid(racer.car, this.playerInput, this.track, this.line) : this.playerInput
       }
       stepCar(racer.car, input, dt, this.track)
     }

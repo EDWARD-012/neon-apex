@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { fresh, settle } from '../src/career'
 import { BOOST_TIME, type CarInput, createCar, idle, speedOf, stepCar } from '../src/sim/car'
+import { brakingAid } from '../src/sim/ai'
+import { racingLine } from '../src/sim/line'
 import { Race, STEP, TAKEDOWN_HIT } from '../src/sim/race'
 import { buildTrack, locate, pointAt } from '../src/sim/track'
 
@@ -124,5 +126,35 @@ describe('takedowns', () => {
     const run = { kind: 'race' as const, laps: 3, finished: true, place: 4, heat: 1, nearMisses: 0, cleanLaps: 0, closeWin: false, daily: false }
     const paid = settle(fresh(), { ...run, takedowns: { rivals: 2, cops: [1, 2] } }, '2026-11-21')
     expect(paid.total).toBe(200 + 600 + 1500)
+  })
+})
+
+describe('driving aids', () => {
+  it('braking assist brakes when the car is too fast for the road ahead, and leaves it alone otherwise', () => {
+    const line = racingLine(track)
+    // The slowest point of the racing line, and a car 40 m before it.
+    let slow = 0
+    for (let i = 0; i < track.n; i++) if (line.speed[i] < line.speed[slow]) slow = i
+    const at = pointAt(track, (slow - 20) * track.spacing, 0)
+    const car = createCar(at.x, at.z, at.heading, track)
+    const flat = { ...idle, throttle: 1 }
+    car.vx = Math.sin(at.heading) * (line.speed[slow] + 15)
+    car.vz = Math.cos(at.heading) * (line.speed[slow] + 15)
+    const fast = brakingAid(car, flat, track, line)
+    expect(fast.brake).toBeGreaterThan(0.25)
+    expect(fast.throttle).toBe(0)
+    car.vx = Math.sin(at.heading) * (line.speed[slow] * 0.8)
+    car.vz = Math.cos(at.heading) * (line.speed[slow] * 0.8)
+    expect(brakingAid(car, flat, track, line)).toBe(flat)
+  })
+
+  it('with stability off, a car that starts to rotate keeps rotating for longer', () => {
+    const spin = (raw: boolean) => {
+      const car = start(35)
+      car.yawRate = 0.8
+      for (let t = 0; t < 0.5; t += STEP) stepCar(car, { ...idle, throttle: 1, raw }, STEP, open)
+      return Math.abs(car.yawRate)
+    }
+    expect(spin(true)).toBeGreaterThan(spin(false))
   })
 })

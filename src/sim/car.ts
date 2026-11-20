@@ -51,10 +51,19 @@ export interface CarInput {
   steer: number
   handbrake: boolean
   nitro: boolean
-  // The player's driving aids: tapping the brake while steering hard at
-  // speed throws the car into a drift. The AI drives without them.
+  // The player's driving aids. assist: tapping the brake while steering
+  // hard at speed throws the car into a drift. raw: the tyre model alone,
+  // without stability control or the damping that keeps a held drift from
+  // spinning. The AI drives with neither. (Braking help is applied before
+  // the input gets here; see brakingAid in ai.ts.)
   assist?: boolean
+  raw?: boolean
 }
+
+// Handling version. Ghosts and times are stored with it, so a change to the
+// physics drops old ones rather than letting them race the new handling.
+// 2: drift boost and softer glancing wall hits (21 November 2026).
+export const PHYSICS_VERSION = 2
 
 export const idle: CarInput = { throttle: 0, brake: 0, steer: 0, handbrake: false, nitro: false }
 
@@ -289,7 +298,7 @@ export function stepCar(car: CarState, input: CarInput, dt: number, track: Track
       yaw += ((a * fyF * Math.cos(delta) - b * fyR) / k2) * h
     }
     const bodySlip = Math.atan2(Math.abs(vy), Math.max(vf, 0.1))
-    if (sliding && car.drifting && input.throttle > 0) {
+    if (sliding && car.drifting && input.throttle > 0 && !input.raw) {
       // Drift assist, as racing games have: past about 30 degrees the slide
       // is damped so a held drift does not turn into a spin, and some of
       // the sideways speed the tyres scrub off carries on as forward speed.
@@ -302,7 +311,7 @@ export function stepCar(car: CarState, input: CarInput, dt: number, track: Track
     // Stability control, off while the handbrake slide lasts: it nudges the
     // yaw towards what the steering asks for, so a car on the limit does
     // not swap ends on its own.
-    if (!sliding) {
+    if (!sliding && !input.raw) {
       const cap = (S.lateralLimit * (1 - 0.2 * car.damage)) / Math.max(vf, 4)
       const target = Math.max(-cap, Math.min(cap, (vf * Math.tan(delta)) / L))
       yaw += (target - yaw) * Math.min(1, 4 * dt)

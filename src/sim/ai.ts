@@ -13,6 +13,22 @@ export interface Driver {
   laneTimer: number
 }
 
+// Braking help for the player: if the car is going faster than the racing
+// line's speed a little way ahead, with some slack, it brakes for them and
+// lifts the throttle. A player already braking hard is left alone.
+export function brakingAid(car: CarState, input: CarInput, track: Track, line: RacingLine): CarInput {
+  const speed = forwardSpeed(car)
+  if (speed < 12 || input.brake > 0.5) return input
+  const n = track.n
+  let target = Infinity
+  // Look about a second ahead.
+  const reach = Math.round(Math.max(10, speed) / track.spacing)
+  for (let k = 0; k <= reach; k += 2) target = Math.min(target, line.speed[(car.hint + k) % n])
+  const over = speed - target * 1.08
+  if (over <= 0) return input
+  return { ...input, throttle: 0, brake: Math.max(input.brake, Math.min(1, 0.25 + over / 10)) }
+}
+
 export function createDriver(skill: number): Driver {
   return { skill, lane: 0, laneTarget: 0, laneTimer: 0 }
 }

@@ -1,6 +1,8 @@
 // All sound is synthesised with the Web Audio API: an engine made of two
 // detuned oscillators through a low-pass filter, tyre squeal from filtered
-// noise, a whoosh for nitro and a thump for hits. No recorded audio.
+// noise, a whoosh for nitro and a thump for hits, wind that rises with
+// speed, whooshes as cars pass, and a siren that bends in pitch as a
+// patrol car closes or falls back. No recorded audio.
 
 // What each car sounds like. Pitch follows the revs within each gear; the
 // two engine oscillators are mixed and filtered, a slow wobble on the
@@ -51,6 +53,10 @@ export class Sound {
   private noise!: AudioBuffer
   private rainGain!: GainNode
   private sirenGain!: GainNode
+  private sirenOsc!: OscillatorNode
+  private sirenDepth!: GainNode
+  private windGain!: GainNode
+  private windFilter!: BiquadFilterNode
   private volume = 0.55
   enabled = true
 
@@ -107,6 +113,9 @@ export class Sound {
     this.squealGain = this.loop('bandpass', 2100, 6)
     this.boostGain = this.loop('highpass', 1400, 0.7)
     this.rainGain = this.loop('lowpass', 1600, 0.4)
+    // Wind: low-passed noise that gets louder and brighter with speed.
+    this.windFilter = ctx.createBiquadFilter()
+    this.windGain = this.loop('lowpass', 300, 0.6, this.windFilter)
 
     // Siren: a square wave whose pitch is swept up and down by a slow
     // oscillator, through a band-pass so it sounds distant and tinny.
@@ -127,15 +136,61 @@ export class Sound {
     siren.connect(band).connect(this.sirenGain).connect(this.master)
     siren.start()
     lfo.start()
+    this.sirenOsc = siren
+    this.sirenDepth = depth
   }
 
   setRain(on: boolean) {
     if (this.ctx) this.rainGain.gain.setTargetAtTime(on ? 0.1 : 0, this.ctx.currentTime, 0.4)
   }
 
-  // level 0 to 1, from how close the nearest patrol car is.
-  siren(level: number) {
-    if (this.ctx) this.sirenGain.gain.setTargetAtTime(level * 0.07, this.ctx.currentTime, 0.2)
+  // level 0 to 1, from how close the nearest patrol car is. pitch is a
+  // Doppler shift from how fast it is closing (above 1) or dropping back
+  // (below 1), exaggerated so it reads.
+  siren(level: number, pitch = 1) {
+    if (!this.ctx) return
+    const t = this.ctx.currentTime
+    this.sirenGain.gain.setTargetAtTime(level * 0.07, t, 0.2)
+    this.sirenOsc.frequency.setTargetAtTime(760 * pitch, t, 0.15)
+    this.sirenDepth.gain.setTargetAtTime(260 * pitch, t, 0.15)
+  }
+
+  // Wind round the car, from its speed in m/s.
+  wind(speed: number, active: boolean) {
+    if (!this.ctx) return
+    const t = this.ctx.currentTime
+    const k = Math.min(1, speed / 80)
+    this.windGain.gain.setTargetAtTime(active ? 0.2 * k * k : 0, t, 0.15)
+    this.windFilter.frequency.setTargetAtTime(300 + 2200 * k, t, 0.15)
+  }
+
+  // Another car going past close: a short rush of air, louder the faster
+  // it passes. level 0 to 1.
+  passby(level: number) {
+    this.burst('bandpass', 700 + 900 * level, 0.08 + 0.2 * level, 0.5)
+  }
+
+  // A turbocharged engine's flutter when the throttle snaps shut at high
+  // revs: a whistle chopped quickly on and off. Only engines with a turbo.
+  flutter() {
+    if (!this.ctx || !this.enabled || this.voice.turbo === 0) return
+    const ctx = this.ctx
+    const src = ctx.createBufferSource()
+    src.buffer = this.noise
+    const filter = ctx.createBiquadFilter()
+    filter.type = 'bandpass'
+    filter.frequency.value = 2400
+    filter.Q.value = 4
+    const gain = ctx.createGain()
+    const t = ctx.currentTime
+    gain.gain.setValueAtTime(0.0001, t)
+    for (let k = 0; k < 8; k++) {
+      gain.gain.setValueAtTime(0.16 * (1 - k / 8), t + k * 0.045)
+      gain.gain.setValueAtTime(0.0001, t + k * 0.045 + 0.022)
+    }
+    src.connect(filter).connect(gain).connect(this.master)
+    src.start()
+    src.stop(t + 0.45)
   }
 
   thunder() {

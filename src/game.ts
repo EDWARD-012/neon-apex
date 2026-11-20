@@ -14,7 +14,7 @@ import { spot } from './render/textures'
 import { buildTrackMeshes } from './render/trackMesh'
 import { type Quality, World } from './render/world'
 import { type Replay, Recorder } from './replay'
-import { CAR, type CarSpec, type CarState, driftTier, forwardSpeed, speedOf } from './sim/car'
+import { CAR, type CarSpec, type CarState, driftTier, forwardSpeed, PHYSICS_VERSION, speedOf } from './sim/car'
 import { carById, CARS, type Shape } from './sim/cars'
 import { Race, type Racer, STEP } from './sim/race'
 
@@ -47,6 +47,11 @@ export interface Settings {
   traffic: boolean
   // Patrol cars in quick races and eliminations.
   police: boolean
+  // Driving aids: the brake-tap drift, braking for corners, and stability
+  // control (off means the raw tyre model).
+  driftAssist: boolean
+  brakeAssist: boolean
+  stability: boolean
   weather: Weather | 'auto'
   kind: EventKind
 }
@@ -83,6 +88,8 @@ interface Ghost {
   time: number
   // t, x, z, heading, repeated.
   samples: number[]
+  // The handling it was driven with (PHYSICS_VERSION).
+  version?: number
 }
 
 export type ReplayCamera = 'tv' | 'chase' | 'heli' | 'bumper'
@@ -154,6 +161,10 @@ export class Game {
   private bulletUntil = 0
   private throttleAt: number | null = null
   private lastThrottle = 0
+  private gearWas = 0
+  // Where each other car was along the player's heading last frame, for
+  // passby sounds.
+  private passing = new Map<CarState, number>()
   private shot = 0
   private shotTimer = 0
   private views: View[] = []
@@ -246,6 +257,7 @@ export class Game {
       rivalSpecs: rivalCars.map((c) => c.spec),
       autopilot: attract || this.autopilot,
     })
+    this.race.brakeHelp = this.settings.brakeAssist
     this.weather = spec.weather === 'auto' ? weatherFor(spec.seed) : spec.weather
     const day = isDay(this.weather)
     const look = `${spec.seed}/${day ? 'day' : 'night'}`
@@ -288,6 +300,8 @@ export class Game {
     this.debris = []
     this.nitroWas = false
     this.boostWas = 0
+    this.gearWas = 0
+    this.passing.clear()
     this.nitroPulse = 0
     this.throttleAt = null
     this.race.racers.forEach((racer, k) => {
@@ -415,7 +429,7 @@ export class Game {
     }
     if (this.mode === 'race') this.keys()
     if (this.mode === 'race' || this.mode === 'results' || this.mode === 'menu') {
-      if (this.mode === 'race') this.race.playerInput = this.input.read(dt)
+      if (this.mode === 'race') this.race.playerInput = { ...this.input.read(dt), assist: this.settings.driftAssist, raw: !this.settings.stability }
       if (this.slowUntil > 0 && now > this.slowUntil) {
         this.slowUntil = 0
         this.timeScale = 1
@@ -539,10 +553,34 @@ export class Game {
     }
     this.boostWas = player.car.boost
 
-    // Lifting off at speed makes the exhaust pop.
+    // Lifting off at speed makes the exhaust pop, and a turbo flutter.
     const throttle = race.playerInput.throttle
-    if (this.lastThrottle > 0.5 && throttle === 0 && speedOf(player.car) > 30) this.backfire(this.views[race.racers.length - 1], true)
+    if (this.lastThrottle > 0.5 && throttle === 0 && speedOf(player.car) > 30) {
+      this.backfire(this.views[race.racers.length - 1], true)
+      this.sound.flutter()
+    }
     this.lastThrottle = throttle
+
+    // A pop on each upshift under power.
+    const gear = gearOf(Math.abs(forwardSpeed(player.car)), player.car.spec).gear
+    if (gear > this.gearWas && throttle > 0.5 && this.gearWas > 0) this.sound.pop(0.35)
+    this.gearWas = gear
+
+    // A rush of air as another car goes past close by, louder the faster it
+    // passes.
+    const fx = Math.sin(player.car.heading)
+    const fz = Math.cos(player.car.heading)
+    for (const other of race.cars) {
+      if (other === player.car) continue
+      const dx = other.x - player.car.x
+      const dz = other.z - player.car.z
+      const along = dx * fx + dz * fz
+      const before = this.passing.get(other)
+      this.passing.set(other, along)
+      if (before === undefined || Math.sign(before) === Math.sign(along) || Math.abs(dx * fz - dz * fx) > 6) continue
+      const relative = Math.hypot(other.vx - player.car.vx, other.vz - player.car.vz)
+      if (relative > 8) this.sound.passby(Math.min(1, relative / 30))
+    }
 
     for (const e of race.events) {
       if (e.type === 'nearMiss') {
@@ -765,9 +803,20 @@ export class Game {
     const active = this.mode === 'race' || this.mode === 'results' || this.mode === 'replay'
     const throttle = this.mode === 'race' ? this.race.playerInput.throttle : 0.5
     this.sound.update(rpm, throttle, followed.slip * (speedOf(followed) > 8 ? 1 : 0), followed.nitroOn, active && this.race.phase !== 'countdown' && this.replayPlaying)
+    // The siren of the nearest patrol car, bent in pitch by how fast it is
+    // closing: a Doppler shift, exaggerated threefold so it reads.
     let nearest = Infinity
-    for (const cop of this.race.activeCops) nearest = Math.min(nearest, Math.hypot(cop.x - followed.x, cop.z - followed.z))
-    this.sound.siren(active && this.race.police.length ? Math.max(0, 1 - nearest / 260) : 0)
+    let closing = 0
+    for (const cop of this.race.activeCops) {
+      const dx = followed.x - cop.x
+      const dz = followed.z - cop.z
+      const d = Math.hypot(dx, dz)
+      if (d >= nearest) continue
+      nearest = d
+      closing = ((cop.vx - followed.vx) * dx + (cop.vz - followed.vz) * dz) / Math.max(d, 1)
+    }
+    this.sound.siren(active && nearest < Infinity ? Math.max(0, 1 - nearest / 260) : 0, MathUtils.clamp(1 + (closing / 343) * 3, 0.75, 1.35))
+    this.sound.wind(speedOf(followed), active && this.race.phase !== 'countdown' && this.replayPlaying)
     const boost = followed.nitroOn ? 0.85 : MathUtils.clamp((speedOf(followed) - 55) / 30, 0, 0.35)
     this.world.setSpeedEffect(this.mode === 'race' ? boost : this.mode === 'replay' ? boost * 0.6 : 0, this.mode === 'race' ? this.nitroPulse : 0)
     this.world.render()
@@ -1325,7 +1374,8 @@ function loadGhost(seed: string): Ghost | null {
   try {
     const raw = localStorage.getItem(ghostKey(seed))
     const ghost = raw ? (JSON.parse(raw) as Ghost) : null
-    return ghost && Array.isArray(ghost.samples) && ghost.samples.length >= 8 ? ghost : null
+    // A ghost from older handling is dropped: it could not be matched.
+    return ghost && ghost.version === PHYSICS_VERSION && Array.isArray(ghost.samples) && ghost.samples.length >= 8 ? ghost : null
   } catch {
     return null
   }
@@ -1333,7 +1383,7 @@ function loadGhost(seed: string): Ghost | null {
 
 function saveGhost(seed: string, ghost: Ghost) {
   try {
-    localStorage.setItem(ghostKey(seed), JSON.stringify(ghost))
+    localStorage.setItem(ghostKey(seed), JSON.stringify({ ...ghost, version: PHYSICS_VERSION }))
   } catch {
     // Storage full or blocked: the ghost just will not be there next time.
   }

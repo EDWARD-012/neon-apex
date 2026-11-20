@@ -47,6 +47,9 @@ function loadSettings(): Settings {
     sound: params.has('test') ? false : saved.sound ?? true,
     traffic: saved.traffic ?? true,
     police: saved.police ?? true,
+    driftAssist: saved.driftAssist ?? true,
+    brakeAssist: saved.brakeAssist ?? false,
+    stability: saved.stability ?? true,
     // 'auto' was the old default; it now means the mountain road by day.
     weather: (params.get('weather') as Weather) ?? (saved.weather === 'auto' || !saved.weather ? 'day' : saved.weather),
     kind: saved.kind && KINDS.includes(saved.kind) ? saved.kind : 'race',
@@ -387,6 +390,9 @@ for (const color of COLORS) {
 // Settings
 
 segmented('quality', settings.quality, (v) => game.setQuality(v as Quality))
+segmented('drift-assist', settings.driftAssist ? 'on' : 'off', (v) => (settings.driftAssist = v === 'on'))
+segmented('brake-assist', settings.brakeAssist ? 'on' : 'off', (v) => (settings.brakeAssist = v === 'on'))
+segmented('stability', settings.stability ? 'on' : 'off', (v) => (settings.stability = v === 'on'))
 segmented('sound', settings.sound ? 'on' : 'off', (v) => {
   settings.sound = v === 'on'
   game.sound.setEnabled(settings.sound)
