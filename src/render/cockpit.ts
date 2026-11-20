@@ -22,6 +22,7 @@ export const DRIVER = { x: -0.33, y: 1.06, z: -0.12 }
 export class Cockpit {
   readonly group = new Group()
   private readonly wheel = new Group()
+  private readonly mount: Group
   private readonly screen: CanvasTexture
   private readonly g: CanvasRenderingContext2D
   private last = 0
@@ -30,6 +31,9 @@ export class Cockpit {
     const leather = new MeshStandardMaterial({ color: '#141518', roughness: 0.75, metalness: 0.05 })
     const carbon = new MeshPhysicalMaterial({ color: '#16181c', roughness: 0.35, metalness: 0.3, clearcoat: 1, clearcoatRoughness: 0.12 })
     const alloy = new MeshStandardMaterial({ color: '#9aa0a8', roughness: 0.3, metalness: 1 })
+    // Pillars and roof trim in matt fabric. The glossy carbon caught the sky
+    // and showed as a pale slab across the view in daylight.
+    const trimMatt = new MeshStandardMaterial({ color: '#121316', roughness: 0.95, metalness: 0 })
 
     // Dashboard: a long padded top over a carbon lower panel.
     const top = new Mesh(new BoxGeometry(1.7, 0.1, 0.55), leather)
@@ -73,24 +77,31 @@ export class Cockpit {
       return spoke
     })
     this.wheel.add(rim, marker, hub, ...spokes)
-    // Mounted on a column, tilted back towards the driver.
+    // Mounted on a column, tilted back towards the driver. It sits low, so
+    // the top of the rim is in the lower third of the view and the road
+    // stays clear above it, and just behind the edge of the dash, so the
+    // dash does not hide it.
     const mount = new Group()
-    mount.position.set(DRIVER.x, 0.84, 0.36)
+    mount.position.set(DRIVER.x, 0.75, 0.3)
     mount.rotation.x = -0.35
     mount.rotation.y = Math.PI
     mount.add(this.wheel)
-    const column = new Mesh(new CylinderGeometry(0.03, 0.035, 0.3, 10).rotateX(Math.PI / 2 - 0.35), carbon)
-    column.position.set(DRIVER.x, 0.82, 0.44)
+    this.mount = mount
+    // The column runs from behind the hub into the dash, along the wheel's
+    // own axis, so none of it shows below the rim.
+    const column = new Mesh(new CylinderGeometry(0.03, 0.035, 0.26, 10).rotateX(Math.PI / 2), carbon)
+    column.position.set(0, 0, -0.15)
+    mount.add(column)
 
     // Windscreen pillars, the roof rail above the screen, and the mirror.
     const pillar = new BoxGeometry(0.045, 0.05, 0.62)
-    const left = new Mesh(pillar, carbon)
+    const left = new Mesh(pillar, trimMatt)
     left.position.set(0.72, 1.05, 0.32)
     left.rotation.set(0.41, 0.32, 0)
-    const right = new Mesh(pillar, carbon)
+    const right = new Mesh(pillar, trimMatt)
     right.position.set(-0.72, 1.05, 0.32)
     right.rotation.set(0.41, -0.32, 0)
-    const rail = new Mesh(new BoxGeometry(1.2, 0.05, 0.08), carbon)
+    const rail = new Mesh(new BoxGeometry(1.2, 0.05, 0.08), trimMatt)
     rail.position.set(0, 1.18, 0.1)
     // Headliner: the inside of the roof, seen across the top of the view.
     const roof = new Mesh(new BoxGeometry(1.25, 0.02, 0.8), new MeshStandardMaterial({ color: '#1c1e22', roughness: 0.95 }))
@@ -101,14 +112,16 @@ export class Cockpit {
     glass.position.set(0, 1.11, 0.149)
     glass.rotation.y = Math.PI
 
-    this.group.add(top, lower, trim, console_, display, hood, mount, column, left, right, rail, roof, mirror, glass)
+    this.group.add(top, lower, trim, console_, display, hood, mount, left, right, rail, roof, mirror, glass)
     this.group.visible = false
   }
 
   // The steering wheel turns six times the front wheels' angle: a quick
   // rack, so full lock is a little over a third of a turn.
-  update(steer: number, kmh: number, rpm: number, gear: number, nitro: number, now: number) {
+  update(steer: number, kmh: number, rpm: number, gear: number, nitro: number, now: number, aspect = 16 / 9) {
     this.wheel.rotation.z = -steer * 6
+    // A wide phone screen in landscape gets a slightly smaller rim.
+    this.mount.scale.setScalar(aspect > 1.9 ? 0.9 : 1)
     // Redraw the instrument screen about twenty times a second.
     if (now - this.last < 50) return
     this.last = now

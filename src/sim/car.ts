@@ -33,6 +33,14 @@ export const CAR = {
   toughness: 1,
 }
 
+// Drift boost. Holding a drift for 1 s and then 3 s charges a small and
+// then a big boost, shown by the colour of the sparks. Ending the drift
+// cleanly releases it as a short push; a hard hit loses it.
+export const DRIFT_TIERS = [1, 3]
+export const BOOST_TIME = [0, 0.6, 1.2]
+const BOOST_PUSH = 7 // m/s², on top of the engine
+export const driftTier = (charge: number) => (charge >= DRIFT_TIERS[1] ? 2 : charge >= DRIFT_TIERS[0] ? 1 : 0)
+
 // Barriers sit just outside the painted edge of the road.
 export const barrierOffset = (track: Track) => track.width / 2 + 0.8
 
@@ -87,6 +95,12 @@ export interface CarState {
   // Hits not yet shown on the model: x, y, z in car space and a strength,
   // repeated. The renderer takes them; only the latest few are kept.
   hits: number[]
+  // Seconds of drift held so far, and seconds of drift boost left.
+  driftCharge: number
+  boost: number
+  // The hardest barrier hit in the last step, for the race rules. Unlike
+  // impact, the renderer does not touch it.
+  wallHit: number
 }
 
 // Where on the body a hit lands, in car space: +x is the car's left, +z its
@@ -128,6 +142,9 @@ export function createCar(x: number, z: number, heading: number, track: Track, s
     impact: 0,
     damage: 0,
     hits: [],
+    driftCharge: 0,
+    boost: 0,
+    wallHit: 0,
     hint: locate(track, x, z).i,
   }
 }
@@ -168,17 +185,26 @@ export function stepCar(car: CarState, input: CarInput, dt: number, track: Track
     car.driftEase = 0
   }
   car.brakeWas = input.brake
+  car.wallHit = 0
   if (car.driftDir !== 0) {
     arcadeDrift(car, input, dt, top, power)
     collideWithBarriers(car, track)
-    // A real hit ends the slide.
-    if (car.impact > 6) car.driftDir = 0
+    // A real hit ends the slide, and the boost it was charging.
+    if (car.wallHit > 6) {
+      car.driftDir = 0
+      car.driftCharge = 0
+    }
     return
   }
   let accel = 0
   if (input.throttle > 0) {
     if (vf >= -0.5) accel += input.throttle * S.engine * power * (car.nitroOn ? S.nitroBoost : 1) * Math.max(0, 1 - vf / top)
     else accel += input.throttle * S.brake
+  }
+  // Drift boost: a push of its own, a little past the normal top speed.
+  if (car.boost > 0) {
+    car.boost = Math.max(0, car.boost - dt)
+    if (vf > 0) accel += BOOST_PUSH * Math.max(0, 1 - vf / (top * 1.08))
   }
   car.braking = false
   if (input.brake > 0) {
@@ -342,6 +368,8 @@ function arcadeDrift(car: CarState, input: CarInput, dt: number, top: number, po
   car.z += car.vz * dt
   car.slip = Math.abs(car.driftAngle)
   car.drifting = car.slip > 0.16 && speed > 12
+  if (car.drifting) car.driftCharge += dt
+  car.boost = Math.max(0, car.boost - dt)
   car.wheelSpin += (speed / 0.34) * dt
   if (car.drifting) car.nitro = Math.min(1, car.nitro + 0.2 * Math.min(1, car.slip / 0.45) * dt)
   // Ending it: straighten the wheel (or countersteer) and the angle comes
@@ -349,6 +377,10 @@ function arcadeDrift(car: CarState, input: CarInput, dt: number, top: number, po
   // ends it too.
   car.driftEase = into < 0.15 ? car.driftEase + dt : 0
   if ((car.driftEase > 0.35 && Math.abs(car.driftAngle) < 0.14) || speed < 11) {
+    // Straightening out at speed releases the boost the drift charged.
+    const tier = driftTier(car.driftCharge)
+    if (speed >= 11 && tier > 0) car.boost = BOOST_TIME[tier]
+    car.driftCharge = 0
     car.driftDir = 0
     car.driftAngle = 0
     car.gripRecovery = 0.5
@@ -368,15 +400,25 @@ function collideWithBarriers(car: CarState, track: Track) {
   car.x -= nx * over
   car.z -= nz * over
   // Bounce off the part of the velocity going into the wall and scrub some
-  // of the rest. A glancing touch costs little, a head-on hit a lot.
+  // of the rest. A glancing touch slides along the barrier and keeps nearly
+  // all its speed; a head-on hit loses the part going into the wall, which
+  // is most of it.
   const into = car.vx * nx + car.vz * nz
   if (into > 0) {
     car.vx -= 1.35 * into * nx
     car.vz -= 1.35 * into * nz
-    const scrub = Math.max(0.6, 1 - 0.06 * into)
+    const scrub = Math.max(0.7, 1 - 0.012 * into - 0.001 * into * into)
     car.vx *= scrub
     car.vz *= scrub
     car.impact = Math.max(car.impact, into)
+    car.wallHit = Math.max(car.wallHit, into)
+    // A glancing hit, nose less than 30 degrees into the wall, turns the
+    // nose to run along the barrier, so the car slides on instead of
+    // grinding into it again.
+    const fx = Math.sin(car.heading)
+    const fz = Math.cos(car.heading)
+    const noseIn = fx * nx + fz * nz
+    if (noseIn > 0 && noseIn < 0.5) car.heading = Math.atan2(fx - noseIn * nx * 1.05, fz - noseIn * nz * 1.05)
     recordHit(car, nx, nz, into)
     // Turn the nose away from the wall.
     car.yawRate *= 0.5

@@ -1,0 +1,128 @@
+import { describe, expect, it } from 'vitest'
+import { fresh, settle } from '../src/career'
+import { BOOST_TIME, type CarInput, createCar, idle, speedOf, stepCar } from '../src/sim/car'
+import { Race, STEP, TAKEDOWN_HIT } from '../src/sim/race'
+import { buildTrack, locate, pointAt } from '../src/sim/track'
+
+const track = buildTrack('feel')
+const open = { ...track, width: 1e6 }
+const start = (speed: number, onTrack = open) => {
+  const p = pointAt(track, 20, 0)
+  const car = createCar(p.x, p.z, p.heading, onTrack)
+  car.vx = Math.sin(p.heading) * speed
+  car.vz = Math.cos(p.heading) * speed
+  return car
+}
+const drive = (car: ReturnType<typeof start>, input: CarInput, seconds: number, onTrack = open) => {
+  let most = 0
+  for (let t = 0; t < seconds; t += STEP) {
+    stepCar(car, input, STEP, onTrack)
+    most = Math.max(most, car.boost)
+  }
+  return most
+}
+
+// A brake-tap drift held for some seconds, then let go by straightening up.
+const driftFor = (seconds: number) => {
+  const car = start(32)
+  drive(car, { ...idle, throttle: 1, steer: 1, brake: 1, assist: true }, STEP)
+  drive(car, { ...idle, throttle: 1, steer: 0.7, assist: true }, seconds)
+  expect(car.driftDir).not.toBe(0)
+  return drive(car, { ...idle, throttle: 1, steer: 0, assist: true }, 1.5)
+}
+
+describe('drift boost', () => {
+  it('a short drift gives nothing, 1 s a small boost and 3 s a big one', () => {
+    expect(driftFor(0.5)).toBe(0)
+    expect(driftFor(1.4)).toBeCloseTo(BOOST_TIME[1], 1)
+    expect(driftFor(3.5)).toBeCloseTo(BOOST_TIME[2], 1)
+  })
+
+  it('the boost pushes the car faster', () => {
+    const plain = start(30)
+    const boosted = start(30)
+    boosted.boost = BOOST_TIME[2]
+    for (let t = 0; t < 1.2; t += STEP) {
+      stepCar(plain, { ...idle, throttle: 1 }, STEP, open)
+      stepCar(boosted, { ...idle, throttle: 1 }, STEP, open)
+    }
+    expect(speedOf(boosted)).toBeGreaterThan(speedOf(plain) + 3)
+  })
+})
+
+describe('walls', () => {
+  // A car aimed at the right-hand barrier at some angle off the road's line.
+  const intoWall = (speed: number, angle: number) => {
+    const p = pointAt(track, 40, 5)
+    const car = createCar(p.x, p.z, p.heading, track)
+    // Turn towards the right-hand side of the road: +d is to the right.
+    const i = locate(track, p.x, p.z).i
+    const toWall = Math.atan2(track.nx[i], track.nz[i])
+    const h = p.heading + Math.sign(Math.sin(toWall - p.heading)) * angle
+    Object.assign(car, { heading: h, vx: Math.sin(h) * speed, vz: Math.cos(h) * speed })
+    for (let t = 0; t < 1; t += STEP) stepCar(car, idle, STEP, track)
+    return speedOf(car)
+  }
+
+  it('a glancing touch keeps most of the speed', () => {
+    expect(intoWall(40, 0.12)).toBeGreaterThan(40 * 0.85)
+  })
+
+  it('a head-on hit stops the car', () => {
+    expect(intoWall(30, Math.PI / 2)).toBeLessThan(12)
+  })
+})
+
+describe('takedowns', () => {
+  // Lines the player's car up 3.5 m behind another car, both aimed at the
+  // barrier, the other car about 2 m from it, the player a little faster.
+  const shove = (race: Race, other: ReturnType<typeof start>) => {
+    const t = race.track
+    const at = pointAt(t, 60, 5)
+    const i = locate(t, at.x, at.z).i
+    const h = Math.atan2(t.nx[i], t.nz[i])
+    const fx = Math.sin(h)
+    const fz = Math.cos(h)
+    Object.assign(other, { x: at.x, z: at.z, heading: h, vx: fx * 28, vz: fz * 28, yawRate: 0, hint: i })
+    const me = race.player.car
+    Object.assign(me, { x: at.x - fx * 3.5, z: at.z - fz * 3.5, heading: h, vx: fx * 34, vz: fz * 34, yawRate: 0, hint: i })
+    race.playerInput = { ...idle, throttle: 1 }
+    for (let k = 0; k < 60; k++) race.step()
+  }
+
+  it('shoving a rival into a wall wrecks it', () => {
+    const race = new Race({ seed: 'takedown', laps: 3, rivals: 1 })
+    for (let t = 0; t < 3.1; t += STEP) race.step()
+    const rival = race.racers[0]
+    shove(race, rival.car)
+    expect(rival.out).toBe(true)
+    expect(rival.fate).toBe('wrecked')
+    expect(race.takedowns.rivals).toBe(1)
+    expect(race.events.some((e) => e.type === 'takedown' && e.id === rival.id)).toBe(true)
+  })
+
+  it('shoving a patrol car into a wall takes it out of the chase', () => {
+    const race = new Race({ seed: 'takedown-cop', laps: 99, rivals: 0, mode: 'pursuit', police: 1 })
+    for (let t = 0; t < 3.1; t += STEP) race.step()
+    const cop = race.police[0]
+    shove(race, cop)
+    expect(race.wreckedCops.has(cop)).toBe(true)
+    expect(race.activeCops).toHaveLength(0)
+    expect(race.takedowns.cops).toEqual([1])
+  })
+
+  it('a car that hits a wall on its own is not a takedown', () => {
+    const race = new Race({ seed: 'takedown-alone', laps: 3, rivals: 1 })
+    for (let t = 0; t < 3.1; t += STEP) race.step()
+    const car = race.racers[0].car
+    car.wallHit = TAKEDOWN_HIT + 5
+    race.step()
+    expect(race.racers[0].out).toBe(false)
+  })
+
+  it('takedowns pay 300 a rival and 500 a heat level for a patrol car', () => {
+    const run = { kind: 'race' as const, laps: 3, finished: true, place: 4, heat: 1, nearMisses: 0, cleanLaps: 0, closeWin: false, daily: false }
+    const paid = settle(fresh(), { ...run, takedowns: { rivals: 2, cops: [1, 2] } }, '2026-11-21')
+    expect(paid.total).toBe(200 + 600 + 1500)
+  })
+})

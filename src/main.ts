@@ -547,6 +547,7 @@ function results(outcome: Outcome) {
       closeWin,
       fate: me.fate,
       escapes: race.escapes,
+      takedowns: race.takedowns,
       daily: !def && spec.seed === today,
     },
     today.slice(today.indexOf('-') + 1),

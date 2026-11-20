@@ -83,6 +83,9 @@ export type RaceEvent =
   | { type: 'spotted' }
   | { type: 'lostPolice'; heat: number }
   | { type: 'wrecked'; id: number }
+  // The player pushed a rival (id) or a patrol car (cop) into a wall hard
+  // enough to wreck it.
+  | { type: 'takedown'; id?: number; cop?: CarState }
 
 export interface Pursuit {
   // Both run 0 to 1. Busted fills while the player is slow with a patrol
@@ -100,6 +103,11 @@ export const ESCAPE_DISTANCE = 300
 // A waiting patrol car sees the player go past this close and this fast.
 export const SPOT_RANGE = 30
 export const SPOT_SPEED = 30
+// A takedown: a car the player hit in the last TAKEDOWN_WINDOW seconds
+// meets a barrier at more than TAKEDOWN_HIT m/s, about 45 km/h, straight
+// into it.
+export const TAKEDOWN_HIT = 12.5
+export const TAKEDOWN_WINDOW = 1.5
 
 const RIVALS = [
   { name: 'Vesper', color: '#d01f3c' },
@@ -136,6 +144,12 @@ export class Race {
   readonly parked = new Set<CarState>()
   chasing = false
   readonly escapes: number[] = []
+  // Patrol cars the player has wrecked, which stay where they stopped.
+  readonly wreckedCops = new Set<CarState>()
+  // Takedowns so far: rivals, and the heat at each patrol car wrecked.
+  readonly takedowns = { rivals: 0, cops: [] as number[] }
+  // When the player last hit each car, for takedowns.
+  private hitByPlayer = new Map<CarState, number>()
   // The player's drift: the slide in progress and everything banked.
   drift = { score: 0, total: 0, quiet: 0 }
   // Things that happened to the player since the game last looked.
@@ -222,6 +236,32 @@ export class Race {
     this.parked.add(reuse ?? fresh)
   }
 
+  // Rivals and patrol cars the player shoved into a wall at speed are
+  // wrecked. Traffic is not: it is only in the way.
+  private takedownCheck() {
+    if (this.phase !== 'racing' || this.player.out) return
+    const recent = (car: CarState) => car.wallHit > TAKEDOWN_HIT && this.clock - (this.hitByPlayer.get(car) ?? -99) < TAKEDOWN_WINDOW
+    for (const racer of this.racers) {
+      if (racer.player || racer.out || racer.finishTime !== null || !recent(racer.car)) continue
+      racer.car.damage = 1
+      this.knockOut(racer, 'wrecked')
+      this.takedowns.rivals++
+      this.events.push({ type: 'takedown', id: racer.id })
+    }
+    for (const cop of this.police) {
+      if (this.parked.has(cop) || this.wreckedCops.has(cop) || !recent(cop)) continue
+      cop.damage = 1
+      this.wreckedCops.add(cop)
+      this.takedowns.cops.push(this.pursuit.heat)
+      this.events.push({ type: 'takedown', cop })
+    }
+  }
+
+  // Patrol cars still in the chase: not waiting by the road, not wrecked.
+  get activeCops(): CarState[] {
+    return this.police.filter((c) => !this.parked.has(c) && !this.wreckedCops.has(c))
+  }
+
   // Takes a car out of the race. A wrecked or busted car stays where it is.
   private knockOut(racer: Racer, fate: 'wrecked' | 'busted') {
     racer.out = true
@@ -292,7 +332,11 @@ export class Race {
     for (const t of this.traffic) stepCar(t.car, driveTraffic(t, this.track, cars), dt, this.track)
     // The police hunt the player until the event is decided for them.
     const hunting = this.phase === 'racing' && !this.pursuit.outcome && this.player.finishTime === null && !this.player.out
-    for (const cop of this.police) stepCar(cop, hunting && !this.parked.has(cop) ? chase(cop, this.player.car, this.track, this.line) : idle, dt, this.track)
+    for (const cop of this.police) {
+      const wrecked = this.wreckedCops.has(cop)
+      const input = wrecked ? (forwardSpeed(cop) > 1 ? { ...idle, brake: 1 } : idle) : hunting && !this.parked.has(cop) ? chase(cop, this.player.car, this.track, this.line) : idle
+      stepCar(cop, input, dt, this.track)
+    }
     for (const racer of this.racers) {
       if (racer.out && !racer.fate) continue
       let input = idle
@@ -322,6 +366,7 @@ export class Race {
             this.events.push({ type: 'driftLost' })
           }
           const other = cars[a] === playerCar ? cars[b] : cars[a]
+          if (hit > 2) this.hitByPlayer.set(other, this.clock)
           const k = this.traffic.findIndex((t) => t.car === other)
           if (k >= 0) this.passing[k].touched = this.clock
         }
@@ -329,6 +374,7 @@ export class Race {
     }
     this.nearMisses()
     this.scoreDrift(dt)
+    this.takedownCheck()
     // Too much damage wrecks the player's car and puts it out of the race.
     // In a pursuit the police get a wrecked car instead (see
     // updatePursuit). Rivals are not wrecked: they trade paint with each
@@ -404,7 +450,7 @@ export class Race {
     // A wrecked car is caught wherever it is.
     const wrecked = this.player.car.damage >= 1
     if (wrecked) p.busted = 1
-    const result = wrecked ? 'busted' : this.meters(dt, this.police)
+    const result = wrecked ? 'busted' : this.meters(dt, this.activeCops)
     if (result === 'busted') {
       p.outcome = 'busted'
       this.events.push({ type: 'busted' })
@@ -414,7 +460,7 @@ export class Race {
     }
     // Heat rises over time, and each level brings one more patrol car.
     p.sinceJoin += dt
-    if (p.sinceJoin > 40 && this.police.length < MAX_POLICE) {
+    if (p.sinceJoin > 40 && this.activeCops.length < MAX_POLICE) {
       p.sinceJoin = 0
       p.heat++
       this.addCop(220)
@@ -441,8 +487,9 @@ export class Race {
       }
     }
     if (!this.chasing) return
-    const cops = this.police.filter((c) => !this.parked.has(c))
-    const result = this.meters(dt, cops)
+    const cops = this.activeCops
+    // Every chasing car wrecked: the chase is over, as if they were lost.
+    const result = cops.length === 0 ? 'escaped' : this.meters(dt, cops)
     if (result === 'busted') {
       this.knockOut(this.player, 'busted')
       this.events.push({ type: 'busted' })

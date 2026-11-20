@@ -1,6 +1,6 @@
 import { Color, type Group, type Material, MathUtils, type Mesh, type MeshStandardMaterial, Object3D, SpotLight, Vector3 } from 'three'
 import { type EngineKind, Sound } from './audio'
-import { type EventKind, ESCAPE_PAY, type Outcome } from './career'
+import { type EventKind, ESCAPE_PAY, type Outcome, TAKEDOWN_PAY } from './career'
 import { bumper, finishOrbit, heli, INTRO_SECONDS, intro, tv, tvCameras } from './cinema'
 import { Input } from './input'
 import { applyWeather, isDay, type Weather, weatherFor } from './render/atmosphere'
@@ -14,7 +14,7 @@ import { spot } from './render/textures'
 import { buildTrackMeshes } from './render/trackMesh'
 import { type Quality, World } from './render/world'
 import { type Replay, Recorder } from './replay'
-import { CAR, type CarSpec, type CarState, forwardSpeed, speedOf } from './sim/car'
+import { CAR, type CarSpec, type CarState, driftTier, forwardSpeed, speedOf } from './sim/car'
 import { carById, CARS, type Shape } from './sim/cars'
 import { Race, type Racer, STEP } from './sim/race'
 
@@ -149,6 +149,7 @@ export class Game {
   private readonly fire: Particles
   private readonly darkSmoke: Particles
   private nitroWas = false
+  private boostWas = 0
   private nitroPulse = 0
   private bulletUntil = 0
   private throttleAt: number | null = null
@@ -163,6 +164,9 @@ export class Game {
   private readonly smoke: Particles
   private readonly spray: Particles
   private readonly sparks: Particles
+  // Sparks off the back wheels as a drift charges its boost: blue for the
+  // small one, pink for the big one.
+  private readonly driftSparks: [Particles, Particles]
   private readonly skids = new Skids()
   private readonly trails = new Trails(64)
   private readonly rain = new Rain()
@@ -205,7 +209,11 @@ export class Game {
     this.sparks = new Particles(400, this.spotTexture, '#ffb347', { additive: true, gravity: 14, brightness: 3 })
     this.fire = new Particles(300, this.spotTexture, '#ff7a2a', { additive: true, brightness: 3 })
     this.darkSmoke = new Particles(500, this.spotTexture, '#2c2c33', { grow: 2.4 })
-    this.world.scene.add(this.smoke.points, this.spray.points, this.darkSmoke.points, this.sparks.points, this.fire.points, this.skids.mesh, this.trails.mesh, this.rain.lines, this.wheelBank.tyres, this.wheelBank.rims)
+    this.driftSparks = [
+      new Particles(300, this.spotTexture, '#3fb8ff', { additive: true, gravity: 9, brightness: 3.5 }),
+      new Particles(300, this.spotTexture, '#ff4fd8', { additive: true, gravity: 9, brightness: 3.5 }),
+    ]
+    this.world.scene.add(this.smoke.points, this.spray.points, this.darkSmoke.points, this.sparks.points, this.fire.points, this.driftSparks[0].points, this.driftSparks[1].points, this.skids.mesh, this.trails.mesh, this.rain.lines, this.wheelBank.tyres, this.wheelBank.rims)
     this.headlight = new SpotLight('#dfe9ff', 70, 90, 0.4, 0.6, 1)
     this.headlight.target = new Object3D()
     window.addEventListener('resize', () => this.world.resize())
@@ -279,6 +287,7 @@ export class Game {
     for (const d of this.debris) this.world.scene.remove(d.mesh)
     this.debris = []
     this.nitroWas = false
+    this.boostWas = 0
     this.nitroPulse = 0
     this.throttleAt = null
     this.race.racers.forEach((racer, k) => {
@@ -520,6 +529,16 @@ export class Game {
     }
     this.nitroWas = player.car.nitroOn
 
+    // A drift boost going off: a smaller kick than the nitro.
+    if (player.car.boost > this.boostWas + 0.05) {
+      this.nitroPulse = Math.max(this.nitroPulse, 0.6)
+      this.shake = Math.min(1, this.shake + 0.15)
+      this.sound.ignite()
+      this.backfire(this.views[race.racers.length - 1], true)
+      popup(player.car.boost > 1 ? 'Big drift boost' : 'Drift boost', 'cyan')
+    }
+    this.boostWas = player.car.boost
+
     // Lifting off at speed makes the exhaust pop.
     const throttle = race.playerInput.throttle
     if (this.lastThrottle > 0.5 && throttle === 0 && speedOf(player.car) > 30) this.backfire(this.views[race.racers.length - 1], true)
@@ -549,6 +568,14 @@ export class Game {
       } else if (e.type === 'lostPolice') {
         flash('Lost them')
         popup(`Lost the police +${(ESCAPE_PAY * e.heat).toLocaleString('en')}`, 'gold')
+      } else if (e.type === 'takedown') {
+        const car = e.cop ?? race.racers[e.id ?? 0].car
+        this.wreckBurst(car)
+        flash('Takedown')
+        popup(e.cop ? `Patrol car wrecked +${(TAKEDOWN_PAY.cop * race.pursuit.heat).toLocaleString('en')}` : `${race.racers[e.id ?? 0].name} wrecked +${TAKEDOWN_PAY.rival}`, 'gold')
+        this.shake = Math.min(1, this.shake + 0.5)
+        // A beat of slow motion to watch it.
+        this.bulletUntil = now + 900
       } else if (e.type === 'wrecked') {
         const out = race.racers[e.id]
         this.wreckBurst(out.car)
@@ -682,7 +709,7 @@ export class Game {
         // A patrol car waiting by the road keeps its lights low until it
         // sees someone.
         const phase = Math.floor(this.time * 7) % 2
-        const on = this.race.parked.has(car) ? 0.25 : 1
+        const on = this.race.wreckedCops.has(car) ? 0 : this.race.parked.has(car) ? 0.25 : 1
         v.model.siren.red.color.copy(RED).multiplyScalar((phase ? 5 : 0.4) * on)
         v.model.siren.blue.color.copy(BLUE).multiplyScalar((phase ? 0.4 : 5) * on)
       }
@@ -700,6 +727,7 @@ export class Game {
       this.spray.update(dt)
       this.darkSmoke.update(dt)
       this.sparks.update(dt)
+      for (const p of this.driftSparks) p.update(dt)
       this.fire.update(dt)
       this.updateDebris(dt)
     }
@@ -738,7 +766,7 @@ export class Game {
     const throttle = this.mode === 'race' ? this.race.playerInput.throttle : 0.5
     this.sound.update(rpm, throttle, followed.slip * (speedOf(followed) > 8 ? 1 : 0), followed.nitroOn, active && this.race.phase !== 'countdown' && this.replayPlaying)
     let nearest = Infinity
-    for (const cop of this.race.police) if (!this.race.parked.has(cop)) nearest = Math.min(nearest, Math.hypot(cop.x - followed.x, cop.z - followed.z))
+    for (const cop of this.race.activeCops) nearest = Math.min(nearest, Math.hypot(cop.x - followed.x, cop.z - followed.z))
     this.sound.siren(active && this.race.police.length ? Math.max(0, 1 - nearest / 260) : 0)
     const boost = followed.nitroOn ? 0.85 : MathUtils.clamp((speedOf(followed) - 55) / 30, 0, 0.35)
     this.world.setSpeedEffect(this.mode === 'race' ? boost : this.mode === 'replay' ? boost * 0.6 : 0, this.mode === 'race' ? this.nitroPulse : 0)
@@ -867,6 +895,15 @@ export class Game {
       const wx = car.x - fx * 1.38 + -fz * 0.86 * side
       const wz = car.z - fz * 1.38 + fx * 0.86 * side
       if (v.racer) this.skids.mark(`${v.racer.id}${side}`, wx, wz, skidding && !this.raining)
+      // A drift charging its boost throws coloured sparks.
+      const tier = car.drifting ? driftTier(car.driftCharge) : 0
+      if (tier > 0) {
+        const rate = 26 * dt
+        for (let k = 0; k < rate; k++) {
+          if (Math.random() > rate - k) break
+          this.driftSparks[tier - 1].emit(wx, 0.15, wz, car.vx * 0.3 + (Math.random() - 0.5) * 5, 1 + Math.random() * 3, car.vz * 0.3 + (Math.random() - 0.5) * 5, 0.22, 0.35)
+        }
+      }
       if (car.drifting) {
         const rate = Math.min(1, car.slip * 2) * 40 * dt
         for (let k = 0; k < rate; k++) {
@@ -1048,9 +1085,12 @@ export class Game {
     if (inside) {
       const kmh = Math.abs(forwardSpeed(car)) * 3.6
       const { gear, rpm } = gearOf(Math.abs(forwardSpeed(car)), car.spec)
-      this.cockpit.update(car.steer, kmh, rpm, gear, car.nitro, performance.now())
+      this.cockpit.update(car.steer, kmh, rpm, gear, car.nitro, performance.now(), this.world.camera.aspect)
     }
-    const fov = (inside ? 70 : 60) + Math.min(inside ? 8 : 14, speed * (inside ? 0.1 : 0.17)) + (car.nitroOn ? 7 : 0) + this.nitroPulse * 9
+    // Inside the car, a wide phone screen gets a narrower view: 70 degrees
+    // there stretched the edges and made the wheel look huge.
+    const cockpitFov = this.world.camera.aspect > 1.9 ? 60 : 70
+    const fov = (inside ? cockpitFov : 60) + Math.min(inside ? 6 : 14, speed * (inside ? 0.08 : 0.17)) + (car.nitroOn ? 7 : 0) + this.nitroPulse * 9
     this.fov += (fov - this.fov) * (dt > 0 ? 1 - Math.exp(-dt * 4) : 0)
     cam.fov = this.fov
     cam.updateProjectionMatrix()

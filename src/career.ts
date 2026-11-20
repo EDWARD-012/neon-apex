@@ -184,6 +184,8 @@ export interface Run extends Outcome {
   fate?: 'wrecked' | 'busted' | null
   // The heat each time the player lost the police during a race.
   escapes?: number[]
+  // Rivals wrecked, and the heat at each patrol car wrecked.
+  takedowns?: { rivals: number; cops: number[] }
   // Run on today's daily track.
   daily: boolean
 }
@@ -198,6 +200,9 @@ const round50 = (n: number) => Math.round(n / 50) * 50
 // Getting away from the police pays this much for each heat level, in a
 // pursuit or when losing them in a race.
 export const ESCAPE_PAY = 1000
+// Wrecking a rival pays a flat amount, a patrol car more for each heat
+// level.
+export const TAKEDOWN_PAY = { rival: 300, cop: 500 }
 
 // Quick races and the daily track: 1,000 for a win, 500 for a podium, 200
 // for finishing. Those are for three laps; one lap pays a third, five laps
@@ -254,6 +259,9 @@ export function settle(progress: Progress, run: Run, today: string, event?: Even
     const points = run.points ?? 0
     if (points >= 10) lines.push({ label: `${points.toLocaleString('en')} drift points`, coins: Math.floor(points / 10) })
     if (run.cleanLaps > 0) lines.push({ label: `${run.cleanLaps} clean ${run.cleanLaps === 1 ? 'lap' : 'laps'}`, coins: run.cleanLaps * 100 })
+    const downs = run.takedowns ?? { rivals: 0, cops: [] }
+    if (downs.rivals > 0) lines.push({ label: `${downs.rivals} ${downs.rivals === 1 ? 'rival' : 'rivals'} wrecked`, coins: downs.rivals * TAKEDOWN_PAY.rival })
+    if (downs.cops.length > 0) lines.push({ label: `${downs.cops.length} patrol ${downs.cops.length === 1 ? 'car' : 'cars'} wrecked`, coins: downs.cops.reduce((sum, h) => sum + TAKEDOWN_PAY.cop * h, 0) })
     const escapes = run.escapes ?? []
     if (escapes.length > 0) lines.push({ label: escapes.length === 1 ? `Lost the police at heat ${escapes[0]}` : `Lost the police ${escapes.length} times`, coins: escapes.reduce((sum, h) => sum + ESCAPE_PAY * h, 0) })
   }
