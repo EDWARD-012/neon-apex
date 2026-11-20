@@ -70,12 +70,14 @@ async function brightness(page: Page): Promise<number> {
 
 test('the title screen draws the city', async ({ page }) => {
   // A software renderer compiles every shader of the daytime valley before
-  // the first frame shows, which on CI can take most of a minute.
-  test.setTimeout(150_000)
+  // the first frame shows: 36 programs, about 11 s on a fast Mac. On a
+  // shared CI runner with another test beside it, that has taken from 51 s
+  // to over 90 s.
+  test.setTimeout(210_000)
   await open(page)
   await expect(page.locator('#menu')).toBeVisible()
   await expect(page.locator('.logo')).toContainText('Neon')
-  await expect.poll(() => brightness(page), { timeout: 90_000, intervals: [800, 1000, 2000, 4000] }).toBeGreaterThan(8)
+  await expect.poll(() => brightness(page), { timeout: 160_000, intervals: [800, 1000, 2000, 4000] }).toBeGreaterThan(8)
 })
 
 test('the car moves under the player’s control', async ({ page, isMobile }) => {
