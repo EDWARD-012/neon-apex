@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test'
 
 // E2E_URL runs the same tests against a deployed copy, for example
-// E2E_URL=https://edward-012.github.io/neon-apex/ npm run e2e
+// E2E_URL=https://neon-apex-ten.vercel.app/ npm run e2e
 const deployed = process.env.E2E_URL
 const ci = Boolean(process.env.CI)
 

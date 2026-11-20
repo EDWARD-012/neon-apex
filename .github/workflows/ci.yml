@@ -21,10 +21,12 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      # The game itself is on Vercel. GitHub Pages only serves a page that
+      # forwards the old address there.
       - if: github.event_name == 'push'
         uses: actions/upload-pages-artifact@v5
         with:
-          path: dist
+          path: pages
 
   # Plays the game in Chromium and WebKit, and at phone size. Firefox runs
   # locally only; see playwright.config.ts.

@@ -10,9 +10,9 @@
 </p>
 
 <p align="center">
-  <a href="https://edward-012.github.io/neon-apex/"><b>Play it in your browser</b></a>
+  <a href="https://neon-apex-ten.vercel.app/"><b>Play it in your browser</b></a>
   &nbsp;&nbsp;
-  <a href="https://edward-012.github.io/neon-apex/trailer.webm"><b>Watch the 31-second trailer</b></a>
+  <a href="https://neon-apex-ten.vercel.app/trailer.webm"><b>Watch the 31-second trailer</b></a>
 </p>
 
 <p align="center">
@@ -152,7 +152,7 @@ npm run e2e
 
 The browser tests play the built game through its menus in Playwright's Chromium, Firefox and WebKit, and at a phone-sized landscape viewport with touch controls. They check that the city renders, that the car responds to the keyboard or the touch buttons, that a race with traffic runs to the results table and its replay plays and changes camera, that a time trial saves a ghost and shows it on the next run, that a pursuit puts police on the road with the meters showing, that pause freezes the race clock, that a random track's seed goes into the address bar, and that a career event pays cash which then buys a car in the garage. Any console error fails a test.
 
-CI runs the unit tests and the browser tests on every push and only publishes the site if both pass. It runs every browser test except the Firefox ones: GitHub's machines have no graphics card, and headless Firefox finds no way to start WebGL there, so Firefox runs on a local machine only.
+The game is hosted on Vercel, which builds and publishes every push to `main`. CI runs the unit tests and the browser tests on the same push, against the same commit. The old GitHub Pages address now forwards to Vercel, keeping any track seed in the link. CI runs every browser test except the Firefox ones: GitHub's machines have no graphics card, and headless Firefox finds no way to start WebGL there, so Firefox runs on a local machine only.
 
 `npm run shots` retakes the screenshots and the GIF in this README by playing the game in a headless browser, `npm run trailer` records the trailer the same way, and `npm run diagram` redraws the racing line picture. The GIF step needs Python with Pillow, and the trailer needs a machine with a graphics card to record at full frame rate.
 
@@ -173,6 +173,7 @@ src/input.ts    keyboard, gamepad and touch
 tests/          unit tests for the simulation, the career and the README table
 e2e/            browser tests
 scripts/        stats table, diagram, screenshots, GIF and trailer
+pages/          the page GitHub Pages serves, which forwards to Vercel
 ```
 
 Dependencies are pinned to exact versions in `package.json` and `package-lock.json`.
