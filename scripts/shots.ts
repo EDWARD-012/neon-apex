@@ -37,8 +37,8 @@ const shot = async (name: string) => {
 }
 
 // Title screen, and the same at link-preview size.
-await open(page, '&seed=readme&weather=clear')
-await page.waitForTimeout(1500)
+await open(page, '&seed=readme&weather=day')
+await page.waitForTimeout(2500)
 await shot('title')
 await page.setViewportSize({ width: 1200, height: 630 })
 await page.waitForTimeout(600)
@@ -76,14 +76,19 @@ await shot('drift')
 await page.keyboard.up('ArrowRight')
 await page.keyboard.up('ArrowUp')
 
-// The bonnet camera, with the autopilot driving so the car is at speed.
-await open(page, '&seed=readme&weather=rain&autopilot')
+// The cockpit camera on the mountain road, driven with the keyboard so the
+// pedal panel shows the throttle.
+await open(page, '&seed=readme&weather=day')
 await run(page, `window.__neon.begin(window.__neon.quickSpec('race'))`)
 await run(page, 'window.__neon.game.fastForward(3.2)')
-await run(page, `window.__neon.game.camMode = 'hood'`)
-await page.waitForTimeout(5000)
-await shot('bonnet')
+await run(page, `window.__neon.game.camMode = 'cockpit'`)
+await page.keyboard.down('ArrowUp')
+await page.waitForTimeout(3500)
+await shot('cockpit')
 await run(page, `window.__neon.game.camMode = 'chase'`)
+await page.waitForTimeout(1500)
+await shot('day')
+await page.keyboard.up('ArrowUp')
 // Damage: hits on the front left and the rear right, recorded the same way
 // a barrier or another car records them, then a close-up with time stopped.
 await run(

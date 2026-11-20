@@ -46,11 +46,14 @@ The game is original. It borrows the street racing genre, not any particular gam
   </tr>
   <tr>
     <td><img src="docs/replay.jpg" alt="Replay from a trackside TV camera, with the replay controls along the bottom"></td>
-    <td><img src="docs/title.jpg" alt="Title screen over a live race on the night's track"></td>
+    <td><img src="docs/title.jpg" alt="Title screen over a live race on the mountain road by day"></td>
   </tr>
   <tr>
-    <td><img src="docs/damage.jpg" alt="Close-up of the player's coupe in the rain after hits on the front left, with the panel pushed in and the paint scuffed"></td>
-    <td><img src="docs/bonnet.jpg" alt="The bonnet camera on a wet road at night, rivals ahead and the city reflected in the street"></td>
+    <td><img src="docs/damage.jpg" alt="Close-up of the player's car on the mountain road after hits on the front left, with the panel pushed in and the paint scuffed"></td>
+    <td><img src="docs/cockpit.jpg" alt="The cockpit camera on the mountain road by day: steering wheel, the instrument screen showing speed and gear, and the pedal panel below"></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/day.jpg" alt="The player's car chasing rivals along the mountain road by day, between steel guard rails, with pine forest and snow-capped peaks behind"></td>
   </tr>
 </table>
 
