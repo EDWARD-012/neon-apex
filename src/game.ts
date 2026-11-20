@@ -7,6 +7,7 @@ import { applyWeather, isDay, type Weather, weatherFor } from './render/atmosphe
 import { type CarModel, createCarModel, WheelBank } from './render/carModel'
 import { buildCity, type City } from './render/city'
 import { buildLandscape } from './render/landscape'
+import { Cockpit, DRIVER } from './render/cockpit'
 import { Particles, Rain, Skids, Trails } from './render/effects'
 import { Garage } from './render/garage'
 import { spot } from './render/textures'
@@ -67,9 +68,9 @@ interface Debris {
   age: number
 }
 
-export type CameraMode = 'chase' | 'far' | 'hood' | 'bumper' | 'drone'
-export const CAMERA_MODES: CameraMode[] = ['chase', 'far', 'hood', 'bumper', 'drone']
-const CAMERA_NAMES: Record<CameraMode, string> = { chase: 'Chase', far: 'Far chase', hood: 'Bonnet', bumper: 'Bumper', drone: 'Drone' }
+export type CameraMode = 'chase' | 'far' | 'cockpit' | 'hood' | 'bumper' | 'drone'
+export const CAMERA_MODES: CameraMode[] = ['chase', 'far', 'cockpit', 'hood', 'bumper', 'drone']
+const CAMERA_NAMES: Record<CameraMode, string> = { chase: 'Chase', far: 'Far chase', cockpit: 'Cockpit', hood: 'Bonnet', bumper: 'Bumper', drone: 'Drone' }
 
 interface Ghost {
   time: number
@@ -157,6 +158,7 @@ export class Game {
   private readonly rain = new Rain()
   private raining = false
   private readonly headlight: SpotLight
+  private readonly cockpit = new Cockpit()
   private cameras: Vector3[] = []
   private acc = 0
   private last = performance.now()
@@ -283,6 +285,8 @@ export class Game {
     this.wheelBank.rims.castShadow = day
     this.headlight.removeFromParent()
     const playerModel = this.views[this.race.racers.length - 1].model.group
+    this.cockpit.group.removeFromParent()
+    this.views[this.race.racers.length - 1].model.body.add(this.cockpit.group)
     this.headlight.position.set(0, 0.8, 2.0)
     this.headlight.target.position.set(0, 0, 30)
     playerModel.add(this.headlight, this.headlight.target)
@@ -917,6 +921,14 @@ export class Game {
       look = new Vector3(g.position.x - fx * 8, 1, g.position.z - fz * 8)
       this.camPos.copy(pos)
       this.camLook.copy(look)
+    } else if (mode === 'cockpit') {
+      // The driver's eye, inside the car.
+      const rx = -fz
+      const rz = fx
+      pos = new Vector3(g.position.x + fx * DRIVER.z - rx * DRIVER.x, DRIVER.y, g.position.z + fz * DRIVER.z - rz * DRIVER.x)
+      look = new Vector3(pos.x + fx * 25, DRIVER.y - 0.35, pos.z + fz * 25)
+      this.camPos.copy(pos)
+      this.camLook.copy(look)
     } else if (mode === 'hood') {
       pos = new Vector3(g.position.x + fx * 0.2, 1.3, g.position.z + fz * 0.2)
       look = new Vector3(g.position.x + fx * 30, 1.0, g.position.z + fz * 30)
@@ -958,7 +970,18 @@ export class Game {
       cam.position.y += (Math.random() - 0.5) * 0.05
     }
     cam.lookAt(this.camLook)
-    const fov = 60 + Math.min(14, speed * 0.17) + (car.nitroOn ? 7 : 0) + this.nitroPulse * 9
+    // Inside the car the view is wider and the speed widening smaller, as
+    // a driver's eye sees it.
+    const inside = mode === 'cockpit' && !(this.mode === 'race' && this.input.holding('lookback'))
+    this.cockpit.group.visible = inside && view.racer?.player === true
+    const firstPerson = this.mode === 'race' && (inside || mode === 'hood' || mode === 'bumper')
+    $('pedals').classList.toggle('hidden', !firstPerson)
+    if (inside) {
+      const kmh = Math.abs(forwardSpeed(car)) * 3.6
+      const { gear, rpm } = gearOf(Math.abs(forwardSpeed(car)))
+      this.cockpit.update(car.steer, kmh, rpm, gear, car.nitro, performance.now())
+    }
+    const fov = (inside ? 70 : 60) + Math.min(inside ? 8 : 14, speed * (inside ? 0.1 : 0.17)) + (car.nitroOn ? 7 : 0) + this.nitroPulse * 9
     this.fov += (fov - this.fov) * (dt > 0 ? 1 - Math.exp(-dt * 4) : 0)
     cam.fov = this.fov
     cam.updateProjectionMatrix()
@@ -986,6 +1009,11 @@ export class Game {
     $('gear').textContent = String(gearOf(speed).gear)
     $('gauge-fill').style.strokeDashoffset = String(1 - Math.min(1, speed / (CAR.topSpeed * CAR.nitroTop)))
     $('nitro-fill').style.transform = `scaleX(${car.nitro})`
+    // Driver inputs, shown in the first-person views.
+    const input = this.race.playerInput
+    $('pedal-gas').style.transform = `scaleY(${input.throttle})`
+    $('pedal-brake').style.transform = `scaleY(${Math.max(input.brake, input.handbrake ? 0.6 : 0)})`
+    $('wheel-icon').style.transform = `rotate(${(car.steer * 6 * 180) / Math.PI}deg)`
     $('nitro-row').classList.toggle('full', car.nitro > 0.98)
     const damage = $('damage-fill')
     damage.style.transform = `scaleX(${Math.max(0.02, car.damage)})`
