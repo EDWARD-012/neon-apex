@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { collideCars, createCar, idle } from '../src/sim/car'
+import { collideCars, createCar, idle, stepCar } from '../src/sim/car'
 import { HEAVY_SPEC, POLICE_SPEC } from '../src/sim/cars'
 import { racingLine } from '../src/sim/line'
 import { chase } from '../src/sim/police'
-import { HEAT_STEP, MAX_HEAT, PUNCTURED, Race, type RaceEvent, ROADBLOCK_GAP, SETUP_AHEAD, SETUP_EVERY, SETUP_HEAT, STEP } from '../src/sim/race'
+import { HEAT_STEP, HELI_ESCAPE, HELI_HEAT, HELI_SIGHT, MAX_HEAT, PULSE_LOCK, PULSE_STUN, PUNCTURED, Race, type RaceEvent, ROADBLOCK_GAP, SETUP_AHEAD, SETUP_EVERY, SETUP_HEAT, STEP } from '../src/sim/race'
 import { buildTrack, locate, pointAt } from '../src/sim/track'
 
 describe('heat levels', () => {
@@ -149,3 +149,92 @@ describe('roadblocks and spike strips', () => {
 
 // A lane's width in from the centre line, on the strip's side or the other.
 const quarter = () => buildTrack('spikes').width / 4
+
+describe('helicopter, units called ahead and the pulse', () => {
+  const start = (seed: string) => {
+    const race = new Race({ seed, laps: 99, rivals: 0, mode: 'pursuit', police: 1 })
+    for (let t = 0; t < 3.1; t += STEP) race.step()
+    return race
+  }
+  const heatTo = (race: Race, heat: number) => {
+    while (race.pursuit.heat < heat) {
+      race.pursuit.sinceJoin = HEAT_STEP + 1
+      race.step()
+    }
+  }
+
+  it('heat 4 brings a helicopter that closes in, and a blocker called in ahead', () => {
+    const race = start('heli')
+    const events: RaceEvent[] = []
+    heatTo(race, HELI_HEAT)
+    events.push(...race.events)
+    expect(events.map((e) => e.type)).toContain('heliJoined')
+    const heli = race.heli!
+    const me = race.player.car
+    const far = Math.hypot(heli.x - me.x, heli.z - me.z)
+    expect(far).toBeGreaterThan(HELI_SIGHT)
+    for (let t = 0; t < 6; t += STEP) {
+      race.pursuit.busted = 0
+      race.step()
+    }
+    expect(race.heli!.seeing).toBe(true)
+    // The heat 4 blocker starts ahead of the player.
+    const blocker = race.police.filter((c) => race.copRole.get(c) === 'block').at(-1)!
+    const ahead = (locate(race.track, blocker.x, blocker.z).s - locate(race.track, me.x, me.z).s + race.track.length) % race.track.length
+    expect(ahead).toBeLessThan(race.track.length / 2)
+  })
+
+  it('the spotlight slows the escape meter', () => {
+    const fill = (withHeli: boolean) => {
+      const race = start('spotlight')
+      heatTo(race, withHeli ? HELI_HEAT : 3)
+      const me = race.player.car
+      // Every police car far behind, so the escape meter fills.
+      const away = pointAt(race.track, locate(race.track, me.x, me.z).s - 450, 0)
+      for (const c of race.police) Object.assign(c, away, { vx: 0, vz: 0, hint: locate(race.track, away.x, away.z).i })
+      race.pursuit.escape = 0
+      for (let t = 0; t < 1.5; t += STEP) {
+        if (race.heli) Object.assign(race.heli, { x: me.x, z: me.z })
+        for (const c of race.police) Object.assign(c, { vx: 0, vz: 0 })
+        race.step()
+      }
+      return race.pursuit.escape
+    }
+    const free = fill(false)
+    const seen = fill(true)
+    expect(free).toBeGreaterThan(0.2)
+    expect(seen).toBeCloseTo(free * HELI_ESCAPE, 2)
+  })
+
+  it('an interceptor lined up behind locks on and cuts the power', () => {
+    const race = start('pulse')
+    heatTo(race, MAX_HEAT)
+    const me = race.player.car
+    const interceptor = race.police.find((c) => race.copKind.get(c) === 'interceptor')!
+    const events: RaceEvent[] = []
+    for (let t = 0; t < PULSE_LOCK + 0.2; t += STEP) {
+      // Keep it 30 m behind on the player's line, every other car away.
+      const s = locate(race.track, me.x, me.z).s
+      const at = pointAt(race.track, s - 30, locate(race.track, me.x, me.z).d)
+      Object.assign(interceptor, { x: at.x, z: at.z, heading: at.heading, hint: locate(race.track, at.x, at.z).i })
+      race.pursuit.busted = 0
+      race.step()
+      events.push(...race.events)
+      race.events = []
+    }
+    expect(events.map((e) => e.type)).toContain('pulseLock')
+    expect(events.map((e) => e.type)).toContain('pulsed')
+    expect(me.stunned).toBeGreaterThan(0)
+    // Cut power: from a standstill it barely pulls away.
+    const track = race.track
+    const p = pointAt(track, 30, 0)
+    const cut = createCar(p.x, p.z, p.heading, track)
+    const fresh = createCar(p.x, p.z, p.heading, track)
+    cut.stunned = PULSE_STUN
+    for (let t = 0; t < 1; t += STEP) {
+      stepCar(cut, { ...idle, throttle: 1 }, STEP, track)
+      stepCar(fresh, { ...idle, throttle: 1 }, STEP, track)
+    }
+    expect(Math.hypot(cut.vx, cut.vz)).toBeLessThan(Math.hypot(fresh.vx, fresh.vz) * 0.3)
+  })
+})

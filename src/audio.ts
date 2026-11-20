@@ -57,6 +57,8 @@ export class Sound {
   private sirenDepth!: GainNode
   private windGain!: GainNode
   private windFilter!: BiquadFilterNode
+  private rotorGain!: GainNode
+  private rotorDepth!: GainNode
   private volume = 0.55
   enabled = true
 
@@ -138,6 +140,25 @@ export class Sound {
     lfo.start()
     this.sirenOsc = siren
     this.sirenDepth = depth
+
+    // Rotor: low noise chopped by the blades about eleven times a second.
+    // The chop is added to the loop's own gain, so both follow the level.
+    this.rotorGain = this.loop('lowpass', 170, 0.9)
+    const blades = ctx.createOscillator()
+    blades.type = 'square'
+    blades.frequency.value = 11
+    this.rotorDepth = ctx.createGain()
+    this.rotorDepth.gain.value = 0
+    blades.connect(this.rotorDepth).connect(this.rotorGain.gain)
+    blades.start()
+  }
+
+  // The police helicopter overhead, level 0 to 1 from how close it is.
+  rotor(level: number) {
+    if (!this.ctx) return
+    const t = this.ctx.currentTime
+    this.rotorGain.gain.setTargetAtTime(level * 0.32, t, 0.3)
+    this.rotorDepth.gain.setTargetAtTime(level * 0.26, t, 0.3)
   }
 
   setRain(on: boolean) {

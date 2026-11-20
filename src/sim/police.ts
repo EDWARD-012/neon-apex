@@ -43,8 +43,9 @@ export function chase(cop: CarState, target: CarState, track: Track, line: Racin
     tz = track.z[j] + track.tz[j] * along + track.nz[j] * side
     // A stopped player gets boxed in: creep up and stop just behind.
     want = targetSlow ? Math.max(0, (gap - 6) * 0.8) : Math.min(line.speed[i] * (block ? 1.2 : 1.12), Math.max(forwardSpeed(target) + (block ? 14 : 9), 18))
-  } else if (gap > track.length - 60) {
-    // Just overshot the player: back off and let them come.
+  } else if (gap > track.length - 60 || (block && gap > track.length / 2)) {
+    // Just overshot the player, or a blocker called in ahead: back off and
+    // let them come.
     const j = (i + Math.round((8 + speed * 0.4) / track.spacing)) % n
     tx = track.x[j] + line.offset[j] * track.nx[j]
     tz = track.z[j] + line.offset[j] * track.nz[j]

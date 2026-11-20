@@ -90,6 +90,9 @@ export type RaceEvent =
   | { type: 'roadblock' }
   | { type: 'spikesAhead' }
   | { type: 'punctured' }
+  | { type: 'heliJoined' }
+  | { type: 'pulseLock' }
+  | { type: 'pulsed' }
 
 export interface Pursuit {
   // Both run 0 to 1. Busted fills while the player is slow with a patrol
@@ -112,15 +115,15 @@ export const HEAT_STEP = 40
 export type CopKind = 'patrol' | 'heavy' | 'interceptor'
 const COP_SPECS: Record<CopKind, CarSpec> = { patrol: POLICE_SPEC, heavy: HEAVY_SPEC, interceptor: INTERCEPTOR_SPEC }
 // Who joins as the heat reaches each level: a pair at heat 2, one to drive
-// ahead and box the player in, a heavy unit at 3, another blocker at 4 and
-// two interceptors at 5.
-const REINFORCEMENTS: Record<number, [CopKind, CopRole][]> = {
+// ahead and box the player in, a heavy unit at 3, another blocker at 4,
+// called in ahead of the player, and two interceptors at 5.
+const REINFORCEMENTS: Record<number, [CopKind, CopRole, 'ahead'?][]> = {
   2: [
     ['patrol', 'ram'],
     ['patrol', 'block'],
   ],
   3: [['heavy', 'ram']],
-  4: [['patrol', 'block']],
+  4: [['patrol', 'block', 'ahead']],
   5: [
     ['interceptor', 'ram'],
     ['interceptor', 'ram'],
@@ -147,6 +150,28 @@ export const ROADBLOCK_GAP = 5.5
 const CAR_ACROSS = 4.6
 // What a spike strip leaves of the car: top speed and grip.
 export const PUNCTURED = { topSpeed: 0.72, grip: 0.62 }
+// From heat 4 in a pursuit a helicopter follows the player. Within
+// HELI_SIGHT of it the spotlight keeps the player seen, and the escape
+// meter fills at HELI_ESCAPE of its usual rate. It flies at HELI_SPEED, so
+// a quick car can outrun it.
+export const HELI_HEAT = 4
+export const HELI_SPEED = 58
+export const HELI_SIGHT = 120
+export const HELI_ESCAPE = 0.35
+// Interceptors carry a pulse. Lined up behind the player within
+// PULSE_RANGE for PULSE_LOCK seconds, one fires and cuts the player's power
+// for PULSE_STUN seconds, then needs PULSE_COOLDOWN seconds to charge.
+export const PULSE_RANGE = 70
+export const PULSE_LOCK = 1.5
+export const PULSE_STUN = 1.4
+export const PULSE_COOLDOWN = 8
+
+export interface Helicopter {
+  x: number
+  z: number
+  heading: number
+  seeing: boolean
+}
 
 // A spike strip: where it is along the lap, its offset from the centre line
 // (positive to the right) and half its length across the road.
@@ -209,6 +234,12 @@ export class Race {
   punctured = false
   private sinceSetup = 0
   private setups = 0
+  // The helicopter over the pursuit, once the heat brings it.
+  heli: Helicopter | null = null
+  // Each interceptor's lock on the player (seconds) and its recharge.
+  private pulses = new Map<CarState, { lock: number; cooldown: number }>()
+  // The strongest lock on the player right now, 0 to 1, for the HUD.
+  pulseLock = 0
   private setupRng: Rng
   // The player's drift: the slide in progress and everything banked.
   drift = { score: 0, total: 0, quiet: 0 }
@@ -341,13 +372,14 @@ export class Race {
   }
 
   // A police car on the road some distance behind the player.
+  // A negative distance puts it ahead, called in to wait for the player.
   private addCop(behind: number, kind: CopKind = 'patrol', role: CopRole = 'ram') {
     const where = locate(this.track, this.player.car.x, this.player.car.z, this.player.car.hint)
     const at = pointAt(this.track, where.s - behind, this.police.length % 2 === 0 ? -3 : 3)
     const cop = createCar(at.x, at.z, at.heading, this.track, COP_SPECS[kind])
     cop.nitro = 0
     if (this.phase === 'racing') {
-      const v = Math.max(20, forwardSpeed(this.player.car))
+      const v = behind < 0 ? 10 : Math.max(20, forwardSpeed(this.player.car))
       cop.vx = Math.sin(at.heading) * v
       cop.vz = Math.cos(at.heading) * v
     }
@@ -364,9 +396,9 @@ export class Race {
     if (p.heat >= MAX_HEAT) return
     p.heat++
     this.events.push({ type: 'heatUp', heat: p.heat })
-    ;(REINFORCEMENTS[p.heat] ?? []).forEach(([kind, role], k) => {
+    ;(REINFORCEMENTS[p.heat] ?? []).forEach(([kind, role, ahead], k) => {
       if (this.activeCops.length >= limit) return
-      this.addCop(220 + k * 30, kind, role)
+      this.addCop(ahead ? -260 : 220 + k * 30, kind, role)
       this.events.push({ type: 'copJoined' })
     })
   }
@@ -523,7 +555,8 @@ export class Race {
     const slow = Math.hypot(me.vx, me.vz) < 6
     if (slow && nearest < 14) p.busted = Math.min(1, p.busted + dt / 2.5)
     else p.busted = Math.max(0, p.busted - dt / 2)
-    if (alongNearest > ESCAPE_DISTANCE) p.escape = Math.min(1, p.escape + dt / 6)
+    const seen = this.heli?.seeing ? HELI_ESCAPE : 1
+    if (alongNearest > ESCAPE_DISTANCE) p.escape = Math.min(1, p.escape + (dt / 6) * seen)
     else p.escape = Math.max(0, p.escape - dt / 3)
     return p.busted >= 1 ? 'busted' : p.escape >= 1 ? 'escaped' : null
   }
@@ -545,6 +578,8 @@ export class Race {
     // Heat rises over time, and each level brings more police.
     p.sinceJoin += dt
     if (p.sinceJoin > HEAT_STEP) this.heatUp(MAX_POLICE)
+    this.fly(dt)
+    this.pulse(dt)
     if (p.heat >= SETUP_HEAT && !p.outcome) {
       this.sinceSetup += dt
       if (this.sinceSetup >= SETUP_EVERY) {
@@ -552,6 +587,63 @@ export class Race {
         this.setUp()
       }
     }
+  }
+
+  // The helicopter joins at HELI_HEAT, 300 m back, and flies at the point
+  // the player will reach in a second.
+  private fly(dt: number) {
+    const me = this.player.car
+    if (!this.heli) {
+      if (this.pursuit.heat < HELI_HEAT) return
+      const where = locate(this.track, me.x, me.z, me.hint)
+      const at = pointAt(this.track, where.s - 300, 0)
+      this.heli = { x: at.x, z: at.z, heading: at.heading, seeing: false }
+      this.events.push({ type: 'heliJoined' })
+    }
+    const h = this.heli
+    const dx = me.x + me.vx - h.x
+    const dz = me.z + me.vz - h.z
+    const d = Math.hypot(dx, dz)
+    const move = Math.min(d, HELI_SPEED * dt)
+    if (d > 0.01) {
+      h.x += (dx / d) * move
+      h.z += (dz / d) * move
+      if (d > 2) h.heading = Math.atan2(dx, dz)
+    }
+    h.seeing = Math.hypot(me.x - h.x, me.z - h.z) < HELI_SIGHT
+  }
+
+  // Interceptors lock on from behind and fire a pulse that cuts the
+  // player's power for a moment.
+  private pulse(dt: number) {
+    const me = this.player.car
+    const n = this.track.n
+    let strongest = 0
+    for (const cop of this.activeCops) {
+      if (this.copKind.get(cop) !== 'interceptor') continue
+      const state = this.pulses.get(cop) ?? { lock: 0, cooldown: 0 }
+      this.pulses.set(cop, state)
+      state.cooldown = Math.max(0, state.cooldown - dt)
+      const behind = ((me.hint - cop.hint + n) % n) * this.track.spacing
+      const fx = Math.sin(cop.heading)
+      const fz = Math.cos(cop.heading)
+      const ax = me.x - cop.x
+      const az = me.z - cop.z
+      const lateral = Math.abs(ax * -fz + az * fx)
+      const lined = behind > 5 && behind < PULSE_RANGE && lateral < 6 && ax * fx + az * fz > 0
+      if (lined && state.cooldown === 0) {
+        if (state.lock === 0) this.events.push({ type: 'pulseLock' })
+        state.lock += dt
+        if (state.lock >= PULSE_LOCK) {
+          me.stunned = PULSE_STUN
+          state.lock = 0
+          state.cooldown = PULSE_COOLDOWN
+          this.events.push({ type: 'pulsed' })
+        }
+      } else state.lock = Math.max(0, state.lock - dt * 2)
+      strongest = Math.max(strongest, state.lock / PULSE_LOCK)
+    }
+    this.pulseLock = strongest
   }
 
   // The next roadblock or spike strip, out of sight ahead of the player.
@@ -653,6 +745,7 @@ export class Race {
     }
     if (!this.chasing) return
     const cops = this.activeCops
+    this.pulse(dt)
     // Every chasing car wrecked: the chase is over, as if they were lost.
     const result = cops.length === 0 ? 'escaped' : this.meters(dt, cops)
     if (result === 'busted') {

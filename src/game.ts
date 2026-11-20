@@ -10,6 +10,7 @@ import { buildLandscape } from './render/landscape'
 import { Cockpit, DRIVER } from './render/cockpit'
 import { Particles, Rain, Skids, Trails } from './render/effects'
 import { Garage } from './render/garage'
+import { createHelicopter, type HelicopterModel } from './render/helicopter'
 import { disposeStrip, spikeStrip } from './render/spikes'
 import { spot } from './render/textures'
 import { buildTrackMeshes } from './render/trackMesh'
@@ -155,8 +156,9 @@ export class Game {
   private materials: { city: City | null; road: MeshStandardMaterial; ground: MeshStandardMaterial } | null = null
   private readonly wheelBank = new WheelBank(200)
   private debris: Debris[] = []
-  // A model for each spike strip on the road.
+  // A model for each spike strip on the road, and the helicopter's.
   private strips = new Map<SpikeStrip, Group>()
+  private copter: HelicopterModel | null = null
   private readonly fire: Particles
   private readonly darkSmoke: Particles
   private nitroWas = false
@@ -308,6 +310,7 @@ export class Game {
       disposeStrip(g)
     }
     this.strips.clear()
+    if (this.copter) this.world.scene.remove(this.copter.group, this.copter.beam, this.copter.light.target)
     this.nitroWas = false
     this.boostWas = 0
     this.gearWas = 0
@@ -647,6 +650,15 @@ export class Game {
         popup('Roadblock ahead: find the gap', 'red')
       } else if (e.type === 'spikesAhead') {
         popup('Spike strip ahead: keep to the clear side', 'red')
+      } else if (e.type === 'heliJoined') {
+        popup('Helicopter overhead: outrun the searchlight', 'red')
+      } else if (e.type === 'pulseLock') {
+        popup('Interceptor locking on', 'red')
+        this.sound.beep(true)
+      } else if (e.type === 'pulsed') {
+        flash('Pulse: power cut', 'warn')
+        this.sound.hit(6)
+        this.shake = Math.min(1, this.shake + 0.35)
       } else if (e.type === 'punctured') {
         flash('Tyres blown', 'warn')
         this.sound.hit(9)
@@ -748,8 +760,44 @@ export class Game {
     }
   }
 
+  // The helicopter hangs over the chase, its searchlight on the player.
+  private drawCopter(dt: number) {
+    const h = this.race.heli
+    const c = this.copter
+    if (!h) {
+      if (c?.group.parent) this.world.scene.remove(c.group, c.beam, c.light.target)
+      return
+    }
+    if (!c) {
+      this.copter = createHelicopter()
+      this.copter.group.remove(this.copter.beam)
+    }
+    const m = this.copter as HelicopterModel
+    if (!m.group.parent) this.world.scene.add(m.group, m.beam, m.light.target)
+    m.group.position.set(h.x, 34 + Math.sin(this.time * 1.3) * 0.6, h.z)
+    m.group.rotation.set(0.1, h.heading, Math.sin(this.time * 0.7) * 0.05, 'YXZ')
+    m.rotor.rotation.y += dt * 38
+    m.tail.rotation.x += dt * 60
+    const blink = Math.floor(this.time * 4) % 2 === 0
+    m.beacon.color.set(blink ? '#ff2030' : '#2050ff')
+    m.beacon.intensity = 12
+    const me = this.race.player.car
+    m.light.target.position.set(me.x, 0, me.z)
+    const day = isDay(this.weather)
+    m.light.intensity = h.seeing && !day ? 220 : 0
+    const from = m.group.localToWorld(m.light.position.clone())
+    const to = new Vector3(me.x, 0, me.z).sub(from)
+    const length = to.length()
+    m.beam.visible = h.seeing
+    m.beam.position.copy(from)
+    m.beam.scale.set(length * 0.09, length, length * 0.09)
+    m.beam.quaternion.setFromUnitVectors(DOWN, to.normalize())
+    ;(m.beam.material as MeshStandardMaterial).opacity = day ? 0.015 : 0.05
+  }
+
   private draw(dt: number) {
     this.syncStrips()
+    this.drawCopter(dt)
     // Blown tyres: the rims throw sparks off the road.
     const me = this.race.player.car
     if (this.race.punctured && (this.mode === 'race' || this.mode === 'results') && speedOf(me) > 4) {
@@ -873,6 +921,8 @@ export class Game {
     }
     this.sound.siren(active && nearest < Infinity ? Math.max(0, 1 - nearest / 260) : 0, MathUtils.clamp(1 + (closing / 343) * 3, 0.75, 1.35))
     this.sound.wind(speedOf(followed), active && this.race.phase !== 'countdown' && this.replayPlaying)
+    const heli = this.race.heli
+    this.sound.rotor(active && heli && this.mode !== 'replay' ? Math.max(0, 1 - Math.hypot(heli.x - followed.x, heli.z - followed.z) / 400) : 0)
     const boost = followed.nitroOn ? 0.85 : MathUtils.clamp((speedOf(followed) - 55) / 30, 0, 0.35)
     this.world.setSpeedEffect(this.mode === 'race' ? boost : this.mode === 'replay' ? boost * 0.6 : 0, this.mode === 'race' ? this.nitroPulse : 0)
     this.world.render()
@@ -1249,7 +1299,7 @@ export class Game {
     if (kind === 'drift') goal = `${race.drift.total.toLocaleString('en')} / ${(this.event.target ?? 0).toLocaleString('en')} drift points`
     else if (kind === 'elimination') goal = `${running} cars left. Last place is out at the end of each lap.`
     else if (kind === 'trial') goal = `Target lap ${formatTime(race.line.lapTime * (this.event.target ?? 1.12))}`
-    else if (kind === 'pursuit') goal = `Heat ${race.pursuit.heat}. Get ${300} m clear of every patrol car.`
+    else if (kind === 'pursuit') goal = `Heat ${race.pursuit.heat}. Get ${300} m clear of every patrol car.${race.heli?.seeing ? ' The helicopter has you in its light.' : ''}${race.pulseLock > 0 ? ' Interceptor locking on!' : ''}`
     // Police after the player in a race: the same meters as a pursuit.
     const chased = kind === 'pursuit' || race.chasing
     if (race.chasing) goal = `Police on you, heat ${race.pursuit.heat}. Get ${300} m clear to lose them.`
@@ -1433,7 +1483,9 @@ export function ordinal(n: number): string {
 }
 
 // What each heat level brings, for the message when it arrives.
-const HEAT_NEWS: Record<number, string> = { 2: 'patrol cars in pairs', 3: 'a heavy unit, roadblocks and spikes', 4: 'more units ahead', 5: 'interceptors' }
+const HEAT_NEWS: Record<number, string> = { 2: 'patrol cars in pairs', 3: 'a heavy unit, roadblocks and spikes', 4: 'a helicopter, and units called ahead', 5: 'interceptors with a power-cutting pulse' }
+// The searchlight beam is a cone built pointing down.
+const DOWN = new Vector3(0, -1, 0)
 
 // The model for a police car, by the kind of unit.
 function copShape(race: Race, cop: CarState): 'police' | 'police-heavy' | 'police-fast' {

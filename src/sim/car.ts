@@ -44,6 +44,9 @@ export const BOOST_TIME = [0, 0.6, 1.2]
 const BOOST_PUSH = 7 // m/s², on top of the engine
 export const driftTier = (charge: number) => (charge >= DRIFT_TIERS[1] ? 2 : charge >= DRIFT_TIERS[0] ? 1 : 0)
 
+// What is left of the engine's pull while an interceptor's pulse lasts.
+export const PULSE_POWER = 0.15
+
 // Barriers sit just outside the painted edge of the road.
 export const barrierOffset = (track: Track) => track.width / 2 + 0.8
 
@@ -113,6 +116,9 @@ export interface CarState {
   // The hardest barrier hit in the last step, for the race rules. Unlike
   // impact, the renderer does not touch it.
   wallHit: number
+  // Seconds left of an interceptor's pulse, which cuts the engine's power
+  // and the nitro.
+  stunned: number
 }
 
 // Where on the body a hit lands, in car space: +x is the car's left, +z its
@@ -157,6 +163,7 @@ export function createCar(x: number, z: number, heading: number, track: Track, s
     driftCharge: 0,
     boost: 0,
     wallHit: 0,
+    stunned: 0,
     hint: locate(track, x, z).i,
   }
 }
@@ -174,15 +181,17 @@ export function stepCar(car: CarState, input: CarInput, dt: number, track: Track
   let vf = car.vx * fx + car.vz * fz
   let vr = car.vx * rx + car.vz * rz
 
-  // Nitro burns only while the car is actually rolling forwards.
-  car.nitroOn = input.nitro && car.nitro > 0 && vf > 3 && input.throttle > 0
+  // Nitro burns only while the car is actually rolling forwards, and not
+  // while a pulse has the power cut.
+  if (car.stunned > 0) car.stunned = Math.max(0, car.stunned - dt)
+  car.nitroOn = input.nitro && car.nitro > 0 && vf > 3 && input.throttle > 0 && car.stunned === 0
   if (car.nitroOn) car.nitro = Math.max(0, car.nitro - S.nitroBurn * dt)
 
   // A battered car loses up to 12% of its top speed and 30% of its pull,
   // and (below) some grip. At full damage it is wrecked: out of a race, or
   // caught in a pursuit.
   const top = S.topSpeed * (car.nitroOn ? S.nitroTop : 1) * (1 - 0.12 * car.damage)
-  const power = 1 - 0.3 * car.damage
+  const power = (1 - 0.3 * car.damage) * (car.stunned > 0 ? PULSE_POWER : 1)
 
   // The player's brake-tap drift. At speed with the wheel turned hard, a
   // tap of the brake (or the handbrake) kicks the tail out, and from then
