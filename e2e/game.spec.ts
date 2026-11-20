@@ -203,11 +203,18 @@ test('the driving aids in Settings are kept and used in the race', async ({ page
   await page.locator('#settings-screen .back').click()
   await quickRace(page, 'race', false)
   await forward(page, 1)
-  const aids = await page.evaluate(() => {
-    const race = (window as any).__neon.game.race
-    return { brake: race.brakeHelp, raw: race.playerInput.raw, drift: race.playerInput.assist }
-  })
-  expect(aids).toEqual({ brake: true, raw: true, drift: true })
+  // The player's input is set by the frame loop, not by fast-forwarding,
+  // and on CI's software GL the first frame can take a while to draw.
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const race = (window as any).__neon.game.race
+          return { brake: race.brakeHelp, raw: race.playerInput.raw, drift: race.playerInput.assist }
+        }),
+      { timeout: 60_000, intervals: [500, 1000, 2000] },
+    )
+    .toEqual({ brake: true, raw: true, drift: true })
 })
 
 test('pause stops the race and resume carries on', async ({ page, isMobile }) => {

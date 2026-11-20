@@ -7,9 +7,11 @@ import { statsTable } from '../scripts/stats'
 const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8')
 
 describe('README', () => {
+  // The stats run whole races, which takes a few seconds when the other
+  // test files are running alongside.
   it('quotes the current stats table', () => {
     expect(readme).toContain(statsTable())
-  })
+  }, 60_000)
 
   it('points only at images that exist', () => {
     for (const [, path] of readme.matchAll(/src="(docs\/[^"]+)"/g)) {
