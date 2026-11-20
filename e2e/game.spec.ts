@@ -72,8 +72,9 @@ test('the title screen draws the city', async ({ page }) => {
   await open(page)
   await expect(page.locator('#menu')).toBeVisible()
   await expect(page.locator('.logo')).toContainText('Neon')
-  await page.waitForTimeout(800)
-  expect(await brightness(page)).toBeGreaterThan(8)
+  // Machines without a graphics card take a while over the first frames
+  // of the daytime valley, so keep looking for a few seconds.
+  await expect.poll(() => brightness(page), { timeout: 15000, intervals: [800, 1000, 2000] }).toBeGreaterThan(8)
 })
 
 test('the car moves under the player’s control', async ({ page, isMobile }) => {
