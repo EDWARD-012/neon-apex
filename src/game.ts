@@ -10,13 +10,15 @@ import { buildLandscape } from './render/landscape'
 import { Cockpit, DRIVER } from './render/cockpit'
 import { Particles, Rain, Skids, Trails } from './render/effects'
 import { Garage } from './render/garage'
+import { disposeStrip, spikeStrip } from './render/spikes'
 import { spot } from './render/textures'
 import { buildTrackMeshes } from './render/trackMesh'
 import { type Quality, World } from './render/world'
 import { type Replay, Recorder } from './replay'
 import { CAR, type CarSpec, type CarState, driftTier, forwardSpeed, PHYSICS_VERSION, speedOf } from './sim/car'
 import { carById, CARS, type Shape } from './sim/cars'
-import { Race, type Racer, STEP } from './sim/race'
+import { Race, type Racer, type SpikeStrip, STEP } from './sim/race'
+import { pointAt } from './sim/track'
 
 export type Mode = 'menu' | 'garage' | 'intro' | 'race' | 'paused' | 'results' | 'replay'
 
@@ -153,6 +155,8 @@ export class Game {
   private materials: { city: City | null; road: MeshStandardMaterial; ground: MeshStandardMaterial } | null = null
   private readonly wheelBank = new WheelBank(200)
   private debris: Debris[] = []
+  // A model for each spike strip on the road.
+  private strips = new Map<SpikeStrip, Group>()
   private readonly fire: Particles
   private readonly darkSmoke: Particles
   private nitroWas = false
@@ -299,6 +303,11 @@ export class Game {
     this.wheelBank.clear()
     for (const d of this.debris) this.world.scene.remove(d.mesh)
     this.debris = []
+    for (const g of this.strips.values()) {
+      this.world.scene.remove(g)
+      disposeStrip(g)
+    }
+    this.strips.clear()
     this.nitroWas = false
     this.boostWas = 0
     this.gearWas = 0
@@ -634,6 +643,14 @@ export class Game {
       } else if (e.type === 'escaped') {
         flash('Escaped')
         this.slowMotion(now)
+      } else if (e.type === 'roadblock') {
+        popup('Roadblock ahead: find the gap', 'red')
+      } else if (e.type === 'spikesAhead') {
+        popup('Spike strip ahead: keep to the clear side', 'red')
+      } else if (e.type === 'punctured') {
+        flash('Tyres blown', 'warn')
+        this.sound.hit(9)
+        this.shake = Math.min(1, this.shake + 0.45)
       } else if (e.type === 'contact') {
         this.shake = Math.min(1, this.shake + e.strength * 0.04)
       }
@@ -710,7 +727,41 @@ export class Game {
     })
   }
 
+  // Adds a model for each new spike strip and takes away the ones the race
+  // has picked up.
+  private syncStrips() {
+    const live = new Set(this.race.spikes)
+    for (const [strip, g] of this.strips) {
+      if (live.has(strip)) continue
+      this.world.scene.remove(g)
+      disposeStrip(g)
+      this.strips.delete(strip)
+    }
+    for (const strip of live) {
+      if (this.strips.has(strip)) continue
+      const g = spikeStrip(strip.half * 2)
+      const at = pointAt(this.race.track, strip.s, strip.offset)
+      g.position.set(at.x, 0, at.z)
+      g.rotation.y = at.heading
+      this.world.scene.add(g)
+      this.strips.set(strip, g)
+    }
+  }
+
   private draw(dt: number) {
+    this.syncStrips()
+    // Blown tyres: the rims throw sparks off the road.
+    const me = this.race.player.car
+    if (this.race.punctured && (this.mode === 'race' || this.mode === 'results') && speedOf(me) > 4) {
+      const fx = Math.sin(me.heading)
+      const fz = Math.cos(me.heading)
+      for (const side of [-1, 1]) {
+        if (Math.random() > 0.7) continue
+        const x = me.x - fx * 1.3 - fz * side * 0.85
+        const z = me.z - fz * 1.3 + fx * side * 0.85
+        this.sparks.emit(x, 0.12, z, me.vx * 0.6 + (Math.random() - 0.5) * 4, 1 + Math.random() * 2.5, me.vz * 0.6 + (Math.random() - 0.5) * 4, 0.25, 0.3)
+      }
+    }
     const alpha = this.mode === 'replay' ? 1 : this.acc / STEP
     const cam = this.world.camera
     let trail = 0
@@ -1382,7 +1433,7 @@ export function ordinal(n: number): string {
 }
 
 // What each heat level brings, for the message when it arrives.
-const HEAT_NEWS: Record<number, string> = { 2: 'patrol cars in pairs', 3: 'a heavy unit joins', 4: 'more units ahead', 5: 'interceptors' }
+const HEAT_NEWS: Record<number, string> = { 2: 'patrol cars in pairs', 3: 'a heavy unit, roadblocks and spikes', 4: 'more units ahead', 5: 'interceptors' }
 
 // The model for a police car, by the kind of unit.
 function copShape(race: Race, cop: CarState): 'police' | 'police-heavy' | 'police-fast' {

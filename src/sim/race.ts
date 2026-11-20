@@ -1,7 +1,7 @@
 import { brakingAid, createDriver, drive, type Driver } from './ai'
 import { CAR, type CarInput, type CarSpec, type CarState, collideCars, createCar, forwardSpeed, idle, speedOf, stepCar } from './car'
 import { racingLine, type RacingLine } from './line'
-import { createRng } from './rng'
+import { createRng, type Rng } from './rng'
 import { buildTrack, locate, pointAt, type Track } from './track'
 import { HEAVY_SPEC, INTERCEPTOR_SPEC, POLICE_SPEC } from './cars'
 import { chase, type CopRole } from './police'
@@ -87,6 +87,9 @@ export type RaceEvent =
   // The player pushed a rival (id) or a patrol car (cop) into a wall hard
   // enough to wreck it.
   | { type: 'takedown'; id?: number; cop?: CarState }
+  | { type: 'roadblock' }
+  | { type: 'spikesAhead' }
+  | { type: 'punctured' }
 
 export interface Pursuit {
   // Both run 0 to 1. Busted fills while the player is slow with a patrol
@@ -132,6 +135,26 @@ export const SPOT_SPEED = 30
 // into it.
 export const TAKEDOWN_HIT = 12.5
 export const TAKEDOWN_WINDOW = 1.5
+// From heat 3 the police also set up on the road ahead of the player, out
+// of sight: a roadblock of heavy units parked across the road with a gap
+// left on one side, then a spike strip over one half of the road, and so
+// on in turn. From heat 4 the gap in a roadblock can have spikes in it.
+export const SETUP_HEAT = 3
+export const SETUP_EVERY = 22
+export const SETUP_AHEAD = 380
+export const ROADBLOCK_GAP = 5.5
+// A car parked sideways covers about this much of the road.
+const CAR_ACROSS = 4.6
+// What a spike strip leaves of the car: top speed and grip.
+export const PUNCTURED = { topSpeed: 0.72, grip: 0.62 }
+
+// A spike strip: where it is along the lap, its offset from the centre line
+// (positive to the right) and half its length across the road.
+export interface SpikeStrip {
+  s: number
+  offset: number
+  half: number
+}
 
 const RIVALS = [
   { name: 'Vesper', color: '#d01f3c' },
@@ -179,6 +202,14 @@ export class Race {
   readonly takedowns = { rivals: 0, cops: [] as number[] }
   // When the player last hit each car, for takedowns.
   private hitByPlayer = new Map<CarState, number>()
+  // Heavy units parked across the road in the latest roadblock, spike
+  // strips on the road, and whether the player's tyres are gone.
+  readonly blockade: CarState[] = []
+  spikes: SpikeStrip[] = []
+  punctured = false
+  private sinceSetup = 0
+  private setups = 0
+  private setupRng: Rng
   // The player's drift: the slide in progress and everything banked.
   drift = { score: 0, total: 0, quiet: 0 }
   // Things that happened to the player since the game last looked.
@@ -228,6 +259,7 @@ export class Race {
       })
     }
     this.autopilot = options.autopilot ? createDriver(0.97) : null
+    this.setupRng = createRng(`setup/${options.seed}`)
     this.traffic = spawnTraffic(this.track, options.traffic ?? 0, options.seed)
     this.passing = this.traffic.map(() => ({ ahead: false, touched: -10 }))
     this.mode = options.mode ?? 'circuit'
@@ -282,7 +314,7 @@ export class Race {
       this.events.push({ type: 'takedown', id: racer.id })
     }
     for (const cop of this.police) {
-      if (this.parked.has(cop) || this.wreckedCops.has(cop) || !recent(cop)) continue
+      if (this.parked.has(cop) || this.wreckedCops.has(cop) || this.blockade.includes(cop) || !recent(cop)) continue
       cop.damage = 1
       this.wreckedCops.add(cop)
       this.takedowns.cops.push(this.pursuit.heat)
@@ -292,7 +324,7 @@ export class Race {
 
   // Patrol cars still in the chase: not waiting by the road, not wrecked.
   get activeCops(): CarState[] {
-    return this.police.filter((c) => !this.parked.has(c) && !this.wreckedCops.has(c))
+    return this.police.filter((c) => !this.parked.has(c) && !this.wreckedCops.has(c) && !this.blockade.includes(c))
   }
 
   // Takes a car out of the race. A wrecked or busted car stays where it is.
@@ -383,8 +415,9 @@ export class Race {
     // The police hunt the player until the event is decided for them.
     const hunting = this.phase === 'racing' && !this.pursuit.outcome && this.player.finishTime === null && !this.player.out
     for (const cop of this.police) {
-      const wrecked = this.wreckedCops.has(cop)
-      const input = wrecked ? (forwardSpeed(cop) > 1 ? { ...idle, brake: 1 } : idle) : hunting && !this.parked.has(cop) ? chase(cop, this.player.car, this.track, this.line, this.copRole.get(cop)) : idle
+      // Wrecked cars and roadblocks stand still.
+      const still = this.wreckedCops.has(cop) || this.blockade.includes(cop)
+      const input = still ? (forwardSpeed(cop) > 1 ? { ...idle, brake: 1 } : idle) : hunting && !this.parked.has(cop) ? chase(cop, this.player.car, this.track, this.line, this.copRole.get(cop)) : idle
       stepCar(cop, input, dt, this.track)
     }
     for (const racer of this.racers) {
@@ -438,6 +471,7 @@ export class Race {
     }
     if (this.mode === 'pursuit') this.updatePursuit(dt)
     else if (this.patrols > 0) this.updatePatrol(dt)
+    this.checkSpikes()
     for (const racer of this.racers) if (!racer.out) this.track_(racer, dt)
     if (this.finishOrder.length > 0) this.sinceFirstFinish += dt
     const running = this.racers.filter((r) => !r.out)
@@ -511,6 +545,92 @@ export class Race {
     // Heat rises over time, and each level brings more police.
     p.sinceJoin += dt
     if (p.sinceJoin > HEAT_STEP) this.heatUp(MAX_POLICE)
+    if (p.heat >= SETUP_HEAT && !p.outcome) {
+      this.sinceSetup += dt
+      if (this.sinceSetup >= SETUP_EVERY) {
+        this.sinceSetup = 0
+        this.setUp()
+      }
+    }
+  }
+
+  // The next roadblock or spike strip, out of sight ahead of the player.
+  private setUp() {
+    const me = this.player.car
+    const s = locate(this.track, me.x, me.z, me.hint).s + SETUP_AHEAD
+    const side = this.setupRng() < 0.5 ? -1 : 1
+    const w = this.track.width
+    if (this.setups++ % 2 === 0) {
+      const gap = this.placeRoadblock(s, side)
+      if (this.pursuit.heat >= 4 && this.setupRng() < 0.5) this.spikes.push({ s: s - 6, offset: gap.offset, half: gap.half })
+      this.events.push({ type: 'roadblock' })
+    } else {
+      this.spikes.push({ s, offset: (side * w) / 4, half: w / 4 + 0.6 })
+      this.events.push({ type: 'spikesAhead' })
+    }
+  }
+
+  // Parks heavy units sideways across the road at s, from the barrier on
+  // one side, leaving a gap at least ROADBLOCK_GAP wide on the given side.
+  // The cars of the last roadblock are moved here rather than new ones
+  // made. Traffic close by is moved on so it does not queue in the gap.
+  // Returns the gap's centre offset and half width.
+  private placeRoadblock(s: number, side: number): { offset: number; half: number } {
+    const track = this.track
+    const w = track.width
+    const count = Math.max(1, Math.floor((w - ROADBLOCK_GAP) / CAR_ACROSS))
+    for (let k = 0; k < count; k++) {
+      const offset = -side * (w / 2) + side * CAR_ACROSS * (k + 0.5)
+      const at = pointAt(track, s + (k % 2) * 1.5, offset)
+      const turn = Math.PI / 2 + (this.setupRng() - 0.5) * 0.3
+      const fresh = createCar(at.x, at.z, at.heading + turn, track, HEAVY_SPEC)
+      fresh.nitro = 0
+      let car = this.blockade[k]
+      if (car) {
+        Object.assign(car, fresh)
+        this.wreckedCops.delete(car)
+      } else {
+        car = fresh
+        this.blockade.push(car)
+        this.police.push(car)
+        this.copKind.set(car, 'heavy')
+        this.copRole.set(car, 'ram')
+      }
+    }
+    for (const t of this.traffic) {
+      const at = locate(track, t.car.x, t.car.z, t.car.hint).s
+      let gap = at - s
+      if (gap > track.length / 2) gap -= track.length
+      if (gap < -track.length / 2) gap += track.length
+      if (Math.abs(gap) < 80) {
+        const p = pointAt(track, s + 160 + Math.abs(gap), t.lane)
+        const v = Math.max(t.cruise, forwardSpeed(t.car))
+        Object.assign(t.car, { x: p.x, z: p.z, heading: p.heading, vx: Math.sin(p.heading) * v, vz: Math.cos(p.heading) * v, yawRate: 0, hint: locate(track, p.x, p.z).i })
+      }
+    }
+    const edge = -side * (w / 2) + side * CAR_ACROSS * count
+    const half = (w / 2 - side * edge) / 2
+    return { offset: side * (w / 2 - half), half }
+  }
+
+  // Spike strips: the player's car over one loses its tyres for the rest of
+  // the event. Strips well behind the player are picked up.
+  private checkSpikes() {
+    if (this.spikes.length === 0) return
+    const me = this.player.car
+    const here = locate(this.track, me.x, me.z, me.hint)
+    const L = this.track.length
+    this.spikes = this.spikes.filter((strip) => {
+      let ds = here.s - strip.s
+      if (ds > L / 2) ds -= L
+      if (ds < -L / 2) ds += L
+      if (!this.punctured && Math.abs(ds) < 1.6 && Math.abs(here.d - strip.offset) < strip.half + me.spec.halfWidth) {
+        this.punctured = true
+        me.spec = { ...me.spec, topSpeed: me.spec.topSpeed * PUNCTURED.topSpeed, lateralLimit: me.spec.lateralLimit * PUNCTURED.grip, grip: me.spec.grip * PUNCTURED.grip }
+        this.events.push({ type: 'punctured' })
+      }
+      return ds < 80
+    })
   }
 
   // Police in a race. A waiting patrol car that sees the player go past
