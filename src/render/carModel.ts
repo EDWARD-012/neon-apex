@@ -2,386 +2,574 @@ import {
   AdditiveBlending,
   BoxGeometry,
   type BufferGeometry,
+  CapsuleGeometry,
   Color,
   ConeGeometry,
   CylinderGeometry,
+  DynamicDrawUsage,
   ExtrudeGeometry,
   Group,
+  InstancedMesh,
+  LatheGeometry,
   type Material,
+  Matrix4,
   Mesh,
   MeshBasicMaterial,
   MeshPhysicalMaterial,
   MeshStandardMaterial,
+  Object3D,
+  Path,
   PlaneGeometry,
   Shape,
   type Texture,
+  Vector2,
 } from 'three'
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { Shape as CarShape } from '../sim/cars'
+import { type BodySpec, dent, loft, type Station } from './carBody'
 
-// Cars built from a few extruded side profiles and primitives. None of them
-// is modelled on a real car.
+// Car models: a lofted body (see carBody.ts) dressed with lights, grille,
+// splitter, diffuser, exhausts, mirrors, a wing where the car has one, and
+// wheels with spoked rims and brake calipers. None is modelled on a real car.
 
 export interface CarModel {
   group: Group
   body: Group
+  // Empty objects where the wheels go. The wheel bank draws the actual
+  // wheels there, all cars in one draw call.
+  wheels: Object3D[]
   frontPivots: Group[]
-  wheels: Mesh[]
   tail: MeshBasicMaterial
+  heads: MeshBasicMaterial[]
   flames: Mesh[]
   glow: Mesh | null
-  // Police light bar, flashed by the game.
   siren: { red: MeshBasicMaterial; blue: MeshBasicMaterial } | null
-  // Where the tail lights are, in car space, for the light trails.
   tailLights: [number, number, number][]
+  exhausts: [number, number, number][]
+  // Parts that can come off in a crash, by where they sit.
+  loose: { mesh: Mesh; side: 'left' | 'right' | 'rear' | 'front' }[]
+  // Dents and scrapes: hit at a point in car space with a strength.
+  hit: (x: number, y: number, z: number, strength: number) => void
+  half: { width: number; front: number; rear: number }
   materials: Material[]
 }
 
-type Points = [number, number][]
-
-interface ShapeDef {
-  // Side profiles: x runs from the rear (-) to the nose (+), y is height.
-  body: Points
-  bodyWidth: number
-  bevel: number
-  cabin: Points
-  cabinWidth: number
-  roof?: Points
-  wheelFront: number
-  wheelRear: number
-  wheelX: number
+interface Def {
+  stations: Station[]
+  wheelZ: [number, number]
   wheelR: number
-  headY: number
-  noseZ: number
-  tailY: number
-  tailZ: number
-  tailWidth: number
-  wing?: { y: number; z: number; width: number }
-  extras?: (body: Group, paint: Material, dark: Material) => void
+  wheelX: number
+  wing?: { y: number; z: number; width: number; chord: number }
+  ducktail?: boolean
+  roofSpoiler?: boolean
+  exhausts: number
   sport: boolean
+  lightBar?: boolean
 }
 
-const SEDAN: Omit<ShapeDef, 'extras'> = {
-  body: [[-2.2, 0.3], [-2.26, 0.84], [-1.6, 0.94], [1.2, 0.92], [2.2, 0.8], [2.3, 0.42], [2.2, 0.3]],
-  bodyWidth: 1.7,
-  bevel: 0.1,
-  cabin: [[-1.5, 0.9], [-0.95, 1.42], [0.5, 1.45], [1.15, 0.92]],
-  cabinWidth: 1.5,
-  roof: [[-0.92, 1.4], [-0.85, 1.47], [0.45, 1.5], [0.52, 1.43]],
-  wheelFront: 1.4,
-  wheelRear: -1.4,
-  wheelX: 0.86,
+const st = (z: number, w: number, bottom: number, shoulder: number, top: number, roof: number): Station => ({ z, w, bottom, shoulder, top, roof })
+
+const SEDAN: Def = {
+  stations: [
+    st(-2.3, 0.8, 0.34, 0.84, 0.88, 0.7),
+    st(-2.1, 0.88, 0.3, 0.92, 0.96, 0.8),
+    st(-1.5, 0.9, 0.28, 0.93, 0.98, 0.82),
+    st(-1.15, 0.9, 0.28, 0.93, 1.24, 0.66),
+    st(-0.75, 0.9, 0.28, 0.92, 1.44, 0.62),
+    st(0.45, 0.9, 0.28, 0.9, 1.46, 0.62),
+    st(1.15, 0.9, 0.28, 0.88, 0.98, 0.76),
+    st(1.8, 0.89, 0.28, 0.84, 0.88, 0.8),
+    st(2.2, 0.84, 0.3, 0.74, 0.76, 0.74),
+    st(2.33, 0.7, 0.36, 0.62, 0.64, 0.6),
+  ],
+  wheelZ: [1.4, -1.4],
   wheelR: 0.36,
-  headY: 0.7,
-  noseZ: 2.3,
-  tailY: 0.82,
-  tailZ: -2.28,
-  tailWidth: 1.5,
+  wheelX: 0.82,
+  exhausts: 1,
   sport: false,
 }
 
-const SHAPES: Record<CarShape, ShapeDef> = {
+const DEFS: Record<CarShape, Def> = {
   vanta: {
-    body: [[-2.12, 0.3], [-2.2, 0.62], [-2.08, 0.82], [-1.2, 0.86], [0.9, 0.84], [1.9, 0.7], [2.2, 0.56], [2.18, 0.3]],
-    bodyWidth: 1.64,
-    bevel: 0.14,
-    cabin: [[-1.45, 0.8], [-0.65, 1.13], [0.2, 1.15], [1.05, 0.82]],
-    cabinWidth: 1.22,
-    roof: [[-0.62, 1.12], [-0.55, 1.2], [0.18, 1.22], [0.26, 1.13]],
-    wheelFront: 1.38,
-    wheelRear: -1.38,
-    wheelX: 0.86,
+    stations: [
+      st(-2.26, 0.78, 0.33, 0.72, 0.76, 0.66),
+      st(-2.08, 0.9, 0.27, 0.82, 0.88, 0.8),
+      st(-1.55, 0.95, 0.24, 0.85, 0.9, 0.8),
+      st(-1.1, 0.96, 0.24, 0.85, 1.04, 0.68),
+      st(-0.5, 0.95, 0.24, 0.84, 1.19, 0.6),
+      st(0.25, 0.93, 0.24, 0.82, 1.2, 0.6),
+      st(0.85, 0.93, 0.24, 0.8, 0.9, 0.74),
+      st(1.45, 0.94, 0.24, 0.76, 0.8, 0.82),
+      st(2.0, 0.88, 0.25, 0.64, 0.67, 0.78),
+      st(2.3, 0.7, 0.3, 0.5, 0.52, 0.6),
+    ],
+    wheelZ: [1.38, -1.38],
     wheelR: 0.36,
-    headY: 0.64,
-    noseZ: 2.24,
-    tailY: 0.74,
-    tailZ: -2.3,
-    tailWidth: 1.5,
-    wing: { y: 1.06, z: -1.92, width: 1.76 },
+    wheelX: 0.86,
+    wing: { y: 1.04, z: -1.92, width: 1.78, chord: 0.34 },
+    exhausts: 2,
     sport: true,
   },
   kite: {
-    body: [[-1.88, 0.3], [-1.95, 0.72], [-1.75, 0.9], [0.8, 0.88], [1.7, 0.72], [1.98, 0.56], [1.96, 0.3]],
-    bodyWidth: 1.6,
-    bevel: 0.16,
-    cabin: [[-1.72, 0.86], [-1.45, 1.3], [0.35, 1.34], [1.05, 0.88]],
-    cabinWidth: 1.36,
-    roof: [[-1.42, 1.28], [-1.3, 1.36], [0.3, 1.39], [0.42, 1.31]],
-    wheelFront: 1.25,
-    wheelRear: -1.2,
-    wheelX: 0.84,
+    stations: [
+      st(-1.98, 0.78, 0.33, 0.86, 0.92, 0.7),
+      st(-1.85, 0.88, 0.28, 0.9, 1.2, 0.68),
+      st(-1.55, 0.91, 0.27, 0.9, 1.34, 0.64),
+      st(0.2, 0.91, 0.27, 0.88, 1.38, 0.64),
+      st(0.95, 0.9, 0.27, 0.86, 0.94, 0.76),
+      st(1.55, 0.88, 0.27, 0.78, 0.82, 0.8),
+      st(1.9, 0.82, 0.29, 0.66, 0.68, 0.72),
+      st(2.02, 0.68, 0.34, 0.56, 0.58, 0.56),
+    ],
+    wheelZ: [1.26, -1.22],
     wheelR: 0.34,
-    headY: 0.66,
-    noseZ: 2.0,
-    tailY: 0.86,
-    tailZ: -1.98,
-    tailWidth: 1.36,
-    wing: { y: 1.4, z: -1.6, width: 1.3 },
+    wheelX: 0.82,
+    roofSpoiler: true,
+    exhausts: 1,
     sport: true,
   },
   brute: {
-    body: [[-2.35, 0.32], [-2.4, 0.82], [-1.5, 0.96], [0.6, 0.95], [2.2, 0.9], [2.42, 0.72], [2.38, 0.32]],
-    bodyWidth: 1.8,
-    bevel: 0.08,
-    cabin: [[-1.38, 0.93], [-0.78, 1.3], [0.28, 1.32], [0.78, 0.95]],
-    cabinWidth: 1.5,
-    roof: [[-0.76, 1.29], [-0.7, 1.36], [0.24, 1.38], [0.3, 1.31]],
-    wheelFront: 1.52,
-    wheelRear: -1.5,
-    wheelX: 0.9,
+    stations: [
+      st(-2.42, 0.86, 0.34, 0.86, 0.9, 0.76),
+      st(-2.25, 0.97, 0.3, 0.94, 0.98, 0.86),
+      st(-1.5, 0.99, 0.28, 0.96, 1.0, 0.86),
+      st(-1.25, 0.99, 0.28, 0.96, 1.18, 0.7),
+      st(-0.75, 0.98, 0.28, 0.96, 1.33, 0.66),
+      st(0.25, 0.97, 0.28, 0.95, 1.34, 0.66),
+      st(0.8, 0.97, 0.28, 0.94, 1.0, 0.8),
+      st(1.6, 0.98, 0.28, 0.92, 0.97, 0.88),
+      st(2.25, 0.95, 0.29, 0.86, 0.9, 0.86),
+      st(2.46, 0.86, 0.34, 0.72, 0.74, 0.76),
+    ],
+    wheelZ: [1.52, -1.5],
     wheelR: 0.39,
-    headY: 0.72,
-    noseZ: 2.44,
-    tailY: 0.78,
-    tailZ: -2.44,
-    tailWidth: 1.7,
-    extras: (body, paint, dark) => {
-      // Bonnet scoop and a ducktail lip.
-      const scoop = new Mesh(new BoxGeometry(0.6, 0.12, 0.9), dark)
-      scoop.position.set(0, 1.0, 1.35)
-      const lip = new Mesh(new BoxGeometry(1.7, 0.08, 0.3), paint)
-      lip.position.set(0, 0.98, -2.25)
-      lip.rotation.x = -0.25
-      body.add(scoop, lip)
-    },
+    wheelX: 0.9,
+    ducktail: true,
+    exhausts: 4,
     sport: true,
   },
   volt: {
-    body: [[-2.2, 0.3], [-2.26, 0.68], [-1.95, 0.8], [1.2, 0.8], [2.3, 0.46], [2.26, 0.3]],
-    bodyWidth: 1.68,
-    bevel: 0.12,
-    cabin: [[-1.65, 0.76], [-0.45, 1.14], [0.55, 1.12], [1.6, 0.74]],
-    cabinWidth: 1.3,
-    wheelFront: 1.42,
-    wheelRear: -1.42,
-    wheelX: 0.87,
+    stations: [
+      st(-2.24, 0.8, 0.32, 0.7, 0.73, 0.66),
+      st(-2.0, 0.92, 0.27, 0.78, 0.84, 0.78),
+      st(-1.6, 0.95, 0.25, 0.8, 0.98, 0.66),
+      st(-0.8, 0.95, 0.24, 0.8, 1.13, 0.6),
+      st(0.3, 0.94, 0.24, 0.79, 1.12, 0.6),
+      st(1.2, 0.93, 0.24, 0.74, 0.86, 0.7),
+      st(1.9, 0.9, 0.25, 0.6, 0.62, 0.76),
+      st(2.32, 0.72, 0.3, 0.44, 0.46, 0.6),
+    ],
+    wheelZ: [1.42, -1.42],
     wheelR: 0.36,
-    headY: 0.56,
-    noseZ: 2.3,
-    tailY: 0.72,
-    tailZ: -2.3,
-    tailWidth: 1.66,
+    wheelX: 0.87,
+    lightBar: true,
+    exhausts: 0,
     sport: true,
   },
   sedan: SEDAN,
   van: {
-    body: [[-2.4, 0.35], [-2.42, 1.95], [1.1, 2.0], [2.25, 1.15], [2.45, 0.62], [2.4, 0.35]],
-    bodyWidth: 1.86,
-    bevel: 0.08,
-    cabin: [[1.05, 1.92], [2.18, 1.16], [2.26, 1.02], [1.0, 1.02]],
-    cabinWidth: 1.9,
-    wheelFront: 1.55,
-    wheelRear: -1.55,
-    wheelX: 0.92,
+    stations: [
+      st(-2.42, 0.9, 0.36, 1.0, 1.9, 0.88),
+      st(-2.3, 0.95, 0.32, 1.02, 1.98, 0.9),
+      st(1.0, 0.95, 0.32, 1.02, 2.0, 0.9),
+      st(1.35, 0.95, 0.32, 1.0, 1.7, 0.86),
+      st(2.0, 0.94, 0.33, 0.98, 1.12, 0.84),
+      st(2.4, 0.9, 0.34, 0.86, 0.9, 0.8),
+      st(2.48, 0.78, 0.4, 0.7, 0.72, 0.7),
+    ],
+    wheelZ: [1.55, -1.55],
     wheelR: 0.38,
-    headY: 0.78,
-    noseZ: 2.46,
-    tailY: 1.0,
-    tailZ: -2.44,
-    tailWidth: 1.6,
+    wheelX: 0.86,
+    exhausts: 1,
     sport: false,
   },
-  police: {
-    ...SEDAN,
-    extras: (body) => {
-      // White doors on the dark body.
-      const door = new Mesh(new BoxGeometry(1.78, 0.34, 1.9), new MeshStandardMaterial({ color: '#e8eaf0', roughness: 0.4 }))
-      door.position.set(0, 0.62, -0.1)
-      body.add(door)
-    },
-  },
+  police: { ...SEDAN, exhausts: 2 },
 }
 
-function profile(points: Points) {
-  const shape = new Shape()
-  shape.moveTo(points[0][0], points[0][1])
-  for (const [x, y] of points.slice(1)) shape.lineTo(x, y)
-  shape.closePath()
-  return shape
+// Station values at any point along a car, linearly.
+function at(def: Def, z: number) {
+  const s = def.stations
+  let i = 0
+  while (i < s.length - 2 && s[i + 1].z < z) i++
+  const a = s[i]
+  const b = s[i + 1]
+  const t = Math.max(0, Math.min(1, (z - a.z) / (b.z - a.z || 1)))
+  const mix = (k: keyof Station) => a[k] + (b[k] - a[k]) * t
+  return { w: mix('w'), bottom: mix('bottom'), shoulder: mix('shoulder'), top: mix('top'), roof: mix('roof') }
 }
 
-// Extruded geometry is shared between every car of the same shape.
-const geometryCache = new Map<string, BufferGeometry>()
-function extrude(key: string, points: Points, width: number, bevel: number) {
-  const cached = geometryCache.get(key)
-  if (cached) return cached
-  const geo = new ExtrudeGeometry(profile(points), {
-    depth: width,
-    bevelEnabled: true,
-    bevelThickness: bevel,
-    bevelSize: bevel,
-    bevelSegments: 3,
-    curveSegments: 4,
-  })
-  // Turn the profile so the nose points along +z and the width runs along x.
-  geo.rotateY(-Math.PI / 2)
-  geo.translate(width / 2, 0, 0)
-  geometryCache.set(key, geo)
-  return geo
+function placed(geo: BufferGeometry, x: number, y: number, z: number, rx = 0, ry = 0, rz = 0) {
+  const o = new Object3D()
+  o.position.set(x, y, z)
+  o.rotation.set(rx, ry, rz)
+  o.updateMatrix()
+  return geo.clone().applyMatrix4(o.matrix)
+}
+
+// Wheels for every car in the scene, drawn as two instanced meshes: tyres,
+// and rims with their brake discs. The game moves each slot every frame.
+export class WheelBank {
+  readonly tyres: InstancedMesh
+  readonly rims: InstancedMesh
+  private slots: (Object3D | null)[] = []
+  private readonly scale = new Matrix4()
+  private readonly m = new Matrix4()
+
+  constructor(capacity = 160) {
+    // Tyre: a rounded profile turned round the axle.
+    const profile = [
+      [0.25, -0.15],
+      [0.31, -0.155],
+      [0.345, -0.13],
+      [0.36, -0.07],
+      [0.362, 0],
+      [0.36, 0.07],
+      [0.345, 0.13],
+      [0.31, 0.155],
+      [0.25, 0.15],
+    ].map(([r, y]) => new Vector2(r, y))
+    const tyre = new LatheGeometry(profile, 28).rotateZ(Math.PI / 2)
+    this.tyres = new InstancedMesh(tyre, new MeshStandardMaterial({ color: '#141416', roughness: 0.82, metalness: 0 }), capacity)
+
+    // Rim: a disc with five spoke-shaped holes, extruded and turned to face
+    // out, plus a hub and a brake disc behind it.
+    const face = new Shape()
+    face.absarc(0, 0, 0.25, 0, Math.PI * 2, false)
+    for (let k = 0; k < 5; k++) {
+      const a0 = (k / 5) * Math.PI * 2 + 0.28
+      const a1 = a0 + (Math.PI * 2) / 5 - 0.56
+      const hole = new Path()
+      hole.absarc(0, 0, 0.215, a0, a1, false)
+      hole.absarc(0, 0, 0.09, a1 - 0.05, a0 + 0.05, true)
+      hole.closePath()
+      face.holes.push(hole)
+    }
+    const rimFace = new ExtrudeGeometry(face, { depth: 0.035, bevelEnabled: true, bevelThickness: 0.012, bevelSize: 0.008, bevelSegments: 2, curveSegments: 14 })
+    rimFace.rotateY(Math.PI / 2).translate(0.085, 0, 0)
+    const barrel = new CylinderGeometry(0.255, 0.255, 0.2, 24, 1, true).rotateZ(Math.PI / 2)
+    const hub = new CylinderGeometry(0.05, 0.06, 0.06, 12).rotateZ(Math.PI / 2).translate(0.12, 0, 0)
+    const disc = new CylinderGeometry(0.2, 0.2, 0.03, 24).rotateZ(Math.PI / 2).translate(-0.02, 0, 0)
+    const merged = mergeGeometries([rimFace.toNonIndexed(), barrel.toNonIndexed(), hub.toNonIndexed(), disc.toNonIndexed()])
+    this.rims = new InstancedMesh(merged, new MeshStandardMaterial({ color: '#b9bec9', metalness: 0.95, roughness: 0.22, envMapIntensity: 1.6 }), capacity)
+    for (const mesh of [this.tyres, this.rims]) {
+      mesh.instanceMatrix.setUsage(DynamicDrawUsage)
+      mesh.frustumCulled = false
+      mesh.count = 0
+    }
+  }
+
+  add(slot: Object3D): number {
+    const free = this.slots.indexOf(null)
+    if (free >= 0) {
+      this.slots[free] = slot
+      return free
+    }
+    this.slots.push(slot)
+    return this.slots.length - 1
+  }
+
+  clear() {
+    this.slots = []
+  }
+
+  // Copies every slot's world transform into the instances.
+  update() {
+    const n = Math.min(this.slots.length, this.tyres.instanceMatrix.count)
+    for (let k = 0; k < n; k++) {
+      const slot = this.slots[k]
+      if (!slot || !slot.parent || !isVisible(slot)) {
+        this.m.makeScale(0, 0, 0)
+      } else {
+        slot.updateWorldMatrix(true, false)
+        const r = slot.userData.radius as number
+        this.scale.makeScale(slot.userData.flip ? -1 : 1, r / 0.36, r / 0.36)
+        this.m.multiplyMatrices(slot.matrixWorld, this.scale)
+      }
+      this.tyres.setMatrixAt(k, this.m)
+      this.rims.setMatrixAt(k, this.m)
+    }
+    this.tyres.count = n
+    this.rims.count = n
+    this.tyres.instanceMatrix.needsUpdate = true
+    this.rims.instanceMatrix.needsUpdate = true
+  }
+}
+
+function isVisible(o: Object3D): boolean {
+  for (let p: Object3D | null = o; p; p = p.parent) if (!p.visible) return false
+  return true
 }
 
 export interface ModelOptions {
   shape?: CarShape
   ghost?: boolean
-  // Underglow in the body colour. On by default for the sports cars only.
+  // Underglow in the body colour. On by default for the sports cars.
   glow?: boolean
+  // Where to draw the wheels. Without one the model makes its own.
+  bank?: WheelBank
 }
 
+// One shared bank for models made without one, like the garage car.
+let ownBank: WheelBank | null = null
+
 export function createCarModel(color: string, spot: Texture, options: ModelOptions = {}): CarModel {
-  const shapeId = options.shape ?? 'vanta'
-  const def = SHAPES[shapeId]
+  const shape = options.shape ?? 'vanta'
+  const def = DEFS[shape]
   const ghost = options.ghost ?? false
-  const fade = (m: Material, o = 0.35) => {
+  const fade = (m: Material, o = 0.3) => {
     if (ghost) {
       m.transparent = true
       m.opacity = o
+      m.depthWrite = false
     }
   }
   const group = new Group()
   const body = new Group()
   group.add(body)
+
   const paint = new MeshPhysicalMaterial({
     color,
-    metalness: def.sport ? 0.55 : 0.3,
-    roughness: def.sport ? 0.3 : 0.45,
-    clearcoat: def.sport ? 1 : 0.4,
-    clearcoatRoughness: 0.06,
-    envMapIntensity: 1.5,
+    vertexColors: true,
+    metalness: def.sport ? 0.62 : 0.35,
+    roughness: def.sport ? 0.26 : 0.4,
+    clearcoat: 1,
+    clearcoatRoughness: def.sport ? 0.03 : 0.12,
+    envMapIntensity: 1.7,
   })
-  const glass = new MeshStandardMaterial({ color: '#06070c', metalness: 0.9, roughness: 0.08, envMapIntensity: 2 })
-  const dark = new MeshStandardMaterial({ color: '#0c0d11', roughness: 0.7 })
-  for (const m of [paint, glass, dark]) fade(m)
+  const glass = new MeshPhysicalMaterial({ color: '#05070c', metalness: 0.2, roughness: 0.04, clearcoat: 1, clearcoatRoughness: 0, envMapIntensity: 2.6 })
+  const trim = new MeshStandardMaterial({ color: '#0a0b0f', roughness: 0.55, metalness: 0.3 })
+  const chrome = new MeshStandardMaterial({ color: '#d8dce4', metalness: 1, roughness: 0.12, envMapIntensity: 2 })
+  for (const m of [paint, glass, trim, chrome]) fade(m)
 
-  body.add(new Mesh(extrude(`${shapeId}/body`, def.body, def.bodyWidth, def.bevel), paint))
-  body.add(new Mesh(extrude(`${shapeId}/cabin`, def.cabin, def.cabinWidth, 0.06), glass))
-  if (def.roof) body.add(new Mesh(extrude(`${shapeId}/roof`, def.roof, def.cabinWidth - 0.12, 0.04), paint))
-  const length = def.noseZ - def.tailZ
-  const skirt = new Mesh(new BoxGeometry(def.bodyWidth + 0.2, 0.14, length - 0.5), dark)
-  skirt.position.set(0, 0.3, (def.noseZ + def.tailZ) / 2)
-  body.add(skirt)
-  if (def.wing) {
-    const wing = new Mesh(new BoxGeometry(def.wing.width, 0.05, 0.34), dark)
-    wing.position.set(0, def.wing.y, def.wing.z)
-    body.add(wing)
-    for (const side of [-1, 1]) {
-      const strut = new Mesh(new BoxGeometry(0.06, 0.2, 0.12), dark)
-      strut.position.set(side * def.wing.width * 0.3, def.wing.y - 0.1, def.wing.z)
-      body.add(strut)
-    }
+  const spec: BodySpec = { stations: def.stations, wheels: [def.wheelZ[0], def.wheelZ[1]].map((z) => ({ z, r: def.wheelR, x: def.wheelX })) }
+  const bodyGeo = loft(spec)
+  const original = (bodyGeo.getAttribute('position').array as Float32Array).slice()
+  body.add(new Mesh(bodyGeo, [paint, glass, trim]))
+  // Lights, grille and other parts fixed to the shell. A dent moves them
+  // with it, so nothing is left floating outside a crushed panel.
+  const rigid: { geo: BufferGeometry; original: Float32Array }[] = []
+  const fixed = (geo: BufferGeometry) => {
+    rigid.push({ geo, original: (geo.getAttribute('position').array as Float32Array).slice() })
+    return geo
   }
-  def.extras?.(body, paint, dark)
 
-  // Lamps glow through the bloom pass, so they are drawn without tone mapping.
-  const head = new MeshBasicMaterial({ color: new Color('#e6f2ff').multiplyScalar(3), toneMapped: false })
-  fade(head, 0.3)
-  if (shapeId === 'volt') {
-    // One light bar across the nose.
-    const strip = new Mesh(new BoxGeometry(1.5, 0.05, 0.05), head)
-    strip.position.set(0, def.headY, def.noseZ)
-    body.add(strip)
-  } else {
-    for (const side of [-1, 1]) {
-      const lamp = new Mesh(new BoxGeometry(0.42, 0.07, 0.06), head)
-      lamp.position.set(side * def.bodyWidth * 0.36, def.headY, def.noseZ)
-      lamp.rotation.x = -0.25
-      body.add(lamp)
+  const front = def.stations[def.stations.length - 1].z
+  const rear = def.stations[0].z
+  const nose = at(def, front - 0.12)
+  const tailS = at(def, rear + 0.1)
+
+  // Dark parts merged into one mesh: grille, splitter, diffuser, sills,
+  // light housings.
+  const dark: BufferGeometry[] = []
+  const grilleY = nose.bottom + (nose.shoulder - nose.bottom) * 0.35
+  dark.push(placed(new BoxGeometry(nose.w * 1.1, (nose.shoulder - nose.bottom) * 0.42, 0.08), 0, grilleY, front - 0.04))
+  dark.push(placed(new BoxGeometry(nose.w * 1.9, 0.03, 0.32), 0, at(def, front - 0.2).bottom + 0.01, front - 0.08))
+  dark.push(placed(new BoxGeometry(tailS.w * 1.5, 0.14, 0.3), 0, tailS.bottom + 0.08, rear + 0.08))
+  for (let k = -2; k <= 2; k++) dark.push(placed(new BoxGeometry(0.02, 0.12, 0.26), k * 0.22, tailS.bottom + 0.06, rear + 0.05))
+  const sillZ = (def.wheelZ[0] + def.wheelZ[1]) / 2
+  const sillLen = def.wheelZ[0] - def.wheelZ[1] - def.wheelR * 2.3
+  for (const side of [-1, 1]) {
+    const s = at(def, sillZ)
+    dark.push(placed(new BoxGeometry(0.06, 0.08, sillLen), side * (s.w * 0.96), s.bottom + 0.06, sillZ))
+  }
+  // Headlight housings.
+  for (const side of [-1, 1]) dark.push(placed(new BoxGeometry(nose.w * 0.5, 0.1, 0.14), side * nose.w * 0.56, nose.shoulder - 0.07, front - 0.12, -0.15))
+  if (def.ducktail) dark.push(placed(new BoxGeometry(0.7, 0.12, 1.0), 0, at(def, 1.4).top + 0.04, 1.4))
+  body.add(new Mesh(fixed(mergeGeometries(dark.map((g) => g.toNonIndexed()))), trim))
+
+  // Exhaust tips.
+  const exhausts: [number, number, number][] = []
+  if (def.exhausts) {
+    const tips: BufferGeometry[] = []
+    const xs = def.exhausts === 4 ? [-0.62, -0.48, 0.48, 0.62] : def.exhausts === 2 ? [-0.5, 0.5] : [0.55]
+    for (const x of xs) {
+      tips.push(placed(new CylinderGeometry(0.055, 0.06, 0.18, 14, 1, true), x, tailS.bottom + 0.11, rear + 0.02, Math.PI / 2))
+      exhausts.push([x, tailS.bottom + 0.11, rear - 0.05])
     }
+    body.add(new Mesh(fixed(mergeGeometries(tips.map((g) => g.toNonIndexed()))), chrome))
+  }
+
+  // Lights. Each headlight is its own material so a crash can put one out.
+  const heads: MeshBasicMaterial[] = []
+  for (const side of [-1, 1]) {
+    const head = new MeshBasicMaterial({ color: new Color('#e9f3ff').multiplyScalar(3.2), toneMapped: false })
+    fade(head)
+    heads.push(head)
+    const x = side * nose.w * 0.56
+    const y = nose.shoulder - 0.06
+    const parts = def.lightBar
+      ? [placed(new BoxGeometry(nose.w * 0.95, 0.025, 0.03), side * nose.w * 0.48, y + 0.02, front - 0.03)]
+      : [
+          placed(new BoxGeometry(nose.w * 0.46, 0.018, 0.02), x, y + 0.035, front - 0.04, -0.15),
+          placed(new CylinderGeometry(0.035, 0.035, 0.02, 12), x - side * 0.09, y - 0.01, front - 0.05, Math.PI / 2),
+          placed(new CylinderGeometry(0.035, 0.035, 0.02, 12), x + side * 0.05, y - 0.01, front - 0.05, Math.PI / 2),
+        ]
+    body.add(new Mesh(fixed(mergeGeometries(parts.map((g) => g.toNonIndexed()))), head))
   }
   const tail = new MeshBasicMaterial({ color: new Color('#ff1a2e').multiplyScalar(1.6), toneMapped: false })
-  fade(tail, 0.3)
-  const bar = new Mesh(new BoxGeometry(def.tailWidth, 0.06, 0.05), tail)
-  bar.position.set(0, def.tailY, def.tailZ)
-  body.add(bar)
+  fade(tail)
+  const tailY = tailS.shoulder - 0.07
+  const tailParts = [placed(new BoxGeometry(tailS.w * 1.7, 0.035, 0.03), 0, tailY, rear - 0.005)]
+  for (const side of [-1, 1]) {
+    tailParts.push(placed(new BoxGeometry(0.22, 0.09, 0.03), side * tailS.w * 0.78, tailY - 0.03, rear))
+    tailParts.push(placed(new BoxGeometry(0.03, 0.09, 0.16), side * tailS.w * 0.9, tailY - 0.03, rear + 0.08))
+  }
+  body.add(new Mesh(fixed(mergeGeometries(tailParts.map((g) => g.toNonIndexed()))), tail))
   const tailLights: [number, number, number][] = [
-    [-def.tailWidth / 2 + 0.1, def.tailY, def.tailZ],
-    [def.tailWidth / 2 - 0.1, def.tailY, def.tailZ],
+    [-tailS.w * 0.78, tailY, rear],
+    [tailS.w * 0.78, tailY, rear],
   ]
 
-  // Police light bar: one red and one blue block, flashed by the game.
+  // Parts that can come off: mirrors and the wing.
+  const loose: CarModel['loose'] = []
+  const mirrorZ = def.stations.find((s) => s.top - s.shoulder > 0.25 && s.z > 0)?.z ?? 0.6
+  const m = at(def, mirrorZ + 0.1)
+  for (const side of [-1, 1]) {
+    const mirror = new Mesh(placed(new CapsuleGeometry(0.045, 0.12, 4, 8), 0, 0, 0, 0, 0, Math.PI / 2), paint)
+    mirror.position.set(side * (m.w + 0.08), m.shoulder + 0.07, mirrorZ + 0.05)
+    body.add(mirror)
+    loose.push({ mesh: mirror, side: side < 0 ? 'right' : 'left' })
+  }
+  if (def.wing) {
+    const w = def.wing
+    const wing = new Mesh(
+      mergeGeometries([
+        placed(new BoxGeometry(w.width, 0.04, w.chord), 0, 0, 0, -0.08),
+        placed(new BoxGeometry(0.04, 0.12, w.chord * 0.9), -w.width / 2, 0, 0),
+        placed(new BoxGeometry(0.04, 0.12, w.chord * 0.9), w.width / 2, 0, 0),
+        placed(new BoxGeometry(0.05, w.y - at(def, w.z).top, 0.08), -w.width * 0.32, -(w.y - at(def, w.z).top) / 2, 0),
+        placed(new BoxGeometry(0.05, w.y - at(def, w.z).top, 0.08), w.width * 0.32, -(w.y - at(def, w.z).top) / 2, 0),
+      ].map((g) => g.toNonIndexed())),
+      trim,
+    )
+    wing.position.set(0, w.y, w.z)
+    body.add(wing)
+    loose.push({ mesh: wing, side: 'rear' })
+  }
+  if (def.roofSpoiler) {
+    const s = at(def, rear + 0.35)
+    const lip = new Mesh(placed(new BoxGeometry(s.roof * 2, 0.04, 0.3), 0, 0, 0, 0.2), paint)
+    lip.position.set(0, s.top + 0.03, rear + 0.3)
+    body.add(lip)
+    loose.push({ mesh: lip, side: 'rear' })
+  }
+
+  // Police light bar, flashed by the game.
   let siren: CarModel['siren'] = null
-  if (shapeId === 'police') {
+  if (shape === 'police') {
     const red = new MeshBasicMaterial({ color: new Color('#ff2030').multiplyScalar(4), toneMapped: false })
     const blue = new MeshBasicMaterial({ color: new Color('#2050ff').multiplyScalar(4), toneMapped: false })
-    const top = (def.roof ?? def.cabin).reduce((m, p) => Math.max(m, p[1]), 0)
-    for (const [m, x] of [
-      [red, -0.35],
-      [blue, 0.35],
+    const roofTop = at(def, -0.1).top
+    const base = new Mesh(new BoxGeometry(1.3, 0.06, 0.32), trim)
+    base.position.set(0, roofTop + 0.04, -0.1)
+    body.add(base)
+    for (const [mat, x] of [
+      [red, -0.34],
+      [blue, 0.34],
     ] as const) {
-      const block = new Mesh(new BoxGeometry(0.62, 0.12, 0.26), m)
-      block.position.set(x, top + 0.08, -0.2)
+      const block = new Mesh(new BoxGeometry(0.56, 0.1, 0.26), mat)
+      block.position.set(x, roofTop + 0.12, -0.1)
       body.add(block)
     }
+    // White doors on the dark body, and a push bar on the nose.
+    const s = at(def, 0)
+    for (const side of [-1, 1]) {
+      const door = new Mesh(new PlaneGeometry(2.0, (s.shoulder - s.bottom) * 0.55), new MeshStandardMaterial({ color: '#e9ebf0', roughness: 0.4 }))
+      door.position.set(side * (s.w + 0.006), s.bottom + (s.shoulder - s.bottom) * 0.55, -0.1)
+      door.rotation.y = side * Math.PI / 2
+      body.add(door)
+    }
+    const bar = new Mesh(new BoxGeometry(1.1, 0.3, 0.08), trim)
+    bar.position.set(0, nose.bottom + 0.22, front + 0.06)
+    body.add(bar)
     siren = { red, blue }
   }
 
-  // Wheels. The front pair sit in pivots so they can steer.
-  const tyre = new CylinderGeometry(def.wheelR, def.wheelR, 0.3, 18).rotateZ(Math.PI / 2)
-  const rim = new CylinderGeometry(def.wheelR * 0.7, def.wheelR * 0.7, 0.32, 10).rotateZ(Math.PI / 2)
-  const rubber = new MeshStandardMaterial({ color: '#111', roughness: 0.9 })
-  const alloy = new MeshStandardMaterial({ color: '#9aa0ad', metalness: 0.9, roughness: 0.25 })
-  fade(rubber)
-  fade(alloy)
-  const wheels: Mesh[] = []
+  // Wheel slots. Front ones sit in pivots so they can steer.
+  const bank = options.bank ?? (ownBank ??= new WheelBank(64))
+  const wheels: Object3D[] = []
   const frontPivots: Group[] = []
-  for (const z of [def.wheelFront, def.wheelRear]) {
+  for (const z of def.wheelZ) {
     for (const side of [-1, 1]) {
-      const wheel = new Mesh(tyre, rubber)
-      wheel.add(new Mesh(rim, alloy))
+      const slot = new Object3D()
+      slot.userData = { radius: def.wheelR, flip: side < 0 }
       if (z > 0) {
         const pivot = new Group()
         pivot.position.set(side * def.wheelX, def.wheelR, z)
-        pivot.add(wheel)
+        pivot.add(slot)
         group.add(pivot)
         frontPivots.push(pivot)
       } else {
-        wheel.position.set(side * def.wheelX, def.wheelR, z)
-        group.add(wheel)
+        slot.position.set(side * def.wheelX, def.wheelR, z)
+        group.add(slot)
       }
-      wheels.push(wheel)
+      // Brake caliper, fixed to the pivot so it steers but does not spin.
+      const caliper = new Mesh(new BoxGeometry(0.06, 0.16, 0.1), new MeshStandardMaterial({ color: def.sport ? '#e03030' : '#3a3d45', roughness: 0.4, metalness: 0.4 }))
+      caliper.position.set(z > 0 ? 0 : side * def.wheelX, (z > 0 ? 0 : def.wheelR) + def.wheelR * 0.38, z > 0 ? -0.1 : z - 0.1)
+      ;(z > 0 ? frontPivots[frontPivots.length - 1] : group).add(caliper)
+      if (!ghost) bank.add(slot)
+      wheels.push(slot)
     }
   }
+  if (!options.bank && !ghost && !bank.tyres.parent) group.add(bank.tyres, bank.rims)
 
-  // Nitro flames from twin exhausts, hidden until the boost is on.
-  const flameMat = new MeshBasicMaterial({ color: new Color('#5fb6ff').multiplyScalar(3), toneMapped: false, transparent: true, opacity: 0.85, blending: AdditiveBlending, depthWrite: false })
+  // Nitro flames from the exhausts, hidden until the boost is on.
+  const flameMat = new MeshBasicMaterial({ color: new Color('#5fb6ff').multiplyScalar(3), toneMapped: false, transparent: true, opacity: 0.9, blending: AdditiveBlending, depthWrite: false })
+  const coreMat = new MeshBasicMaterial({ color: new Color('#ffffff').multiplyScalar(4), toneMapped: false, transparent: true, opacity: 0.9, blending: AdditiveBlending, depthWrite: false })
   const flames: Mesh[] = []
-  if (def.sport) {
-    for (const side of [-1, 1]) {
-      const flame = new Mesh(new ConeGeometry(0.13, 1.1, 10).rotateX(-Math.PI / 2).translate(0, 0, -0.55), flameMat)
-      flame.position.set(side * 0.45, 0.42, def.tailZ)
-      flame.visible = false
-      body.add(flame)
-      flames.push(flame)
-    }
+  for (const [x, y, z] of def.sport ? exhausts.length ? exhausts : ([[-0.4, tailS.bottom + 0.12, rear - 0.05], [0.4, tailS.bottom + 0.12, rear - 0.05]] as [number, number, number][]) : []) {
+    const flame = new Mesh(new ConeGeometry(0.11, 1.2, 12).rotateX(-Math.PI / 2).translate(0, 0, -0.6), flameMat)
+    flame.add(new Mesh(new ConeGeometry(0.05, 0.6, 10).rotateX(-Math.PI / 2).translate(0, 0, -0.3), coreMat))
+    flame.position.set(x, y, z)
+    flame.visible = false
+    body.add(flame)
+    flames.push(flame)
   }
 
-  // A soft pool of headlight on the road ahead. Every car gets one, which is
-  // far cheaper than a real light per car.
+  // Headlight pool on the road ahead: cheaper than a real light per car.
   if (!ghost) {
     const beam = new Mesh(
       new PlaneGeometry(7, 16).rotateX(-Math.PI / 2),
       new MeshBasicMaterial({ map: spot, color: '#9fc4ff', transparent: true, opacity: 0.14, blending: AdditiveBlending, depthWrite: false }),
     )
-    beam.position.set(0, 0.05, def.noseZ + 8.3)
+    beam.position.set(0, 0.05, front + 8.3)
     group.add(beam)
   }
-
-  // Underglow in the car's colour, and a soft dark shadow under it.
+  const length = front - rear
   let glow: Mesh | null = null
   if (options.glow ?? def.sport) {
     glow = new Mesh(
-      new PlaneGeometry(3.0, length + 1.2).rotateX(-Math.PI / 2),
-      new MeshBasicMaterial({ map: spot, color: new Color(color).multiplyScalar(ghost ? 0.25 : 0.55), transparent: true, blending: AdditiveBlending, depthWrite: false }),
+      new PlaneGeometry(2.8, length + 1).rotateX(-Math.PI / 2),
+      new MeshBasicMaterial({ map: spot, color: new Color(color).multiplyScalar(ghost ? 0.2 : 0.5), transparent: true, blending: AdditiveBlending, depthWrite: false }),
     )
     glow.position.y = 0.04
     group.add(glow)
   }
   if (!ghost) {
-    const shadow = new Mesh(
-      new PlaneGeometry(def.bodyWidth + 0.9, length + 0.8).rotateX(-Math.PI / 2),
-      new MeshBasicMaterial({ map: spot, color: '#000', transparent: true, opacity: 0.75, depthWrite: false }),
-    )
-    shadow.position.set(0, 0.03, (def.noseZ + def.tailZ) / 2)
+    const shadow = new Mesh(new PlaneGeometry(2.6, length + 0.8).rotateX(-Math.PI / 2), new MeshBasicMaterial({ map: spot, color: '#000', transparent: true, opacity: 0.8, depthWrite: false }))
+    shadow.position.set(0, 0.03, (front + rear) / 2)
     group.add(shadow)
   }
 
-  return { group, body, frontPivots, wheels, tail, flames, glow, siren, tailLights, materials: [paint, glass, dark, head, tail, flameMat] }
+  const maxW = Math.max(...def.stations.map((s) => s.w))
+  return {
+    group,
+    body,
+    wheels,
+    frontPivots,
+    tail,
+    heads,
+    flames,
+    glow,
+    siren,
+    tailLights,
+    exhausts,
+    loose,
+    hit: (x, y, z, strength) => {
+      dent(bodyGeo, x, y, z, strength, original)
+      for (const part of rigid) dent(part.geo, x, y, z, strength, part.original)
+    },
+    half: { width: maxW, front, rear },
+    materials: [paint, glass, trim, chrome, tail, ...heads, flameMat],
+  }
 }

@@ -1218,3 +1218,73 @@ kbd {
     width: 160px;
   }
 }
+
+/* Nitro and damage bars under the speed gauge */
+
+.nitro-row,
+.damage-row {
+  display: grid;
+  grid-template-columns: 62px 1fr;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  text-align: left;
+}
+
+.nitro-row .nitro {
+  margin-top: 0;
+}
+
+.nitro-row.full span {
+  color: var(--cyan);
+  animation: ready 0.9s ease-in-out infinite alternate;
+}
+
+.nitro-row.full .nitro {
+  box-shadow: 0 0 14px rgba(61, 245, 255, 0.7);
+}
+
+@keyframes ready {
+  to {
+    text-shadow: 0 0 12px var(--cyan);
+  }
+}
+
+.damage {
+  height: 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  transform: skewX(-18deg);
+}
+
+#damage-fill {
+  height: 100%;
+  transform-origin: left;
+  background: #5dff7a;
+  transition: transform 200ms ease, background 300ms ease;
+}
+
+#damage-fill[data-level='mid'] {
+  background: #ffb52e;
+}
+
+#damage-fill[data-level='high'] {
+  background: #ff3040;
+  box-shadow: 0 0 10px #ff3040;
+}
+
+@media (max-width: 760px), (max-height: 520px) {
+  .nitro-row,
+  .damage-row {
+    grid-template-columns: 1fr;
+    margin-top: 4px;
+  }
+
+  .nitro-row span,
+  .damage-row span {
+    display: none;
+  }
+}

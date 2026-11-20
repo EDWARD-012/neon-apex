@@ -17,6 +17,8 @@ const KEYS: Record<string, string> = {
   ShiftLeft: 'nitro',
   ShiftRight: 'nitro',
   KeyN: 'nitro',
+  KeyV: 'lookback',
+  KeyB: 'lookback',
 }
 
 export class Input {
@@ -66,6 +68,13 @@ export class Input {
       el.addEventListener('pointercancel', up)
       el.addEventListener('pointerleave', up)
     }
+  }
+
+  // True while a held action's key is down, for things like looking back.
+  holding(action: string): boolean {
+    const pad = navigator.getGamepads?.().find((p) => p)
+    if (action === 'lookback' && pad?.buttons[4]?.pressed) return true
+    return this.held.has(action) || this.touch.has(action)
   }
 
   take(action: string): boolean {

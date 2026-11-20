@@ -1,11 +1,11 @@
-import { Color, type Group, MathUtils, type MeshBasicMaterial, type MeshStandardMaterial, Object3D, SpotLight, Vector3 } from 'three'
+import { Color, type Group, MathUtils, type MeshStandardMaterial, Object3D, SpotLight, Vector3 } from 'three'
 import { Sound } from './audio'
 import type { EventKind, Outcome } from './career'
 import { bumper, finishOrbit, heli, INTRO_SECONDS, intro, tv, tvCameras } from './cinema'
 import { Input } from './input'
 import { applyWeather, type Weather, weatherFor } from './render/atmosphere'
-import { type CarModel, createCarModel } from './render/carModel'
-import { buildCity } from './render/city'
+import { type CarModel, createCarModel, WheelBank } from './render/carModel'
+import { buildCity, type City } from './render/city'
 import { Particles, Rain, Skids, Trails } from './render/effects'
 import { Garage } from './render/garage'
 import { spot } from './render/textures'
@@ -51,7 +51,24 @@ interface View {
   prev: { x: number; z: number; heading: number }
   racer: Racer | null
   police: boolean
+  // Hit strength taken on each side so far, for parts coming off and
+  // lights going out.
+  dmg: { left: number; right: number; front: number; rear: number }
+  wasBraking: boolean
 }
+
+interface Debris {
+  mesh: import('three').Mesh
+  vx: number
+  vy: number
+  vz: number
+  spin: Vector3
+  age: number
+}
+
+export type CameraMode = 'chase' | 'far' | 'hood' | 'bumper' | 'drone'
+export const CAMERA_MODES: CameraMode[] = ['chase', 'far', 'hood', 'bumper', 'drone']
+const CAMERA_NAMES: Record<CameraMode, string> = { chase: 'Chase', far: 'Far chase', hood: 'Bonnet', bumper: 'Bumper', drone: 'Drone' }
 
 interface Ghost {
   time: number
@@ -99,7 +116,7 @@ export class Game {
   onResults: ((outcome: Outcome) => void) | null = null
   // Lets the screenshot script place the camera by hand.
   cameraOverride: ((camera: import('three').PerspectiveCamera) => void) | null = null
-  camMode: 'chase' | 'hood' = 'chase'
+  camMode: CameraMode = 'chase'
 
   // Replay state, read by the replay controls.
   replay: Replay | null = null
@@ -113,7 +130,18 @@ export class Game {
   private readonly spotTexture = spot()
   private builtSeed = ''
   private scenery: Group[] = []
-  private materials: { road: MeshStandardMaterial; facade: MeshStandardMaterial; dome: MeshBasicMaterial; beacons: MeshBasicMaterial } | null = null
+  private materials: (City & { road: MeshStandardMaterial }) | null = null
+  private readonly wheelBank = new WheelBank(200)
+  private debris: Debris[] = []
+  private readonly fire: Particles
+  private readonly darkSmoke: Particles
+  private nitroWas = false
+  private nitroPulse = 0
+  private bulletUntil = 0
+  private throttleAt: number | null = null
+  private lastThrottle = 0
+  private shot = 0
+  private shotTimer = 0
   private views: View[] = []
   private ghostModel: CarModel | null = null
   private ghost: Ghost | null = null
@@ -139,7 +167,6 @@ export class Game {
   private fov = 62
   private shake = 0
   private follow = 0
-  private followTimer = 0
   private introTime = 0
   private lastCount = 0
   private lapsSeen = 0
@@ -160,7 +187,9 @@ export class Game {
     this.smoke = new Particles(900, this.spotTexture, '#c9cad6', { grow: 3.2 })
     this.spray = new Particles(900, this.spotTexture, '#aab4d0', { grow: 2.4 })
     this.sparks = new Particles(400, this.spotTexture, '#ffb347', { additive: true, gravity: 14, brightness: 3 })
-    this.world.scene.add(this.smoke.points, this.spray.points, this.sparks.points, this.skids.mesh, this.trails.mesh, this.rain.lines)
+    this.fire = new Particles(300, this.spotTexture, '#ff7a2a', { additive: true, brightness: 3 })
+    this.darkSmoke = new Particles(500, this.spotTexture, '#2c2c33', { grow: 2.4 })
+    this.world.scene.add(this.smoke.points, this.spray.points, this.darkSmoke.points, this.sparks.points, this.fire.points, this.skids.mesh, this.trails.mesh, this.rain.lines, this.wheelBank.tyres, this.wheelBank.rims)
     this.headlight = new SpotLight('#dfe9ff', 70, 90, 0.4, 0.6, 1)
     this.headlight.target = new Object3D()
     window.addEventListener('resize', () => this.world.resize())
@@ -195,25 +224,37 @@ export class Game {
       const track = buildTrackMeshes(this.race.track)
       const city = buildCity(this.race.track)
       this.scenery = [track, city.group]
-      this.materials = { road: track.userData.road, facade: city.facade, dome: city.dome, beacons: city.beacons }
+      this.materials = { ...city, road: track.userData.road }
       this.world.scene.add(track, city.group)
       this.cameras = tvCameras(this.race.track)
       this.builtSeed = spec.seed
     }
     this.weather = spec.weather === 'auto' ? weatherFor(spec.seed) : spec.weather
     const m = this.materials!
-    this.raining = applyWeather(this.world, this.weather, m.road, m.facade, m.dome)
+    const mirror = this.world.quality === 'high'
+    if (mirror) this.world.scene.add(this.world.makeReflector())
+    else if (this.world.reflector) this.world.scene.remove(this.world.reflector)
+    this.raining = applyWeather(this.world, this.weather, m.road, m.facade, m.dome, m.ground, mirror)
     this.rain.lines.visible = this.raining
+    m.moon.visible = this.weather === 'clear'
+    m.sun.visible = this.weather === 'dusk'
+    for (const beam of m.beams) beam.visible = this.weather !== 'dusk'
     this.sound.setRain(this.raining && !attract)
 
     for (const v of this.views) this.world.scene.remove(v.model.group)
     this.views = []
+    this.wheelBank.clear()
+    for (const d of this.debris) this.world.scene.remove(d.mesh)
+    this.debris = []
+    this.nitroWas = false
+    this.nitroPulse = 0
+    this.throttleAt = null
     this.race.racers.forEach((racer, k) => {
       const shape = racer.player ? car.shape : RIVAL_SHAPES[(k + 1) % RIVAL_SHAPES.length]
-      this.addView(racer.car, createCarModel(racer.color, this.spotTexture, { shape }), racer, false)
+      this.addView(racer.car, createCarModel(racer.color, this.spotTexture, { shape, bank: this.wheelBank }), racer, false)
     })
-    for (const t of this.race.traffic) this.addView(t.car, createCarModel(t.color, this.spotTexture, { shape: t.shape, glow: false }), null, false)
-    for (const cop of this.race.police) this.addView(cop, createCarModel('#14161c', this.spotTexture, { shape: 'police', glow: false }), null, true)
+    for (const t of this.race.traffic) this.addView(t.car, createCarModel(t.color, this.spotTexture, { shape: t.shape, glow: false, bank: this.wheelBank }), null, false)
+    for (const cop of this.race.police) this.addView(cop, createCarModel('#14161c', this.spotTexture, { shape: 'police', glow: false, bank: this.wheelBank }), null, true)
 
     this.headlight.removeFromParent()
     const playerModel = this.views[this.race.racers.length - 1].model.group
@@ -249,7 +290,7 @@ export class Game {
 
   private addView(car: CarState, model: CarModel, racer: Racer | null, police: boolean) {
     this.world.scene.add(model.group)
-    this.views.push({ car, model, prev: { x: car.x, z: car.z, heading: car.heading }, racer, police })
+    this.views.push({ car, model, prev: { x: car.x, z: car.z, heading: car.heading }, racer, police, dmg: { left: 0, right: 0, front: 0, rear: 0 }, wasBraking: false })
   }
 
   // Racers, then traffic, then police: the same order the views use.
@@ -325,7 +366,8 @@ export class Game {
         this.slowUntil = 0
         this.timeScale = 1
       }
-      this.acc += dt * this.timeScale
+      const bullet = this.bulletUntil > now && this.slowUntil === 0 ? 0.45 : 1
+      this.acc += dt * this.timeScale * bullet
       let steps = 0
       while (this.acc >= STEP && steps < 48) {
         this.tick()
@@ -348,7 +390,11 @@ export class Game {
 
   private keys() {
     if (this.input.take('pause')) this.pause()
-    if (this.input.take('camera')) this.camMode = this.camMode === 'chase' ? 'hood' : 'chase'
+    if (this.input.take('camera')) {
+      this.camMode = CAMERA_MODES[(CAMERA_MODES.indexOf(this.camMode) + 1) % CAMERA_MODES.length]
+      this.camPos.set(0, 0, 0)
+      popup(`Camera: ${CAMERA_NAMES[this.camMode]}`, 'cyan')
+    }
     if (this.input.take('reset') && this.race.phase === 'racing') this.race.reset(this.player)
   }
 
@@ -388,7 +434,7 @@ export class Game {
     // Patrol cars that joined the chase need a model.
     for (let k = copsBefore; k < this.race.police.length; k++) {
       const cop = this.race.police[k]
-      this.addView(cop, createCarModel('#14161c', this.spotTexture, { shape: 'police', glow: false }), null, true)
+      this.addView(cop, createCarModel('#14161c', this.spotTexture, { shape: 'police', glow: false, bank: this.wheelBank }), null, true)
     }
     if (this.mode === 'menu') {
       this.race.events = []
@@ -399,6 +445,10 @@ export class Game {
     const player = this.player
     const now = performance.now()
 
+    // Perfect start: the throttle goes down in the last moment before the
+    // green light, not early.
+    if (race.phase === 'countdown' && race.playerInput.throttle > 0 && this.throttleAt === null) this.throttleAt = race.clock
+    if (race.phase === 'countdown' && race.playerInput.throttle === 0) this.throttleAt = null
     if (race.phase === 'countdown') {
       const count = Math.ceil(-race.clock)
       if (count !== this.lastCount && count <= 3) {
@@ -410,13 +460,34 @@ export class Game {
     if (before === 'countdown' && race.phase === 'racing') {
       flash('Go')
       this.sound.beep(true)
+      if (this.throttleAt !== null && this.throttleAt > -0.45) {
+        player.car.nitro = Math.min(1, player.car.nitro + 0.3)
+        popup('Perfect start', 'gold')
+        this.nitroPulse = 0.6
+      }
     }
+
+    // Nitro lighting up: a pulse of light, a kick of the camera and a thump.
+    if (player.car.nitroOn && !this.nitroWas) {
+      this.nitroPulse = 1
+      this.shake = Math.min(1, this.shake + 0.3)
+      this.sound.ignite()
+    }
+    this.nitroWas = player.car.nitroOn
+
+    // Lifting off at speed makes the exhaust pop.
+    const throttle = race.playerInput.throttle
+    if (this.lastThrottle > 0.5 && throttle === 0 && speedOf(player.car) > 30) this.backfire(this.views[race.racers.length - 1], true)
+    this.lastThrottle = throttle
 
     for (const e of race.events) {
       if (e.type === 'nearMiss') {
         player.car.nitro = Math.min(1, player.car.nitro + 0.15)
         popup('Near miss', 'cyan')
         this.sound.whoosh()
+        // A beat of slow motion as the car slips past.
+        this.bulletUntil = now + 260
+        this.nitroPulse = Math.max(this.nitroPulse, 0.3)
       } else if (e.type === 'driftBank') {
         popup(`+${e.points.toLocaleString('en')} drift`, 'gold')
       } else if (e.type === 'driftLost') {
@@ -518,8 +589,18 @@ export class Game {
       v.model.tail.color.copy(TAIL).multiplyScalar(car.braking ? 5 : 1.6)
       for (const flame of v.model.flames) {
         flame.visible = car.nitroOn
-        if (car.nitroOn) flame.scale.set(1, 1, 0.7 + Math.random() * 0.6)
+        if (car.nitroOn) {
+          const big = v.racer?.player ? this.nitroPulse * 1.4 : 0
+          flame.scale.set(1 + big * 0.4, 1 + big * 0.4, 0.8 + Math.random() * 0.7 + big)
+        }
       }
+      if (this.mode !== 'replay' && car.hits.length) {
+        for (let k = 0; k + 3 < car.hits.length; k += 4) this.damage(v, car.hits[k], car.hits[k + 1], car.hits[k + 2], car.hits[k + 3])
+        car.hits.length = 0
+      }
+      // AI cars pop their exhausts when they brake hard from speed.
+      if (!v.racer?.player && car.braking && !v.wasBraking && speed > 30 && v.model.exhausts.length && Math.random() < 0.6) this.backfire(v, false)
+      v.wasBraking = car.braking
       if (v.model.siren) {
         const phase = Math.floor(this.time * 7) % 2
         v.model.siren.red.color.copy(RED).multiplyScalar(phase ? 5 : 0.4)
@@ -529,16 +610,30 @@ export class Game {
       const c = Math.cos(g.rotation.y)
       const s = Math.sin(g.rotation.y)
       for (const [lx, ly, lz] of v.model.tailLights) {
-        this.trails.push(trail++, g.position.x + lx * c + lz * s, ly, g.position.z - lx * s + lz * c, speed > 24 || car.nitroOn)
+        this.trails.push(trail++, g.position.x + lx * c + lz * s, ly, g.position.z - lx * s + lz * c, speed > 24 || car.nitroOn, car.nitroOn)
       }
       if (dt > 0) this.tyres(v, dt)
     }
+    this.wheelBank.update()
     if (dt > 0) {
       this.smoke.update(dt)
       this.spray.update(dt)
+      this.darkSmoke.update(dt)
       this.sparks.update(dt)
+      this.fire.update(dt)
+      this.updateDebris(dt)
     }
-    if (this.materials) this.materials.beacons.opacity = Math.sin(this.time * 3) > 0.6 ? 1 : 0.15
+    this.nitroPulse *= Math.exp(-dt * 2.6)
+    const city = this.materials
+    if (city) {
+      city.beacons.opacity = Math.sin(this.time * 3) > 0.6 ? 1 : 0.15
+      for (const t of city.tickers) t.offset.x = (t.offset.x + dt * 0.06) % 1
+      for (const beam of city.beams) {
+        const p = beam.userData.phase as number
+        beam.rotation.z = Math.sin(this.time * 0.17 + p) * 0.45
+        beam.rotation.x = Math.cos(this.time * 0.13 + p) * 0.3
+      }
+    }
 
     if (this.ghostModel) {
       const sample = this.ghost && this.player.checkpoints >= 1 && this.player.finishTime === null && this.mode === 'race' ? ghostAt(this.ghost, this.race.clock - this.player.lapStart) : null
@@ -565,8 +660,89 @@ export class Game {
     for (const cop of this.race.police) nearest = Math.min(nearest, Math.hypot(cop.x - followed.x, cop.z - followed.z))
     this.sound.siren(active && this.race.police.length ? Math.max(0, 1 - nearest / 260) : 0)
     const boost = followed.nitroOn ? 0.85 : MathUtils.clamp((speedOf(followed) - 55) / 30, 0, 0.35)
-    this.world.setSpeedEffect(this.mode === 'race' ? boost : this.mode === 'replay' ? boost * 0.6 : 0)
+    this.world.setSpeedEffect(this.mode === 'race' ? boost : this.mode === 'replay' ? boost * 0.6 : 0, this.mode === 'race' ? this.nitroPulse : 0)
     this.world.render()
+  }
+
+  // A hit on one car: dent the body, and past a point knock off the parts
+  // on that side or put a headlight out.
+  private damage(v: View, x: number, y: number, z: number, strength: number) {
+    v.model.hit(x, y, z, strength)
+    const side = Math.abs(x) > Math.abs(z) * 0.42 ? (x > 0 ? 'left' : 'right') : z > 0 ? 'front' : 'rear'
+    v.dmg[side] += strength
+    for (const part of v.model.loose) {
+      if (part.side !== side || !part.mesh.parent || part.mesh.parent !== v.model.body) continue
+      if (v.dmg[side] < (side === 'rear' ? 16 : 11)) continue
+      this.detach(v, part.mesh)
+    }
+    if (side === 'front' && v.dmg.front > 14) {
+      const head = v.model.heads[x > 0 ? 1 : 0]
+      head.color.setScalar(0.02)
+    }
+    if (v.racer?.player && strength > 12 && this.mode === 'race') this.bulletUntil = performance.now() + 380
+  }
+
+  private detach(v: View, mesh: import('three').Mesh) {
+    mesh.updateWorldMatrix(true, false)
+    const world = mesh.matrixWorld.clone()
+    v.model.body.remove(mesh)
+    mesh.matrixAutoUpdate = true
+    world.decompose(mesh.position, mesh.quaternion, mesh.scale)
+    this.world.scene.add(mesh)
+    const car = v.car
+    this.debris.push({
+      mesh,
+      vx: car.vx * 0.55 + (Math.random() - 0.5) * 4,
+      vy: 2 + Math.random() * 3,
+      vz: car.vz * 0.55 + (Math.random() - 0.5) * 4,
+      spin: new Vector3((Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12),
+      age: 0,
+    })
+  }
+
+  private updateDebris(dt: number) {
+    for (const d of this.debris) {
+      d.age += dt
+      d.vy -= 9.8 * dt
+      d.mesh.position.x += d.vx * dt
+      d.mesh.position.y += d.vy * dt
+      d.mesh.position.z += d.vz * dt
+      d.mesh.rotation.x += d.spin.x * dt
+      d.mesh.rotation.y += d.spin.y * dt
+      d.mesh.rotation.z += d.spin.z * dt
+      if (d.mesh.position.y < 0.06) {
+        d.mesh.position.y = 0.06
+        d.vy = Math.abs(d.vy) * 0.3
+        d.vx *= 0.7
+        d.vz *= 0.7
+        d.spin.multiplyScalar(0.6)
+      }
+    }
+    const gone = this.debris.filter((d) => d.age > 10)
+    for (const d of gone) this.world.scene.remove(d.mesh)
+    if (gone.length) this.debris = this.debris.filter((d) => d.age <= 10)
+  }
+
+  // Flames and a crackle from the exhausts.
+  private backfire(v: View, loud: boolean) {
+    const g = v.model.group
+    const c = Math.cos(g.rotation.y)
+    const s = Math.sin(g.rotation.y)
+    const car = v.car
+    // The electric car has no exhaust to pop.
+    if (!v.model.exhausts.length) return
+    for (const [lx, ly, lz] of v.model.exhausts) {
+      const wx = g.position.x + lx * c + lz * s
+      const wz = g.position.z - lx * s + lz * c
+      const bx = -Math.sin(g.rotation.y)
+      const bz = -Math.cos(g.rotation.y)
+      for (let k = 0; k < 7; k++) {
+        this.fire.emit(wx, ly, wz, car.vx + bx * (3 + Math.random() * 4), Math.random() * 0.6, car.vz + bz * (3 + Math.random() * 4), 0.1 + Math.random() * 0.12, 0.45 + Math.random() * 0.3)
+      }
+    }
+    const cam = this.world.camera.position
+    const near = Math.hypot(cam.x - car.x, cam.z - car.z) < 40
+    if (loud || near) this.sound.pop(loud ? 1 : 0.5)
   }
 
   private lightning(dt: number) {
@@ -611,6 +787,17 @@ export class Game {
         }
       }
     }
+    // A badly damaged car smokes from under the bonnet.
+    if (car.damage > 0.45) {
+      const rate = (car.damage - 0.45) * 40 * dt
+      const hx = car.x + fx * (v.model.half.front - 0.7)
+      const hz = car.z + fz * (v.model.half.front - 0.7)
+      for (let k = 0; k < rate; k++) {
+        if (Math.random() > rate - k) break
+        this.darkSmoke.emit(hx, 0.95, hz, car.vx * 0.3 + (Math.random() - 0.5), 1.2 + Math.random(), car.vz * 0.3 + (Math.random() - 0.5), 1.6, 0.9)
+      }
+      if (car.damage > 0.85 && Math.random() < dt * 6) this.fire.emit(hx, 0.8, hz, car.vx * 0.5, 1.5, car.vz * 0.5, 0.25, 0.5)
+    }
     if (car.impact > 1.5) {
       const n = Math.min(40, Math.round(car.impact * 4))
       for (let k = 0; k < n; k++) {
@@ -652,19 +839,35 @@ export class Game {
       return
     }
     if (this.mode === 'menu') {
-      this.followTimer += dt
-      if (this.followTimer > 7) {
-        this.followTimer = 0
-        this.follow = (this.follow + 1) % this.race.racers.length
+      // Tracking shots, cut every few seconds: low front three-quarter, side
+      // on, high behind, and down at the rear wheel.
+      this.shotTimer += dt
+      if (this.shotTimer > 5.5) {
+        this.shotTimer = 0
+        this.shot = (this.shot + 1) % 4
+        if (this.shot === 0) this.follow = (this.follow + 1) % this.race.racers.length
       }
       const g = this.views[this.follow].model.group
-      // Slow orbit round whichever car is being watched.
-      const a = this.time * 0.18
-      this.camPos.set(g.position.x + Math.sin(a) * 10, 2.6 + Math.sin(this.time * 0.3) * 0.8, g.position.z + Math.cos(a) * 10)
-      cam.position.copy(this.camPos)
-      cam.lookAt(g.position.x, 0.9, g.position.z)
-      cam.fov = 50
+      const h = g.rotation.y
+      const fx = Math.sin(h)
+      const fz = Math.cos(h)
+      const rx = -fz
+      const rz = fx
+      const drift = Math.sin(this.time * 0.4) * 0.8
+      const p = g.position
+      const shots: [number, number, number, number, number, number, number][] = [
+        // camera forward, right, height; look forward, right, height; fov
+        [7.5, 3.4 + drift, 0.85, 0, 0, 0.7, 42],
+        [0.5, 6.2, 1.1 + drift * 0.3, 1, 0, 0.7, 40],
+        [-12, 1.5, 6.5, 10, 0, 0, 52],
+        [-4.8, -2.6 - drift * 0.4, 0.55, 3, 0, 0.6, 46],
+      ]
+      const [cf, cr, ch, lf, lr, lh, fov] = shots[this.shot]
+      cam.position.set(p.x + fx * cf + rx * cr, ch, p.z + fz * cf + rz * cr)
+      cam.lookAt(p.x + fx * lf + rx * lr, lh, p.z + fz * lf + rz * lr)
+      cam.fov = fov
       cam.updateProjectionMatrix()
+      this.camPos.copy(cam.position)
       $('speedlines').style.opacity = '0'
       return
     }
@@ -680,9 +883,26 @@ export class Game {
     const fz = Math.cos(g.rotation.y)
     let pos: Vector3
     let look: Vector3
-    if (this.camMode === 'hood' && this.mode !== 'replay') {
+    const mode = this.mode === 'replay' ? 'chase' : this.camMode
+    const front = view.model.half.front
+    if (this.mode === 'race' && this.input.holding('lookback')) {
+      // Looking back over the boot at whatever is behind.
+      pos = new Vector3(g.position.x + fx * 7, 2.3, g.position.z + fz * 7)
+      look = new Vector3(g.position.x - fx * 8, 1, g.position.z - fz * 8)
+      this.camPos.copy(pos)
+      this.camLook.copy(look)
+    } else if (mode === 'hood') {
       pos = new Vector3(g.position.x + fx * 0.2, 1.3, g.position.z + fz * 0.2)
       look = new Vector3(g.position.x + fx * 30, 1.0, g.position.z + fz * 30)
+      this.camPos.copy(pos)
+    } else if (mode === 'bumper') {
+      pos = new Vector3(g.position.x + fx * (front + 0.1), 0.55, g.position.z + fz * (front + 0.1))
+      look = new Vector3(g.position.x + fx * 30, 0.6, g.position.z + fz * 30)
+      this.camPos.copy(pos)
+      this.camLook.copy(look)
+    } else if (mode === 'drone') {
+      pos = new Vector3(g.position.x - fx * 13, 9, g.position.z - fz * 13)
+      look = new Vector3(g.position.x + fx * 6, 0, g.position.z + fz * 6)
       this.camPos.copy(pos)
     } else {
       // Behind the car, looking partly along where it is going, so a drift
@@ -692,10 +912,12 @@ export class Game {
       const want = new Vector3(fx * 0.6 + vx * 0.4, 0, fz * 0.6 + vz * 0.4).normalize()
       if (this.camPos.lengthSq() === 0 || dt === 0) this.camDir.copy(want)
       else this.camDir.lerp(want, 1 - Math.exp(-dt * 5)).normalize()
-      const back = 6.6 + speed * 0.02
-      pos = new Vector3(g.position.x - this.camDir.x * back, 2.45 + speed * 0.006, g.position.z - this.camDir.z * back)
+      const far = mode === 'far'
+      // Nitro pulls the camera back a little, so the car seems to leap away.
+      const back = (far ? 10 : 6.6) + speed * (far ? 0.03 : 0.02) + this.nitroPulse * 1.6
+      pos = new Vector3(g.position.x - this.camDir.x * back, (far ? 3.6 : 2.45) + speed * 0.006, g.position.z - this.camDir.z * back)
       this.camPos.copy(pos)
-      look = new Vector3(g.position.x + fx * 6, 1.2, g.position.z + fz * 6)
+      look = new Vector3(g.position.x + fx * (far ? 10 : 6), 1.2, g.position.z + fz * (far ? 10 : 6))
     }
     const snap = this.camLook.lengthSq() === 0 || dt === 0
     this.camLook.lerp(look, snap ? 1 : 1 - Math.exp(-dt * 14))
@@ -710,7 +932,7 @@ export class Game {
       cam.position.y += (Math.random() - 0.5) * 0.05
     }
     cam.lookAt(this.camLook)
-    const fov = 60 + Math.min(14, speed * 0.17) + (car.nitroOn ? 7 : 0)
+    const fov = 60 + Math.min(14, speed * 0.17) + (car.nitroOn ? 7 : 0) + this.nitroPulse * 9
     this.fov += (fov - this.fov) * (dt > 0 ? 1 - Math.exp(-dt * 4) : 0)
     cam.fov = this.fov
     cam.updateProjectionMatrix()
@@ -738,6 +960,10 @@ export class Game {
     $('gear').textContent = String(gearOf(speed).gear)
     $('gauge-fill').style.strokeDashoffset = String(1 - Math.min(1, speed / (CAR.topSpeed * CAR.nitroTop)))
     $('nitro-fill').style.transform = `scaleX(${car.nitro})`
+    $('nitro-row').classList.toggle('full', car.nitro > 0.98)
+    const damage = $('damage-fill')
+    damage.style.transform = `scaleX(${Math.max(0.02, car.damage)})`
+    damage.dataset.level = car.damage > 0.7 ? 'high' : car.damage > 0.35 ? 'mid' : 'low'
     document.querySelector('.gauge')?.classList.toggle('boost', car.nitroOn)
 
     // The goal line under the place: what this event wants from the player.

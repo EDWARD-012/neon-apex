@@ -11,9 +11,13 @@ import {
   PMREMGenerator,
   Scene,
   SRGBColorSpace,
+  HalfFloatType,
+  PlaneGeometry,
   Vector2,
   WebGLRenderer,
+  WebGLRenderTarget,
 } from 'three'
+import { Reflector } from 'three/addons/objects/Reflector.js'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
@@ -22,14 +26,77 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 
 export type Quality = 'high' | 'low'
 
-// Speed effects on the finished image: a radial blur that grows towards the
-// edges, a little colour fringing, and a vignette. Strength comes from the
-// game every frame, mostly from nitro.
+// How the wet street shows its reflection. A plain mirror looks like glass,
+// so lights are smeared down the screen the way wet asphalt stretches them,
+// a little noise wobbles them sideways, and slow noise picks out puddles
+// that shine more than the rest.
+const WetShader = {
+  name: 'WetShader',
+  uniforms: {
+    color: { value: null },
+    tDiffuse: { value: null },
+    textureMatrix: { value: null },
+  },
+  vertexShader: /* glsl */ `
+    uniform mat4 textureMatrix;
+    varying vec4 vUv;
+    varying vec2 vWorld;
+    #include <common>
+    #include <logdepthbuf_pars_vertex>
+    void main() {
+      vUv = textureMatrix * vec4(position, 1.0);
+      vWorld = (modelMatrix * vec4(position, 1.0)).xz;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      #include <logdepthbuf_vertex>
+    }
+  `,
+  fragmentShader: /* glsl */ `
+    uniform vec3 color;
+    uniform sampler2D tDiffuse;
+    varying vec4 vUv;
+    varying vec2 vWorld;
+    #include <logdepthbuf_pars_fragment>
+    float hash(vec2 p) {
+      return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+    }
+    float noise(vec2 p) {
+      vec2 i = floor(p);
+      vec2 f = fract(p);
+      f = f * f * (3.0 - 2.0 * f);
+      return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+    }
+    void main() {
+      #include <logdepthbuf_fragment>
+      vec2 uv = vUv.xy / vUv.w;
+      uv.x += (noise(vWorld * 1.3) * 0.65 + noise(vWorld * 5.0) * 0.35 - 0.5) * 0.012;
+      vec3 sum = vec3(0.0);
+      float total = 0.0;
+      for (int i = -8; i <= 3; i++) {
+        float o = float(i) / 8.0;
+        float w = 1.0 - abs(o) * 0.85;
+        sum += texture2D(tDiffuse, uv - vec2(0.0, o * 0.035)).rgb * w;
+        total += w;
+      }
+      vec3 col = sum / total * color * 1.8;
+      col *= 0.55 + 0.9 * smoothstep(0.35, 0.75, noise(vWorld * 0.18));
+      gl_FragColor = vec4(col, 1.0);
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+    }
+  `,
+}
+
+// The last pass over the image. A radial blur that grows towards the edges
+// and some colour fringing, both driven by speed and nitro; a short white-
+// blue pulse when nitro lights; a colour grade that pushes shadows towards
+// teal and highlights towards warm pink; a vignette; and fine film grain.
 const SpeedShader = {
   uniforms: {
     tDiffuse: { value: null },
     amount: { value: 0 },
-    vignette: { value: 0.35 },
+    pulse: { value: 0 },
+    time: { value: 0 },
+    vignette: { value: 0.38 },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -41,8 +108,13 @@ const SpeedShader = {
   fragmentShader: /* glsl */ `
     uniform sampler2D tDiffuse;
     uniform float amount;
+    uniform float pulse;
+    uniform float time;
     uniform float vignette;
     varying vec2 vUv;
+    float hash(vec2 p) {
+      return fract(sin(dot(p, vec2(12.9898, 78.233)) + time * 31.7) * 43758.5453);
+    }
     void main() {
       vec2 dir = vUv - vec2(0.5, 0.54);
       float dist = length(dir);
@@ -55,7 +127,17 @@ const SpeedShader = {
       float ca = amount * dist * 0.012;
       col.r = texture2D(tDiffuse, vUv + dir * ca).r * 0.5 + col.r * 0.5;
       col.b = texture2D(tDiffuse, vUv - dir * ca).b * 0.5 + col.b * 0.5;
-      col.rgb *= 1.0 - vignette * smoothstep(0.38, 0.95, dist);
+      // Grade: split toning by brightness. This runs in linear light before
+      // tone mapping, where even a small addition lifts the blacks a lot, so
+      // the tint multiplies instead and dark stays dark.
+      float luma = dot(col.rgb, vec3(0.2126, 0.7152, 0.0722));
+      col.rgb *= mix(vec3(0.9, 1.0, 1.12), vec3(1.1, 0.97, 1.0), smoothstep(0.15, 1.4, luma));
+      col.rgb = max(mix(vec3(luma), col.rgb, 1.15), 0.0);
+      // Nitro: a ring of light rushing out from the middle.
+      float ring = smoothstep(0.08, 0.0, abs(dist - (1.0 - pulse) * 0.9)) * pulse;
+      col.rgb += vec3(0.4, 0.85, 1.0) * ring * 0.9 + vec3(0.05, 0.15, 0.22) * pulse;
+      col.rgb *= 1.0 - (vignette + amount * 0.25) * smoothstep(0.38, 0.95, dist);
+      col.rgb *= 1.0 + (hash(vUv * 512.0) - 0.5) * 0.08;
       gl_FragColor = col;
     }
   `,
@@ -136,7 +218,10 @@ export class World {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality === 'high' ? 2 : 1))
     if (quality === 'high') {
       const size = this.renderer.getSize(new Vector2())
-      this.composer = new EffectComposer(this.renderer)
+      // A multisampled target, so car edges and barrier lines stay smooth
+      // through the post passes.
+      const target = new WebGLRenderTarget(size.x, size.y, { type: HalfFloatType, samples: 4 })
+      this.composer = new EffectComposer(this.renderer, target)
       this.renderPass = new RenderPass(this.active, this.camera)
       this.composer.addPass(this.renderPass)
       this.bloom = new UnrealBloomPass(new Vector2(size.x, size.y), 0.8, 0.5, 0.86)
@@ -188,9 +273,32 @@ export class World {
     scene.add(this.camera)
   }
 
-  // Motion blur strength, 0 to 1. Only drawn on high quality.
-  setSpeedEffect(amount: number) {
-    if (this.speed) this.speed.uniforms.amount.value = amount
+  // Motion blur strength, 0 to 1, and the nitro pulse, 1 fading to 0. Only
+  // drawn on high quality.
+  setSpeedEffect(amount: number, pulse = 0) {
+    if (!this.speed) return
+    this.speed.uniforms.amount.value = amount
+    this.speed.uniforms.pulse.value = pulse
+    this.speed.uniforms.time.value = (performance.now() / 1000) % 100
+  }
+
+  // A mirror under the whole city for wet streets. The road and the ground
+  // are drawn part see-through over it. Only made on high quality.
+  reflector: Reflector | null = null
+  makeReflector(): Reflector {
+    if (this.reflector) return this.reflector
+    const scale = Math.min(window.devicePixelRatio, 1.5) * 0.5
+    this.reflector = new Reflector(new PlaneGeometry(6000, 6000), {
+      textureWidth: Math.round(window.innerWidth * scale),
+      textureHeight: Math.round(window.innerHeight * scale),
+      color: 0xb8bcc8,
+      multisample: 0,
+      clipBias: 0.003,
+      shader: WetShader,
+    })
+    this.reflector.rotation.x = -Math.PI / 2
+    this.reflector.position.y = -0.05
+    return this.reflector
   }
 
   render() {

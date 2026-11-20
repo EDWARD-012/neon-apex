@@ -170,25 +170,31 @@ const TRAIL_POINTS = 26
 
 const trailVertex = /* glsl */ `
   attribute float alpha;
+  attribute vec3 tint;
   varying float vAlpha;
+  varying vec3 vTint;
   void main() {
     vAlpha = alpha;
+    vTint = tint;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `
 const trailFragment = /* glsl */ `
-  uniform vec3 color;
   varying float vAlpha;
+  varying vec3 vTint;
   void main() {
-    gl_FragColor = vec4(color * vAlpha, vAlpha);
+    gl_FragColor = vec4(vTint * vAlpha, vAlpha);
   }
 `
+const TAIL_TINT = new Color('#ff2238').multiplyScalar(2.2)
+const NITRO_TINT = new Color('#3df5ff').multiplyScalar(2.6)
 
 export class Trails {
   readonly mesh: Mesh
   private readonly pos: Float32Array
   private readonly alpha: Float32Array
-  private readonly trails: { pts: number[]; last: number }[] = []
+  private readonly tint: Float32Array
+  private readonly trails: { pts: number[]; last: number; boost: boolean }[] = []
   private readonly capacity: number
 
   constructor(maxTrails: number) {
@@ -196,16 +202,17 @@ export class Trails {
     const verts = maxTrails * (TRAIL_POINTS - 1) * 4
     this.pos = new Float32Array(verts * 3)
     this.alpha = new Float32Array(verts)
+    this.tint = new Float32Array(verts * 3)
     const index = new Uint32Array(maxTrails * (TRAIL_POINTS - 1) * 6)
     for (let q = 0; q < maxTrails * (TRAIL_POINTS - 1); q++) index.set([q * 4, q * 4 + 1, q * 4 + 2, q * 4 + 1, q * 4 + 3, q * 4 + 2], q * 6)
     const geo = new BufferGeometry()
     geo.setAttribute('position', new BufferAttribute(this.pos, 3).setUsage(DynamicDrawUsage))
     geo.setAttribute('alpha', new BufferAttribute(this.alpha, 1).setUsage(DynamicDrawUsage))
+    geo.setAttribute('tint', new BufferAttribute(this.tint, 3).setUsage(DynamicDrawUsage))
     geo.setIndex(new BufferAttribute(index, 1))
     this.mesh = new Mesh(
       geo,
       new ShaderMaterial({
-        uniforms: { color: { value: new Color('#ff2238').multiplyScalar(2.2) } },
         vertexShader: trailVertex,
         fragmentShader: trailFragment,
         transparent: true,
@@ -215,13 +222,14 @@ export class Trails {
       }),
     )
     this.mesh.frustumCulled = false
-    for (let k = 0; k < maxTrails; k++) this.trails.push({ pts: [], last: 0 })
+    for (let k = 0; k < maxTrails; k++) this.trails.push({ pts: [], last: 0, boost: false })
   }
 
   // Adds the newest point of one trail, or lets it shrink when it is off.
-  push(k: number, x: number, y: number, z: number, on: boolean) {
+  push(k: number, x: number, y: number, z: number, on: boolean, boost = false) {
     const t = this.trails[k]
     if (!t) return
+    t.boost = boost
     const n = t.pts.length
     if (!on) {
       if (n) t.pts.splice(0, 3)
@@ -248,6 +256,7 @@ export class Trails {
     let q = 0
     for (let k = 0; k < this.capacity; k++) {
       const p = this.trails[k].pts
+      const tint = this.trails[k].boost ? NITRO_TINT : TAIL_TINT
       const count = p.length / 3
       for (let i = 0; i + 1 < count; i++) {
         const ax = p[i * 3]
@@ -275,12 +284,14 @@ export class Trails {
         wz = (wz / wl) * w
         this.pos.set([ax + wx * fa, ay + wy * fa, az + wz * fa, ax - wx * fa, ay - wy * fa, az - wz * fa, bx + wx * fb, by + wy * fb, bz + wz * fb, bx - wx * fb, by - wy * fb, bz - wz * fb], q * 12)
         this.alpha.set([fa * fa, fa * fa, fb * fb, fb * fb], q * 4)
+        for (let v = 0; v < 4; v++) this.tint.set([tint.r, tint.g, tint.b], (q * 4 + v) * 3)
         q++
       }
     }
     this.mesh.geometry.setDrawRange(0, q * 6)
     this.mesh.geometry.attributes.position.needsUpdate = true
     this.mesh.geometry.attributes.alpha.needsUpdate = true
+    this.mesh.geometry.attributes.tint.needsUpdate = true
   }
 
   clear() {

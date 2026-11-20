@@ -38,7 +38,8 @@
         </svg>
         <div class="speed"><span id="speed">0</span><small>km/h</small></div>
         <div class="gear">Gear <b id="gear">1</b></div>
-        <div class="nitro" aria-label="Nitro"><div id="nitro-fill"></div></div>
+        <div id="nitro-row" class="nitro-row"><span>Nitro</span><div class="nitro" aria-label="Nitro"><div id="nitro-fill"></div></div></div>
+        <div class="damage-row"><span>Damage</span><div class="damage" aria-label="Damage"><div id="damage-fill"></div></div></div>
       </div>
       <div id="banner" aria-live="polite"></div>
       <div id="drift"></div>
@@ -191,7 +192,10 @@
           <tr><td>Drive</td><td><kbd>&uarr;</kbd><kbd>&darr;</kbd><kbd>&larr;</kbd><kbd>&rarr;</kbd> or <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></td></tr>
           <tr><td>Drift</td><td><kbd>Space</kbd>, and drifting fills the nitro tank</td></tr>
           <tr><td>Nitro</td><td><kbd>Shift</kbd>; near misses in traffic top it up</td></tr>
-          <tr><td>Reset, camera, pause</td><td><kbd>R</kbd> <kbd>C</kbd> <kbd>Esc</kbd></td></tr>
+          <tr><td>Look back</td><td><kbd>V</kbd> or <kbd>B</kbd>, held</td></tr>
+          <tr><td>Camera</td><td><kbd>C</kbd> cycles chase, far chase, bonnet, bumper and drone</td></tr>
+          <tr><td>Reset, pause</td><td><kbd>R</kbd> <kbd>Esc</kbd></td></tr>
+          <tr><td>Perfect start</td><td>Press the throttle just as the light turns green</td></tr>
         </table>
         <div class="menu-actions">
           <button class="back">Back</button>

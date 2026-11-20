@@ -95,6 +95,17 @@ export class Sound {
     this.burst('highpass', 1800, 0.18, 0.45)
   }
 
+  // Nitro lighting up: a deep thump under a rising hiss.
+  ignite() {
+    this.burst('lowpass', 120, 0.5, 0.6)
+    this.burst('highpass', 900, 0.3, 1.1)
+  }
+
+  // An exhaust backfire.
+  pop(level = 1) {
+    this.burst('bandpass', 260 + Math.random() * 120, 0.35 * level, 0.18)
+  }
+
   private burst(type: BiquadFilterType, freq: number, level: number, seconds: number) {
     if (!this.ctx || !this.enabled) return
     const ctx = this.ctx

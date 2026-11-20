@@ -15,7 +15,7 @@ import {
   TorusGeometry,
 } from 'three'
 import type { Shape } from '../sim/cars'
-import { type CarModel, createCarModel } from './carModel'
+import { type CarModel, createCarModel, WheelBank } from './carModel'
 
 // The garage: a dark showroom with a turntable, a neon ring on the floor and
 // two spotlights, used to look at and pick cars.
@@ -25,6 +25,7 @@ export class Garage {
   private model: CarModel | null = null
   private readonly spot: Texture
   private readonly ring: MeshBasicMaterial
+  private readonly bank = new WheelBank(8)
 
   constructor(environment: Texture, spot: Texture) {
     this.spot = spot
@@ -57,7 +58,7 @@ export class Garage {
     this.scene.add(ring)
     const halo = new Mesh(new PlaneGeometry(12, 12).rotateX(-Math.PI / 2), new MeshBasicMaterial({ map: spot, color: '#3a5cff', transparent: true, opacity: 0.12, blending: AdditiveBlending, depthWrite: false }))
     halo.position.y = 0.01
-    this.scene.add(halo, this.turntable)
+    this.scene.add(halo, this.turntable, this.bank.tyres, this.bank.rims)
     // Neon strips on the back wall.
     for (let k = 0; k < 7; k++) {
       const strip = new Mesh(new PlaneGeometry(0.12, 6), new MeshBasicMaterial({ color: new Color(k % 2 ? '#ff2d95' : '#3df5ff').multiplyScalar(2), toneMapped: false }))
@@ -68,7 +69,8 @@ export class Garage {
 
   show(shape: Shape, color: string) {
     if (this.model) this.turntable.remove(this.model.group)
-    this.model = createCarModel(color, this.spot, { shape })
+    this.bank.clear()
+    this.model = createCarModel(color, this.spot, { shape, bank: this.bank })
     this.model.group.position.y = 0.12
     this.turntable.add(this.model.group)
     this.ring.color.set(color).multiplyScalar(2.5)
@@ -76,6 +78,7 @@ export class Garage {
 
   update(time: number, camera: import('three').PerspectiveCamera, wide: boolean) {
     this.turntable.rotation.y = time * 0.35
+    this.bank.update()
     // On a wide screen the car sits right of centre, clear of the menu.
     const a = 0.6 + Math.sin(time * 0.2) * 0.12
     camera.position.set(Math.sin(a) * 8.4, 2.4, Math.cos(a) * 8.4)

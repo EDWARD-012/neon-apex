@@ -173,6 +173,41 @@ export function sky(kind: 'clear' | 'rain' | 'dusk' = 'clear'): CanvasTexture {
   return texture(el)
 }
 
+// A long strip of text for the scrolling billboards. The texture repeats
+// sideways, so moving its offset makes the text run.
+export function ticker(text: string, color: string): CanvasTexture {
+  const { el, g } = canvas(2048, 128)
+  g.fillStyle = '#05050a'
+  g.fillRect(0, 0, 2048, 128)
+  g.font = 'italic 700 84px "Chakra Petch", sans-serif'
+  g.textBaseline = 'middle'
+  g.shadowColor = color
+  g.shadowBlur = 22
+  g.fillStyle = color
+  let x = 20
+  while (x < 2048) {
+    g.fillText(text, x, 68)
+    x += g.measureText(text).width + 80
+  }
+  const t = texture(el)
+  t.wrapS = RepeatWrapping
+  return t
+}
+
+// A vertical fade for alpha maps: solid at the top of the texture, clear at
+// the bottom.
+export function fade(): CanvasTexture {
+  const { el, g } = canvas(4, 256)
+  const grad = g.createLinearGradient(0, 0, 0, 256)
+  grad.addColorStop(0, '#000')
+  grad.addColorStop(0.02, '#fff')
+  grad.addColorStop(0.3, '#777')
+  grad.addColorStop(1, '#000')
+  g.fillStyle = grad
+  g.fillRect(0, 0, 4, 256)
+  return texture(el, false)
+}
+
 // The banner over the start line.
 export function banner(): CanvasTexture {
   const { el, g } = canvas(1024, 128)

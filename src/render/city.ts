@@ -9,12 +9,16 @@ import {
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  AdditiveBlending,
+  ConeGeometry,
+  DoubleSide,
   PlaneGeometry,
   SphereGeometry,
+  type Texture,
 } from 'three'
 import { between, createRng, pick } from '../sim/rng'
 import type { Track } from '../sim/track'
-import { facade, sign, sky } from './textures'
+import { facade, fade, sign, sky, spot, ticker } from './textures'
 
 // The city around the circuit: blocks of towers with lit windows, neon signs
 // facing the road, red beacons on the tallest roofs, and a sky.
@@ -114,7 +118,27 @@ function towers(boxes: Box[], rng: () => number) {
   return geo
 }
 
-export function buildCity(track: Track): { group: Group; beacons: MeshBasicMaterial; facade: MeshStandardMaterial; dome: MeshBasicMaterial } {
+export interface City {
+  group: Group
+  beacons: MeshBasicMaterial
+  facade: MeshStandardMaterial
+  dome: MeshBasicMaterial
+  ground: MeshStandardMaterial
+  // Moon in a clear sky, low sun at dusk.
+  moon: Mesh
+  sun: Mesh
+  // Searchlight beams sweeping the sky, and billboard textures that scroll.
+  beams: Mesh[]
+  tickers: Texture[]
+}
+
+const TICKERS: [string, string][] = [
+  ['RACE TONIGHT   OPEN ALL NIGHT   NOODLES 24H', '#ff4fa8'],
+  ['NEON APEX   DRIFT CITY   NO SPEED LIMIT ON THE SCREEN', '#3df5ff'],
+  ['KARAOKE   ARCADE   LIVE MUSIC   LATE BAR', '#ffb52e'],
+]
+
+export function buildCity(track: Track): City {
   const rng = createRng(`city/${track.seed}`)
   const group = new Group()
   const distance = distanceField(track)
@@ -189,10 +213,63 @@ export function buildCity(track: Track): { group: Group; beacons: MeshBasicMater
   }
 
   // Ground and sky.
-  const ground = new Mesh(new PlaneGeometry(6000, 6000).rotateX(-Math.PI / 2), new MeshStandardMaterial({ color: '#0d0e13', roughness: 0.95 }))
+  const groundMaterial = new MeshStandardMaterial({ color: '#0d0e13', roughness: 0.95 })
+  const ground = new Mesh(new PlaneGeometry(6000, 6000).rotateX(-Math.PI / 2), groundMaterial)
   ground.position.y = -0.02
   group.add(ground)
+
+  // Big scrolling screens on a few of the towers by the road.
+  const tickers: Texture[] = []
+  const screens = near.filter((b) => b.h > 22).slice(0, 6)
+  screens.forEach((b, k) => {
+    const [text, color] = TICKERS[k % TICKERS.length]
+    const map = ticker(text, color)
+    map.repeat.set(0.35, 1)
+    tickers.push(map)
+    let best = 0
+    let bestD = Infinity
+    for (let i = 0; i < track.n; i += 3) {
+      const dd = Math.hypot(track.x[i] - b.x, track.z[i] - b.z)
+      if (dd < bestD) {
+        bestD = dd
+        best = i
+      }
+    }
+    const dx = track.x[best] - b.x
+    const dz = track.z[best] - b.z
+    const len = Math.hypot(dx, dz) || 1
+    const reach = Math.min(b.w, b.d) / 2 + 0.5
+    const screen = new Mesh(new PlaneGeometry(14, 2.4), new MeshBasicMaterial({ map, toneMapped: false }))
+    screen.position.set(b.x + (dx / len) * reach, b.h - 3, b.z + (dz / len) * reach)
+    screen.rotation.y = Math.atan2(dx, dz)
+    group.add(screen)
+  })
+
+  // Moon and low sun, far off in the sky; the weather picks which shows.
+  const soft = spot()
+  const centreX = (minX + maxX) / 2
+  const centreZ = (minZ + maxZ) / 2
+  const moon = new Mesh(new PlaneGeometry(260, 260), new MeshBasicMaterial({ map: soft, color: new Color('#cfe0ff').multiplyScalar(2.2), transparent: true, blending: AdditiveBlending, depthWrite: false, fog: false, toneMapped: false }))
+  moon.position.set(centreX - 900, 700, centreZ - 1500)
+  moon.lookAt(centreX, 0, centreZ)
+  const sun = new Mesh(new PlaneGeometry(900, 900), new MeshBasicMaterial({ map: soft, color: new Color('#ff8a4a').multiplyScalar(1.6), transparent: true, blending: AdditiveBlending, depthWrite: false, fog: false, toneMapped: false }))
+  sun.position.set(centreX + 600, 60, centreZ - 2000)
+  sun.lookAt(centreX, 60, centreZ)
+  group.add(moon, sun)
+
+  // Searchlights: long faint cones from behind the skyline.
+  const beams: Mesh[] = []
+  const beamMat = new MeshBasicMaterial({ color: new Color('#9fb4ff').multiplyScalar(0.5), alphaMap: fade(), transparent: true, opacity: 0.07, blending: AdditiveBlending, depthWrite: false, side: DoubleSide, fog: false })
+  for (let k = 0; k < 3; k++) {
+    const a = (k / 3) * Math.PI * 2 + 0.4
+    // Point at the ground, opening upwards, and fading out with height.
+    const cone = new Mesh(new ConeGeometry(60, 1400, 24, 1, true).rotateX(Math.PI).translate(0, 700, 0), beamMat)
+    cone.position.set(centreX + Math.cos(a) * 900, 0, centreZ + Math.sin(a) * 900)
+    cone.userData.phase = k * 2.1
+    group.add(cone)
+    beams.push(cone)
+  }
   const domeMaterial = new MeshBasicMaterial({ map: sky(), side: BackSide, fog: false, depthWrite: false })
   group.add(new Mesh(new SphereGeometry(2400, 32, 16), domeMaterial))
-  return { group, beacons, facade: facadeMaterial, dome: domeMaterial }
+  return { group, beacons, facade: facadeMaterial, dome: domeMaterial, ground: groundMaterial, moon, sun, beams, tickers }
 }
