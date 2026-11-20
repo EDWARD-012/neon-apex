@@ -76,6 +76,7 @@
           <button id="go-quick">Quick race <small>Pick an event and a track</small></button>
           <button id="go-garage">Garage <small id="garage-note">Vanta GT</small></button>
           <button id="go-settings">Settings <small>Graphics, sound, controls</small></button>
+          <button id="go-account">Account <small id="account-note">Sign in to save on every device</small></button>
         </nav>
         <p class="credit">Built by Ravi Kumar Gupta. <a href="https://github.com/EDWARD-012/neon-apex">Source on GitHub</a></p>
       </div>
@@ -164,6 +165,39 @@
         </div>
         <div class="menu-actions">
           <button id="car-action" class="primary">Selected</button>
+          <button class="back">Back</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="account" class="screen hidden">
+      <div class="menu-card">
+        <h2>Account</h2>
+        <div id="acct-out">
+          <p class="note">Sign in to keep your cash, cars and career on every device.</p>
+          <div id="google-button" class="google-button"></div>
+          <p class="or">Already chose a username? Sign in with it.</p>
+          <form id="login-form" class="acct-form">
+            <input id="login-user" name="username" autocomplete="username" placeholder="Username" required />
+            <input id="login-pass" name="password" type="password" autocomplete="current-password" placeholder="Password" required />
+            <button class="primary" type="submit">Sign in</button>
+          </form>
+        </div>
+        <div id="acct-setup" class="hidden">
+          <p class="note">Signed in with Google. Now choose a username and password, so you can sign in on another computer without Google.</p>
+          <form id="setup-form" class="acct-form">
+            <input id="setup-user" name="username" autocomplete="username" placeholder="Username (3 to 20 letters, numbers or _)" required />
+            <input id="setup-pass" name="password" type="password" autocomplete="new-password" placeholder="Password (8 or more characters)" required />
+            <input id="setup-pass2" type="password" autocomplete="new-password" placeholder="Password again" required />
+            <button class="primary" type="submit">Save</button>
+          </form>
+        </div>
+        <div id="acct-in" class="hidden">
+          <p class="note">Signed in as <b id="acct-name"></b>. Your progress is saved to your account.</p>
+          <button id="sign-out">Sign out</button>
+        </div>
+        <p id="acct-error" class="acct-error" role="alert"></p>
+        <div class="menu-actions">
           <button class="back">Back</button>
         </div>
       </div>

@@ -4,6 +4,7 @@ import '@fontsource/chakra-petch/700-italic.css'
 import '@fontsource/chakra-petch/600-italic.css'
 import '@fontsource/chakra-petch/500-italic.css'
 import './styles.css'
+import { AccountError, type Account, chooseLogin, cloudEnabled, currentAccount, googleButton, signIn, signInWithGoogle, signOut, uploadProgress } from './cloud'
 import { ALL_EVENTS, buy, type EventDef, type EventKind, judge, loadProgress, type Outcome, type Progress, record, saveProgress, TIERS, tierOpen, WINS_TO_UNLOCK, winsIn } from './career'
 import { type EventSpec, formatTime, Game, ordinal, REPLAY_CAMERAS, type Settings } from './game'
 import type { Weather } from './render/atmosphere'
@@ -62,6 +63,11 @@ await document.fonts.load('700 40px "Chakra Petch"').catch(() => undefined)
 
 const settings = loadSettings()
 let progress: Progress = loadProgress()
+// Saves locally, and to the account when signed in.
+function keep() {
+  saveProgress(progress)
+  if (signedIn?.username) uploadProgress(progress)
+}
 // The player can only drive cars they own.
 if (!progress.owned.includes(settings.car)) settings.car = CARS[0].id
 
@@ -76,8 +82,8 @@ try {
 }
 game.input.bindTouch($('touch'))
 
-type Screen = 'menu' | 'quick' | 'career' | 'garage' | 'settings-screen' | 'intro' | 'race' | 'results' | 'replay'
-const SCREENS = ['menu', 'quick', 'career', 'garage', 'settings-screen', 'results', 'pause']
+type Screen = 'menu' | 'quick' | 'career' | 'garage' | 'settings-screen' | 'account' | 'intro' | 'race' | 'results' | 'replay'
+const SCREENS = ['menu', 'quick', 'career', 'garage', 'settings-screen', 'account', 'results', 'pause']
 
 function setScreen(screen: Screen) {
   for (const id of SCREENS) $(id).classList.toggle('hidden', id !== screen)
@@ -115,6 +121,7 @@ $('go-career').addEventListener('click', () => career())
 $('go-quick').addEventListener('click', () => quick())
 $('go-garage').addEventListener('click', () => garage())
 $('go-settings').addEventListener('click', () => setScreen('settings-screen'))
+$('go-account').addEventListener('click', () => openAccount())
 document.querySelectorAll('.back').forEach((b) => b.addEventListener('click', () => menu()))
 
 // Quick race
@@ -256,7 +263,7 @@ $('car-action').addEventListener('click', () => {
     const bought = buy(progress, car.id)
     if (!bought) return
     progress = bought
-    saveProgress(progress)
+    keep()
   }
   settings.car = car.id
   saveSettings(settings)
@@ -285,6 +292,74 @@ segmented('sound', settings.sound ? 'on' : 'off', (v) => {
   settings.sound = v === 'on'
   game.sound.setEnabled(settings.sound)
 })
+
+// Accounts
+
+let signedIn: Account | null = null
+
+function showAccount() {
+  const out = !signedIn
+  const setup = Boolean(signedIn?.needsSetup)
+  $('acct-out').classList.toggle('hidden', !out)
+  $('acct-setup').classList.toggle('hidden', !setup)
+  $('acct-in').classList.toggle('hidden', out || setup)
+  $('acct-name').textContent = signedIn?.username ?? ''
+  $('account-note').textContent = signedIn?.username ? `Signed in as ${signedIn.username}` : setup ? 'Choose a username to finish' : 'Sign in to save on every device'
+}
+
+function accountError(error: unknown) {
+  $('acct-error').textContent = error instanceof AccountError ? error.message : 'Something went wrong. Try again.'
+}
+
+// A signed-in account's save replaces the one on this device. An account
+// with no save yet takes this device's progress.
+function adopt(account: Account) {
+  signedIn = account
+  $('acct-error').textContent = ''
+  if (account.username) {
+    if (account.progress && typeof account.progress.cash === 'number') {
+      progress = { ...loadProgress(), ...account.progress }
+      saveProgress(progress)
+      if (!progress.owned.includes(settings.car)) settings.car = CARS[0].id
+    } else uploadProgress(progress)
+  }
+  showAccount()
+  if (!$('menu').classList.contains('hidden')) menu()
+}
+
+function openAccount() {
+  setScreen('account')
+  showAccount()
+  if (!signedIn && cloudEnabled) {
+    googleButton($('google-button'), (credential) => {
+      signInWithGoogle(credential).then(adopt, accountError)
+    }).catch(() => {
+      $('google-button').textContent = 'Google sign-in could not load. Check your connection or ad blocker.'
+    })
+  }
+}
+
+$('login-form').addEventListener('submit', (e) => {
+  e.preventDefault()
+  signIn(($('login-user') as HTMLInputElement).value, ($('login-pass') as HTMLInputElement).value).then(adopt, accountError)
+})
+$('setup-form').addEventListener('submit', (e) => {
+  e.preventDefault()
+  const pass = ($('setup-pass') as HTMLInputElement).value
+  if (pass !== ($('setup-pass2') as HTMLInputElement).value) {
+    $('acct-error').textContent = 'The two passwords do not match.'
+    return
+  }
+  chooseLogin(($('setup-user') as HTMLInputElement).value, pass).then(adopt, accountError)
+})
+$('sign-out').addEventListener('click', () => {
+  void signOut().then(() => {
+    signedIn = null
+    showAccount()
+  })
+})
+$('go-account').classList.toggle('hidden', !cloudEnabled)
+void currentAccount().then((account) => account && adopt(account))
 
 // Running an event
 
@@ -355,7 +430,7 @@ function results(outcome: Outcome) {
   if (def) {
     const result = judge(def, outcome, Boolean(progress.won[def.id]))
     progress = record(progress, def, result)
-    saveProgress(progress)
+    keep()
     $('reward').textContent = `${result.won ? 'Event won.' : 'Not won yet.'} ${result.summary} +${result.cash.toLocaleString('en')} cash`
     $('reward').classList.remove('hidden')
   } else $('reward').classList.add('hidden')

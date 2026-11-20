@@ -31,6 +31,8 @@ export class Input {
   constructor() {
     window.addEventListener('pointerdown', () => this.pressed.add('any'))
     window.addEventListener('keydown', (e) => {
+      // Typing into a form (the account screen) is not driving.
+      if ((e.target as HTMLElement | null)?.closest?.('input, textarea')) return
       this.pressed.add('any')
       const action = KEYS[e.code]
       if (action) {
