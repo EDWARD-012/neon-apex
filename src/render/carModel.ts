@@ -21,6 +21,7 @@ import {
   Path,
   PlaneGeometry,
   Shape,
+  SphereGeometry,
   type Texture,
   Vector2,
 } from 'three'
@@ -65,6 +66,10 @@ interface Def {
   exhausts: number
   sport: boolean
   lightBar?: boolean
+  // Gloss-black lower body, as a fraction of the side height.
+  lower?: number
+  // Big side intakes behind the doors, mid-engine style.
+  intakes?: boolean
 }
 
 const st = (z: number, w: number, bottom: number, shoulder: number, top: number, roof: number): Station => ({ z, w, bottom, shoulder, top, roof })
@@ -90,25 +95,29 @@ const SEDAN: Def = {
 }
 
 const DEFS: Record<CarShape, Def> = {
+  // A mid-engine hypercar: low pointed nose, a teardrop canopy set well
+  // forward, high haunches over the rear wheels and a long engine deck.
   vanta: {
     stations: [
-      st(-2.26, 0.78, 0.33, 0.72, 0.76, 0.66),
-      st(-2.08, 0.9, 0.27, 0.82, 0.88, 0.8),
-      st(-1.55, 0.95, 0.24, 0.85, 0.9, 0.8),
-      st(-1.1, 0.96, 0.24, 0.85, 1.04, 0.68),
-      st(-0.5, 0.95, 0.24, 0.84, 1.19, 0.6),
-      st(0.25, 0.93, 0.24, 0.82, 1.2, 0.6),
-      st(0.85, 0.93, 0.24, 0.8, 0.9, 0.74),
-      st(1.45, 0.94, 0.24, 0.76, 0.8, 0.82),
-      st(2.0, 0.88, 0.25, 0.64, 0.67, 0.78),
-      st(2.3, 0.7, 0.3, 0.5, 0.52, 0.6),
+      st(-2.3, 0.86, 0.34, 0.8, 0.84, 0.74),
+      st(-2.12, 0.98, 0.28, 0.86, 0.92, 0.86),
+      st(-1.6, 1.0, 0.25, 0.88, 0.95, 0.84),
+      st(-1.05, 0.98, 0.24, 0.86, 1.0, 0.62),
+      st(-0.55, 0.96, 0.23, 0.82, 1.12, 0.52),
+      st(0.15, 0.95, 0.23, 0.78, 1.14, 0.54),
+      st(0.75, 0.94, 0.23, 0.72, 0.98, 0.6),
+      st(1.3, 0.96, 0.23, 0.66, 0.72, 0.84),
+      st(1.9, 0.92, 0.24, 0.56, 0.6, 0.86),
+      st(2.32, 0.76, 0.27, 0.42, 0.45, 0.68),
     ],
-    wheelZ: [1.38, -1.38],
-    wheelR: 0.36,
-    wheelX: 0.86,
-    wing: { y: 1.04, z: -1.92, width: 1.78, chord: 0.34 },
+    wheelZ: [1.42, -1.5],
+    wheelR: 0.37,
+    wheelX: 0.9,
+    wing: { y: 1.02, z: -2.02, width: 1.84, chord: 0.32 },
     exhausts: 2,
     sport: true,
+    lower: 0.34,
+    intakes: true,
   },
   kite: {
     stations: [
@@ -127,6 +136,7 @@ const DEFS: Record<CarShape, Def> = {
     roofSpoiler: true,
     exhausts: 1,
     sport: true,
+    lower: 0.26,
   },
   brute: {
     stations: [
@@ -147,6 +157,7 @@ const DEFS: Record<CarShape, Def> = {
     ducktail: true,
     exhausts: 4,
     sport: true,
+    lower: 0.22,
   },
   volt: {
     stations: [
@@ -165,6 +176,8 @@ const DEFS: Record<CarShape, Def> = {
     lightBar: true,
     exhausts: 0,
     sport: true,
+    lower: 0.3,
+    intakes: true,
   },
   sedan: SEDAN,
   van: {
@@ -217,40 +230,43 @@ export class WheelBank {
 
   constructor(capacity = 160) {
     // Tyre: a rounded profile turned round the axle.
+    // Low profile: a short sidewall round a big rim.
     const profile = [
-      [0.25, -0.15],
-      [0.31, -0.155],
-      [0.345, -0.13],
-      [0.36, -0.07],
+      [0.285, -0.16],
+      [0.318, -0.165],
+      [0.348, -0.14],
+      [0.36, -0.08],
       [0.362, 0],
-      [0.36, 0.07],
-      [0.345, 0.13],
-      [0.31, 0.155],
-      [0.25, 0.15],
+      [0.36, 0.08],
+      [0.348, 0.14],
+      [0.318, 0.165],
+      [0.285, 0.16],
     ].map(([r, y]) => new Vector2(r, y))
     const tyre = new LatheGeometry(profile, 28).rotateZ(Math.PI / 2)
     this.tyres = new InstancedMesh(tyre, new MeshStandardMaterial({ color: '#141416', roughness: 0.82, metalness: 0 }), capacity)
 
     // Rim: a disc with five spoke-shaped holes, extruded and turned to face
     // out, plus a hub and a brake disc behind it.
+    // Ten thin spokes in five pairs, as on a forged supercar wheel.
     const face = new Shape()
-    face.absarc(0, 0, 0.25, 0, Math.PI * 2, false)
-    for (let k = 0; k < 5; k++) {
-      const a0 = (k / 5) * Math.PI * 2 + 0.28
-      const a1 = a0 + (Math.PI * 2) / 5 - 0.56
+    face.absarc(0, 0, 0.285, 0, Math.PI * 2, false)
+    for (let k = 0; k < 10; k++) {
+      const gap = k % 2 === 0 ? 0.1 : 0.42
+      const a0 = (k / 10) * Math.PI * 2 + 0.07
+      const a1 = a0 + (Math.PI * 2) / 10 - (k % 2 === 0 ? 0.14 : 0.14) - gap * 0.2
       const hole = new Path()
-      hole.absarc(0, 0, 0.215, a0, a1, false)
-      hole.absarc(0, 0, 0.09, a1 - 0.05, a0 + 0.05, true)
+      hole.absarc(0, 0, 0.255, a0, a1, false)
+      hole.absarc(0, 0, 0.085, a1 - 0.08, a0 + 0.08, true)
       hole.closePath()
       face.holes.push(hole)
     }
     const rimFace = new ExtrudeGeometry(face, { depth: 0.035, bevelEnabled: true, bevelThickness: 0.012, bevelSize: 0.008, bevelSegments: 2, curveSegments: 14 })
     rimFace.rotateY(Math.PI / 2).translate(0.085, 0, 0)
-    const barrel = new CylinderGeometry(0.255, 0.255, 0.2, 24, 1, true).rotateZ(Math.PI / 2)
+    const barrel = new CylinderGeometry(0.29, 0.29, 0.22, 28, 1, true).rotateZ(Math.PI / 2)
     const hub = new CylinderGeometry(0.05, 0.06, 0.06, 12).rotateZ(Math.PI / 2).translate(0.12, 0, 0)
-    const disc = new CylinderGeometry(0.2, 0.2, 0.03, 24).rotateZ(Math.PI / 2).translate(-0.02, 0, 0)
+    const disc = new CylinderGeometry(0.24, 0.24, 0.03, 28).rotateZ(Math.PI / 2).translate(-0.02, 0, 0)
     const merged = mergeGeometries([rimFace.toNonIndexed(), barrel.toNonIndexed(), hub.toNonIndexed(), disc.toNonIndexed()])
-    this.rims = new InstancedMesh(merged, new MeshStandardMaterial({ color: '#b9bec9', metalness: 0.95, roughness: 0.22, envMapIntensity: 1.6 }), capacity)
+    this.rims = new InstancedMesh(merged, new MeshStandardMaterial({ color: '#c3c8d0', metalness: 1, roughness: 0.2, envMapIntensity: 1.4 }), capacity)
     for (const mesh of [this.tyres, this.rims]) {
       mesh.instanceMatrix.setUsage(DynamicDrawUsage)
       mesh.frustumCulled = false
@@ -327,21 +343,25 @@ export function createCarModel(color: string, spot: Texture, options: ModelOptio
   const body = new Group()
   group.add(body)
 
+  // Metallic paint under a mirror clear coat: the base coat carries the
+  // colour and a soft metallic sheen, the clear coat the sharp reflections
+  // of the sky.
   const paint = new MeshPhysicalMaterial({
     color,
     vertexColors: true,
-    metalness: def.sport ? 0.62 : 0.35,
-    roughness: def.sport ? 0.26 : 0.4,
+    metalness: def.sport ? 0.55 : 0.3,
+    roughness: def.sport ? 0.34 : 0.45,
     clearcoat: 1,
-    clearcoatRoughness: def.sport ? 0.03 : 0.12,
-    envMapIntensity: 1.7,
+    clearcoatRoughness: def.sport ? 0.025 : 0.1,
+    envMapIntensity: 1.25,
   })
-  const glass = new MeshPhysicalMaterial({ color: '#05070c', metalness: 0.2, roughness: 0.04, clearcoat: 1, clearcoatRoughness: 0, envMapIntensity: 2.6 })
-  const trim = new MeshStandardMaterial({ color: '#0a0b0f', roughness: 0.55, metalness: 0.3 })
+  const glass = new MeshPhysicalMaterial({ color: '#06080d', metalness: 0.3, roughness: 0.03, clearcoat: 1, clearcoatRoughness: 0, envMapIntensity: 2.2 })
+  // Gloss black for the lower body, intakes and splitter.
+  const trim = new MeshPhysicalMaterial({ color: '#0b0c0f', roughness: 0.42, metalness: 0.25, clearcoat: def.sport ? 0.7 : 0, clearcoatRoughness: 0.08, envMapIntensity: 1.1 })
   const chrome = new MeshStandardMaterial({ color: '#d8dce4', metalness: 1, roughness: 0.12, envMapIntensity: 2 })
   for (const m of [paint, glass, trim, chrome]) fade(m)
 
-  const spec: BodySpec = { stations: def.stations, wheels: [def.wheelZ[0], def.wheelZ[1]].map((z) => ({ z, r: def.wheelR, x: def.wheelX })) }
+  const spec: BodySpec = { stations: def.stations, wheels: [def.wheelZ[0], def.wheelZ[1]].map((z) => ({ z, r: def.wheelR, x: def.wheelX })), lower: def.lower ?? 0 }
   const bodyGeo = loft(spec)
   const original = (bodyGeo.getAttribute('position').array as Float32Array).slice()
   body.add(new Mesh(bodyGeo, [paint, glass, trim]))
@@ -374,6 +394,20 @@ export function createCarModel(color: string, spot: Texture, options: ModelOptio
   }
   // Headlight housings.
   for (const side of [-1, 1]) dark.push(placed(new BoxGeometry(nose.w * 0.5, 0.1, 0.14), side * nose.w * 0.56, nose.shoulder - 0.07, front - 0.12, -0.15))
+  if (def.sport) {
+    // Big corner intakes in the front bumper, and a carbon-style blade
+    // splitter that sticks out ahead of the nose.
+    for (const side of [-1, 1]) dark.push(placed(new BoxGeometry(nose.w * 0.46, (nose.shoulder - nose.bottom) * 0.38, 0.12), side * nose.w * 0.6, nose.bottom + (nose.shoulder - nose.bottom) * 0.3, front - 0.08))
+    dark.push(placed(new BoxGeometry(nose.w * 2.05, 0.025, 0.42), 0, nose.bottom - 0.02, front - 0.02))
+  }
+  if (def.intakes) {
+    // Scoops in the flanks behind the doors, feeding the engine.
+    const iz = def.wheelZ[1] + def.wheelR + 0.5
+    const s = at(def, iz)
+    for (const side of [-1, 1]) {
+      dark.push(placed(new SphereGeometry(1, 18, 10).scale(0.07, (s.shoulder - s.bottom) * 0.32, 0.5), side * s.w * 0.985, s.bottom + (s.shoulder - s.bottom) * 0.55, iz, 0, side * 0.12))
+    }
+  }
   if (def.ducktail) dark.push(placed(new BoxGeometry(0.7, 0.12, 1.0), 0, at(def, 1.4).top + 0.04, 1.4))
   body.add(new Mesh(fixed(mergeGeometries(dark.map((g) => g.toNonIndexed()))), trim))
 

@@ -87,13 +87,13 @@ export const MAX_POLICE = 4
 export const ESCAPE_DISTANCE = 300
 
 const RIVALS = [
-  { name: 'Vesper', color: '#ff3d7f' },
-  { name: 'Okafor', color: '#3df5ff' },
-  { name: 'Lindqvist', color: '#ffb52e' },
-  { name: 'Moreau', color: '#a66bff' },
-  { name: 'Tanaka', color: '#5dff7a' },
-  { name: 'Reyes', color: '#ff6a3d' },
-  { name: 'Novak', color: '#e8e8f0' },
+  { name: 'Vesper', color: '#d01f3c' },
+  { name: 'Okafor', color: '#1d63d6' },
+  { name: 'Lindqvist', color: '#f08a00' },
+  { name: 'Moreau', color: '#7b3fd0' },
+  { name: 'Tanaka', color: '#1f8a52' },
+  { name: 'Reyes', color: '#e8e8ea' },
+  { name: 'Novak', color: '#9aa1ad' },
 ]
 
 export class Race {
@@ -140,7 +140,7 @@ export class Race {
       this.racers.push({
         id: k,
         name: player ? 'You' : rival.name,
-        color: player ? options.playerColor ?? '#ffd23d' : rival.color,
+        color: player ? options.playerColor ?? '#f2a900' : rival.color,
         player,
         car: createCar(at.x, at.z, at.heading, this.track, player ? options.playerSpec ?? CAR : options.rivalSpecs?.[k] ?? CAR),
         // Rivals near the front of the grid are a little quicker.

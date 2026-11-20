@@ -14,7 +14,9 @@ import { dailySeed } from './sim/track'
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement
 const params = new URLSearchParams(location.search)
-const COLORS = ['#ffd23d', '#ff2d95', '#3df5ff', '#5dff7a', '#ff6a3d', '#e8e8f0']
+// Paint: deep, saturated car colours rather than neon, so they hold up in
+// daylight.
+const COLORS = ['#f2a900', '#c8102e', '#0d47a1', '#ff5a1f', '#1f6f4a', '#e9e9ec', '#111316', '#6a1b9a']
 const STORE = 'neon-apex/settings'
 const KINDS: EventKind[] = ['race', 'elimination', 'drift', 'pursuit', 'trial']
 const KIND_NOTES: Record<EventKind, string> = {

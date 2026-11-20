@@ -62,6 +62,35 @@ describe('car physics', () => {
     expect(slide.drifting).toBe(true)
   })
 
+  it('corners at the tyres\' grip limit, not past it', () => {
+    // Open ground, so the barriers stay out of the way.
+    const open = { ...track, width: 1e6 }
+    const car = createCar(0, 0, 0, open)
+    car.vz = 40
+    for (let t = 0; t < 3; t += STEP) stepCar(car, { ...idle, throttle: 0.4, steer: 1 }, STEP, open)
+    const lateral = speedOf(car) * Math.abs(car.yawRate)
+    expect(lateral).toBeGreaterThan(CAR.lateralLimit * 0.85)
+    expect(lateral).toBeLessThan(CAR.lateralLimit * 1.15)
+  })
+
+  it('a handbrake drift held on throttle and countersteer lasts, without spinning', () => {
+    const open = { ...track, width: 1e6 }
+    const car = createCar(0, 0, 0, open)
+    car.vz = 30
+    let sliding = 0
+    let worst = 0
+    for (let t = 0; t < 3.5; t += STEP) {
+      const handbrake = t < 0.45
+      const steer = handbrake ? 0.8 : car.slip > 0.5 ? -0.45 : 0.45
+      stepCar(car, { ...idle, throttle: handbrake ? 0.3 : 1, steer, handbrake }, STEP, open)
+      if (car.drifting) sliding += STEP
+      worst = Math.max(worst, car.slip)
+    }
+    expect(sliding).toBeGreaterThan(2)
+    expect(worst).toBeLessThan(1.1)
+    expect(speedOf(car)).toBeGreaterThan(20)
+  })
+
   it('barriers keep the car on the track', () => {
     const car = start()
     for (let t = 0; t < 8; t += STEP) stepCar(car, { ...full, steer: 1 }, STEP, track)

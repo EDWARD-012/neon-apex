@@ -27,6 +27,9 @@ export interface BodySpec {
   stations: Station[]
   wheels: { z: number; r: number; x: number }[]
   rings?: number
+  // Fraction of the side, from the bottom up, done in gloss black: the
+  // two-tone lower body of a supercar. 0 for none.
+  lower?: number
 }
 
 export const PAINT = 0
@@ -125,7 +128,8 @@ export function loft(spec: BodySpec): BufferGeometry {
         }
       }
       pos.push(px, y, z)
-      part.push(carved ? 'under' : p)
+      const low = (spec.lower ?? 0) > 0 && (p === 'side' || p === 'under') && y < s.bottom + (s.shoulder - s.bottom) * (spec.lower ?? 0)
+      part.push(carved || low ? 'under' : p)
     }
   }
 
@@ -174,8 +178,9 @@ export function loft(spec: BodySpec): BufferGeometry {
       else groups[PAINT].push(centre, b, a)
     }
   }
-  cap(0, true)
-  cap(rings, false)
+  // The tail cap faces back and the nose cap forward.
+  cap(0, false)
+  cap(rings, true)
 
   const geo = new BufferGeometry()
   geo.setAttribute('position', new BufferAttribute(new Float32Array(pos), 3))

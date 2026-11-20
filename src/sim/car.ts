@@ -156,31 +156,94 @@ export function stepCar(car: CarState, input: CarInput, dt: number, track: Track
   vf = input.throttle === 0 && input.brake === 0 && Math.sign(next) !== Math.sign(vf) ? 0 : next
   vf = Math.max(vf, -S.reverseTop)
 
-  // Steering: the yaw rate a bicycle model would give, capped by how much
-  // sideways pull the tyres have at this speed. Lock eases off with speed.
+  // Steering and grip, as a two-axle ("bicycle") model. Each axle's tyres
+  // make a sideways force from their slip angle, the angle between where
+  // the wheel points and where it is actually going. The force follows a
+  // tyre curve that peaks at a few degrees and then falls away a little,
+  // and is capped by friction times the load on that axle. Braking moves
+  // load onto the front tyres and accelerating onto the rear. The
+  // handbrake locks the rear wheels, which leaves them little sideways
+  // grip: that starts a drift, and throttle and countersteer hold it.
   const speed = Math.abs(vf)
   const lock = S.maxSteer * (1 - 0.6 * Math.min(1, speed / S.topSpeed))
   car.steer += (input.steer * lock - car.steer) * Math.min(1, 12 * dt)
-  const geometric = (vf * Math.tan(car.steer)) / S.wheelbase
-  const cap = S.lateralLimit / Math.max(speed, 4)
-  // A right turn turns the heading the negative way.
-  let yawTarget = -Math.max(-cap, Math.min(cap, geometric))
-  if (input.handbrake && speed > 10) yawTarget *= 1.7
-  car.yawRate += (yawTarget - car.yawRate) * Math.min(1, S.yawResponse * dt)
-
-  // Grip. The handbrake breaks it; holding throttle and steering into a
-  // slide keeps it low, which is how a drift is held through a corner.
-  if (input.handbrake) car.gripRecovery = 0
-  else car.gripRecovery = Math.min(1, car.gripRecovery + dt / 0.7)
-  const holding = car.drifting && input.throttle > 0.5 && Math.abs(input.steer) > 0.3
-  const recovery = holding ? Math.min(car.gripRecovery, 0.3) : car.gripRecovery
-  const grip = S.driftGrip + (S.grip - S.driftGrip) * recovery
-  const sideways = Math.abs(vr)
-  vr *= Math.exp(-grip * dt)
-  // Arcade rule: while sliding, most of the sideways speed the tyres take
-  // away goes back into forward speed, so a good drift does not cost a lot.
-  if (car.drifting && vf > 0) vf += (sideways - Math.abs(vr)) * 0.65
-
+  // From here on: y points left, and a positive yaw rate turns left.
+  const delta = -car.steer
+  let vy = -vr
+  let yaw = car.yawRate
+  const L = S.wheelbase
+  const a = L * 0.47
+  const b = L - a
+  if (vf < 4) {
+    // Parking speeds and reversing: the wheels just roll where they point.
+    const target = (vf * Math.tan(delta)) / L
+    yaw += (target - yaw) * Math.min(1, 10 * dt)
+    vy *= Math.exp(-10 * dt)
+  } else {
+    // A touch more grip than the racing line plans with, so a car on the
+    // planned speed has a little in hand.
+    const mu = (S.lateralLimit * 1.08) / 9.81
+    const ax = accel - resist
+    const loadF = Math.max(0.2, (9.81 * b - ax * 0.35) / L)
+    const loadR = Math.max(0.2, (9.81 * a + ax * 0.35) / L)
+    // Peak sideways force at about 6 degrees of slip.
+    const stiff = 26 * (S.grip / 9)
+    // Grip comes back over a moment after the handbrake is let go.
+    if (input.handbrake) car.gripRecovery = 0
+    else car.gripRecovery = Math.min(1, car.gripRecovery + dt / 0.6)
+    // Full throttle with the wheel turned keeps a slide going: the driven
+    // rear wheels stay spinning, so their grip never fully comes back.
+    if (!input.handbrake && car.gripRecovery < 1 && car.drifting && input.throttle > 0.5 && Math.abs(input.steer) > 0.3) car.gripRecovery = Math.min(car.gripRecovery, 0.5)
+    const sliding = car.gripRecovery < 1
+    const locked = 0.3 + S.driftGrip / S.grip
+    let rear = 1
+    if (input.handbrake) rear = locked
+    else if (sliding) rear = locked + (1 - locked) * car.gripRecovery
+    // The rear tyres are a little stiffer than the front, as on most road
+    // cars: the car pushes wide at the limit rather than spinning.
+    const curve = (slip: number, load: number, k: number) => mu * load * Math.sin(1.3 * Math.atan(k * slip))
+    // Yaw inertia over mass: the square of the radius of gyration.
+    const k2 = a * b
+    const sub = 3
+    const h = dt / sub
+    const sideBefore = Math.abs(vy)
+    for (let k = 0; k < sub; k++) {
+      const slipF = delta - Math.atan2(vy + a * yaw, vf)
+      const slipR = -Math.atan2(vy - b * yaw, vf)
+      // A rear end already sliding under throttle loses more grip to the
+      // driven wheels spinning: power oversteer, which holds a drift.
+      const power = sliding && Math.abs(slipR) > 0.09 && input.throttle > 0 ? 1 - 0.28 * input.throttle : 1
+      const fyF = curve(slipF, loadF, stiff)
+      const fyR = curve(slipR, loadR, stiff * 1.25) * rear * power
+      // The world velocity is kept between steps and the body turns under
+      // it, so the turning of the frame is already in vf and vy; only the
+      // tyre forces are added here.
+      vy += (fyF * Math.cos(delta) + fyR) * h
+      yaw += ((a * fyF * Math.cos(delta) - b * fyR) / k2) * h
+    }
+    const bodySlip = Math.atan2(Math.abs(vy), Math.max(vf, 0.1))
+    if (sliding && car.drifting && input.throttle > 0) {
+      // Drift assist, as racing games have: past about 30 degrees the slide
+      // is damped so a held drift does not turn into a spin, and some of
+      // the sideways speed the tyres scrub off carries on as forward speed.
+      if (bodySlip > 0.55) {
+        yaw *= Math.exp(-7 * (bodySlip - 0.55) * dt)
+        vy *= Math.exp(-2.5 * (bodySlip - 0.55) * dt)
+      }
+      vf += Math.max(0, sideBefore - Math.abs(vy)) * 0.35
+    }
+    // Stability control, off while the handbrake slide lasts: it nudges the
+    // yaw towards what the steering asks for, so a car on the limit does
+    // not swap ends on its own.
+    if (!sliding) {
+      const cap = S.lateralLimit / Math.max(vf, 4)
+      const target = Math.max(-cap, Math.min(cap, (vf * Math.tan(delta)) / L))
+      yaw += (target - yaw) * Math.min(1, 4 * dt)
+      vy *= Math.exp(-1.5 * dt)
+    }
+  }
+  vr = -vy
+  car.yawRate = yaw
   car.vx = fx * vf + rx * vr
   car.vz = fz * vf + rz * vr
   car.heading += car.yawRate * dt
