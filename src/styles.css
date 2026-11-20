@@ -1452,3 +1452,141 @@ kbd {
 #wheel-icon .mark {
   stroke: #ff3b48;
 }
+
+/* ------------------------------------------------------------------ */
+/* Modern layer: frosted glass panels that stay readable over a bright
+   daytime scene, larger touch targets, and a calmer, sharper type scale.
+   It sits on top of the base styles above. */
+
+.screen {
+  background: linear-gradient(90deg, rgba(4, 6, 12, 0.78) 0%, rgba(4, 6, 12, 0.42) 42%, rgba(4, 6, 12, 0) 70%);
+}
+.menu-card {
+  padding: 30px 32px 26px;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: linear-gradient(160deg, rgba(18, 22, 34, 0.72), rgba(8, 10, 18, 0.66));
+  backdrop-filter: blur(22px) saturate(1.25);
+  -webkit-backdrop-filter: blur(22px) saturate(1.25);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.menu-card.wide {
+  width: min(1100px, 100%);
+}
+.logo span:last-child {
+  background: linear-gradient(92deg, #ffb02e 0%, #ff5a3c 45%, #ff2d95 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.tagline {
+  color: rgba(238, 240, 255, 0.78);
+}
+.main-menu {
+  gap: 10px;
+}
+.main-menu button {
+  position: relative;
+  transform: none;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.045);
+  padding: 15px 52px 15px 22px;
+  font-style: normal;
+  letter-spacing: 0.01em;
+}
+.main-menu button::after {
+  content: '›';
+  position: absolute;
+  right: 20px;
+  top: 50%;
+  transform: translateY(-52%);
+  font-size: 30px;
+  font-weight: 400;
+  opacity: 0.45;
+  transition: transform 200ms var(--ease-out), opacity 200ms ease;
+}
+.main-menu button small {
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+.main-menu button.primary {
+  background: linear-gradient(100deg, #ff2d6f 0%, #ff5a3c 60%, #ff8a2e 100%);
+  border-color: transparent;
+  box-shadow: 0 12px 34px rgba(255, 70, 80, 0.35);
+}
+@media (hover: hover) and (pointer: fine) {
+  .main-menu button:hover {
+    transform: translateX(6px);
+    background: rgba(255, 255, 255, 0.09);
+    border-color: rgba(255, 255, 255, 0.18);
+  }
+  .main-menu button.primary:hover {
+    background: linear-gradient(100deg, #ff3d7c 0%, #ff6a48 60%, #ff9a40 100%);
+  }
+  .main-menu button:hover::after {
+    transform: translate(4px, -52%);
+    opacity: 0.9;
+  }
+}
+.main-menu button:active {
+  transform: translateX(3px) scale(0.99);
+}
+.segmented {
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 4px;
+  gap: 4px;
+}
+.segmented button {
+  border-radius: 9px;
+}
+.segmented button.on {
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
+/* HUD: the same glass, so numbers read over sky and snow as well as night. */
+.hud-left {
+  padding: 14px 18px 12px;
+  border-radius: 18px;
+  background: rgba(6, 8, 14, 0.42);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+.gauge {
+  padding: 12px 18px 14px;
+  border-radius: 22px;
+  background: rgba(6, 8, 14, 0.42);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+.speed span {
+  font-variant-numeric: tabular-nums;
+}
+#minimap {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+.logo span:last-child {
+  text-shadow: none;
+  filter: drop-shadow(0 0 18px rgba(255, 80, 70, 0.45));
+}
+@media (max-height: 820px) {
+  .menu-card {
+    padding: 22px 26px 20px;
+  }
+  .logo {
+    font-size: clamp(44px, 7.5vh, 72px);
+  }
+  .main-menu button {
+    padding: 11px 48px 11px 20px;
+    font-size: 21px;
+  }
+  .tagline {
+    margin-bottom: 14px;
+  }
+}
