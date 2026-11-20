@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "description": "A street racing game for the browser, by day in the mountains or at night in the city, with AI rivals that drive a racing line computed from the track.",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "author": "Ravi Kumar Gupta",
   "type": "module",
   "engines": {

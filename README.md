@@ -215,6 +215,10 @@ Car models, all CC BY 4.0, from Sketchfab: [Fictional supercar - V12 Goblin](htt
 
 The daytime sky and the road, rock and ground textures are from [Poly Haven](https://polyhaven.com), released under CC0: "Kloofendal 48d Partly Cloudy (Pure Sky)" by Greg Zaal and Jarod Guest, "Asphalt 02", "Aerial Rocks 02" and "Forest Ground 04". They are resized and recompressed in `public/textures`.
 
+## Contact and support
+
+Neon Apex is free to play. To support it, to report something, to ask about a licence or to buy the source code, write to [ravi5258p@gmail.com](mailto:ravi5258p@gmail.com).
+
 ## Licence
 
-MIT. See [LICENSE](LICENSE).
+All rights reserved. The code is public to read, but not to use, copy, change or sell without written permission; see [LICENSE](LICENSE). Versions up to and including commit 4ece86d (20 November 2026) were released under the MIT License, and copies already made of those stay under it. The car models and textures keep their own licences, listed under Credits.
