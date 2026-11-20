@@ -195,3 +195,18 @@ test('the career pays out, and cash buys a car in the garage', async ({ page }) 
   await expect(page.locator('#car-action')).toHaveText('Driving this one')
   await expect(page.locator('#garage-cash')).toHaveText('1,000')
 })
+
+test('a phone held upright is asked to turn sideways, and the race waits', async ({ page, isMobile }) => {
+  test.skip(!isMobile, 'phones only')
+  await open(page)
+  await expect(page.locator('#rotate')).toBeHidden()
+  await quickRace(page)
+  const size = page.viewportSize() as { width: number; height: number }
+  await page.setViewportSize({ width: size.height, height: size.width })
+  await expect(page.locator('#rotate')).toBeVisible()
+  await expect(page.locator('#rotate')).toContainText('Turn your phone sideways')
+  await expect(page.locator('#pause')).toBeVisible()
+  expect((await state(page)).mode).toBe('paused')
+  await page.setViewportSize(size)
+  await expect(page.locator('#rotate')).toBeHidden()
+})

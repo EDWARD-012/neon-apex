@@ -290,8 +290,29 @@ segmented('sound', settings.sound ? 'on' : 'off', (v) => {
 
 let current: EventSpec | null = null
 
+// Phones. The game is made for landscape. Android browsers can go full
+// screen and lock the screen sideways, but only from a tap; iPhone Safari
+// cannot lock it at all, so in portrait a screen asks for the phone to be
+// turned, and a race in progress pauses until it is.
+const touchScreen = matchMedia('(pointer: coarse)').matches
+type Lockable = ScreenOrientation & { lock?: (o: string) => Promise<void> }
+const canLock = touchScreen && document.fullscreenEnabled && typeof (screen.orientation as Lockable | undefined)?.lock === 'function'
+async function landscape() {
+  if (!canLock || params.has('test') || document.fullscreenElement) return
+  try {
+    await document.documentElement.requestFullscreen({ navigationUI: 'hide' })
+    await (screen.orientation as Lockable).lock?.('landscape')
+  } catch {
+    // The browser said no. The rotate screen still explains what to do.
+  }
+}
+$('go-landscape').classList.toggle('hidden', !canLock)
+$('go-landscape').addEventListener('click', () => void landscape())
+const portrait = matchMedia('(orientation: portrait) and (pointer: coarse)')
+
 function begin(spec: EventSpec) {
   current = spec
+  if (touchScreen) void landscape()
   game.start(spec)
   setScreen('intro')
   const track = game.race.track
@@ -305,6 +326,7 @@ function begin(spec: EventSpec) {
 // the screens in step with it.
 window.setInterval(() => {
   if (game.mode === 'race' && !$('intro').classList.contains('hidden')) setScreen('race')
+  if (portrait.matches) game.pause()
 }, 100)
 
 $('resume').addEventListener('click', () => game.resume())
