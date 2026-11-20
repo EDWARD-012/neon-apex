@@ -324,6 +324,9 @@ export interface ModelOptions {
   glow?: boolean
   // Where to draw the wheels. Without one the model makes its own.
   bank?: WheelBank
+  // Which of several models to use where a shape has more than one, as
+  // traffic does.
+  variant?: number
 }
 
 // One shared bank for models made without one, like the garage car.
@@ -335,7 +338,7 @@ export function createCarModel(color: string, spot: Texture, options: ModelOptio
   const ghost = options.ghost ?? false
   // Real 3D models for the cars that have one; the drawn body otherwise
   // (traffic, police, and the see-through ghost).
-  const asset = ghost ? null : makeAssetCar(shape, color)
+  const asset = ghost ? null : makeAssetCar(shape, color, options.variant ?? 0)
   if (asset) return assetModel(asset, color, spot, options)
   const fade = (m: Material, o = 0.3) => {
     if (ghost) {
@@ -650,7 +653,7 @@ function assetModel(asset: AssetCar, color: string, spot: Texture, options: Mode
     heads: asset.heads,
     flames: asset.flames,
     glow,
-    siren: null,
+    siren: asset.siren,
     tailLights: asset.tailLights,
     exhausts: asset.exhausts,
     loose: [],

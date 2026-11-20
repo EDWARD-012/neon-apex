@@ -16,6 +16,9 @@ const MODELS = [
   { source: 'v12_goblin.glb', out: 'vanta.glb', drop: /^car_shadow/, specGloss: true },
   { source: 'generic_coupe_azura.glb', out: 'kite.glb', drop: /^Shadow/ },
   { source: 'generic_sport_coupe_car.glb', out: 'brute.glb', dropMaterial: /^(mechanics|media)$/ },
+  // Ten everyday cars for traffic and the police, minus the round stand
+  // they are shown on.
+  { source: 'generic_passenger_car_pack.glb', out: 'traffic.glb', drop: /^Cylinder/ },
 ]
 
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS)

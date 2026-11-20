@@ -274,7 +274,7 @@ export class Game {
       const shape = racer.player ? car.shape : RIVAL_SHAPES[(k + 1) % RIVAL_SHAPES.length]
       this.addView(racer.car, createCarModel(racer.color, this.spotTexture, { shape, bank: this.wheelBank }), racer, false)
     })
-    for (const t of this.race.traffic) this.addView(t.car, createCarModel(t.color, this.spotTexture, { shape: t.shape, glow: false, bank: this.wheelBank }), null, false)
+    this.race.traffic.forEach((t, k) => this.addView(t.car, createCarModel(t.color, this.spotTexture, { shape: t.shape, glow: false, bank: this.wheelBank, variant: k }), null, false))
     for (const cop of this.race.police) this.addView(cop, createCarModel('#14161c', this.spotTexture, { shape: 'police', glow: false, bank: this.wheelBank }), null, true)
 
     // By day the cars cast real shadows, and the headlight pools and

@@ -1,6 +1,7 @@
 import {
   AdditiveBlending,
   Box3,
+  BoxGeometry,
   type BufferAttribute,
   Float32BufferAttribute,
   Color,
@@ -11,7 +12,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   MeshPhysicalMaterial,
-  type MeshStandardMaterial,
+  MeshStandardMaterial,
   type Object3D,
   PlaneGeometry,
   type Texture,
@@ -46,7 +47,31 @@ interface AssetDef {
   exhaustX: number[]
   exhaustY: number
   tailY: number
+  // Front wheels are the ones ahead of the middle, when names do not say.
+  frontByPosition?: boolean
 }
+
+// The traffic pack: ten everyday cars, keeping the paint they came with.
+const TRAFFIC: AssetDef = {
+  file: 'traffic.glb',
+  turn: 0,
+  length: 0,
+  wheels: /^Wheel_/,
+  paint: /^$/,
+  exhaustX: [],
+  exhaustY: 0.3,
+  tailY: 0.8,
+  frontByPosition: true,
+}
+// In the pack every car's nose points along its body's local x axis, this
+// way round.
+const PACK_NOSE = 1
+// Cars in the pack whose body axis points the other way, found by looking
+// at where their tail lights are.
+const FLIP = new Set<string>(['compact', 'minivan', 'suv', 'offroad'])
+// Which pack cars stand in for the drawn sedan and van shapes.
+const SEDANS = ['sedan', 'compact', 'coupe', 'hatchback', 'wagon', 'sport']
+const VANS = ['minivan', 'suv', 'offroad', 'pickup']
 
 const DEFS: Partial<Record<CarShape, AssetDef>> = {
   vanta: {
@@ -76,11 +101,13 @@ const DEFS: Partial<Record<CarShape, AssetDef>> = {
     file: 'brute.glb',
     turn: 0,
     length: 4.75,
-    wheels: /^Coupe-Wheel\.(Ft|Bk)\./,
+    // three.js drops the dots from node names on load: Coupe-Wheel.Ft.L
+    // arrives as Coupe-WheelFtL_03.
+    wheels: /^Coupe-Wheel(Ft|Bk)[LR]/,
     paint: /^car-body$/,
     paintHue: 0.0,
     tail: /^Glass_-_Red/,
-    head: /^headlights\./,
+    head: /^headlights[lr]_/,
     exhaustX: [-0.62, -0.48, 0.48, 0.62],
     exhaustY: 0.33,
     tailY: 0.95,
@@ -96,6 +123,7 @@ interface Template {
 }
 
 const templates = new Map<CarShape, Template>()
+const traffic = new Map<string, Template>()
 
 // Loads every model; resolves when they are ready, or quietly falls back
 // to the drawn cars if they cannot load.
@@ -104,8 +132,8 @@ export async function loadCarAssets(): Promise<void> {
   const base = `${import.meta.env.BASE_URL}models/`
   // One template per file: shapes that share a model share its template.
   const prepared = new Map<string, Promise<Template>>()
-  await Promise.all(
-    (Object.entries(DEFS) as [CarShape, AssetDef][]).map(async ([shape, def]) => {
+  await Promise.all([
+    ...(Object.entries(DEFS) as [CarShape, AssetDef][]).map(async ([shape, def]) => {
       try {
         if (!prepared.has(def.file)) prepared.set(def.file, loader.loadAsync(base + def.file).then((g) => prepare(g.scene as unknown as Group, def)))
         templates.set(shape, await (prepared.get(def.file) as Promise<Template>))
@@ -113,7 +141,85 @@ export async function loadCarAssets(): Promise<void> {
         // Keep the drawn car for this shape.
       }
     }),
-  )
+    loader.loadAsync(base + TRAFFIC.file).then(
+      (g) => {
+        for (const [name, template] of splitPack(g.scene as unknown as Group)) traffic.set(name, template)
+      },
+      (error) => console.warn('Traffic car models did not load; using the drawn ones.', error),
+    ),
+  ])
+}
+
+// The pack has all ten cars on one stand, each turned a different way.
+// Each car's body is lifted out with the wheels next to it, turned nose
+// along +z and centred.
+function splitPack(scene: Group): Map<string, Template> {
+  scene.updateMatrixWorld(true)
+  const bodies: Object3D[] = []
+  const wheels: Object3D[] = []
+  scene.traverse((o) => {
+    // Spaces in node names arrive as underscores.
+    if (/[ _]body$/i.test(o.name)) bodies.push(o)
+    else if (TRAFFIC.wheels.test(o.name) && !TRAFFIC.wheels.test(o.parent?.name ?? '')) wheels.push(o)
+  })
+  const out = new Map<string, Template>()
+  for (const body of bodies) {
+    const centre = new Box3().setFromObject(body).getCenter(new Vector3())
+    const pivot = new Group()
+    pivot.position.copy(centre)
+    pivot.updateMatrixWorld(true)
+    const hubs: Vector3[] = []
+    for (let k = wheels.length - 1; k >= 0; k--) {
+      const c = new Box3().setFromObject(wheels[k]).getCenter(new Vector3())
+      if (Math.hypot(c.x - centre.x, c.z - centre.z) < 3) {
+        hubs.push(c)
+        pivot.attach(wheels[k])
+        wheels.splice(k, 1)
+      }
+    }
+    // The car's length runs along the longer side of its four hubs. Which
+    // way is the nose comes from the body's own x axis.
+    let forward = new Vector3(1, 0, 0).transformDirection(body.matrixWorld).setY(0).normalize()
+    if (hubs.length === 4) {
+      // Of the six hub-to-hub spans, the two shortest are across the axles,
+      // the two longest are the diagonals, and the middle two run along the
+      // car: the wheelbase.
+      const spans: Vector3[] = []
+      for (let a = 0; a < 4; a++) for (let b = a + 1; b < 4; b++) spans.push(hubs[b].clone().sub(hubs[a]).setY(0))
+      spans.sort((p, q) => p.length() - q.length())
+      const along = spans[3].normalize()
+      forward = along.multiplyScalar(Math.sign(along.dot(forward)) || 1)
+    }
+    forward.multiplyScalar(PACK_NOSE * (FLIP.has(body.name.replace(/[ _]body$/i, '').toLowerCase()) ? -1 : 1))
+    pivot.attach(body)
+    pivot.position.set(0, 0, 0)
+    pivot.rotation.y = -Math.atan2(forward.x, forward.z)
+    const root = new Group()
+    root.add(pivot)
+    root.updateMatrixWorld(true)
+    let box = new Box3().setFromObject(root)
+    const c = box.getCenter(new Vector3())
+    root.position.set(-c.x, -box.min.y, -c.z)
+    root.updateMatrixWorld(true)
+    box = new Box3().setFromObject(root)
+    out.set(body.name.replace(/[ _]body$/i, '').toLowerCase(), { def: TRAFFIC, root, half: { width: (box.max.x - box.min.x) / 2, front: box.max.z, rear: box.min.z } })
+  }
+  return out
+}
+
+// The model for a shape: the cars' own models, or for traffic and police a
+// car from the pack, chosen by variant so a road has a mix.
+function templateFor(shape: CarShape, variant: number): Template | undefined {
+  if (shape === 'sedan' || shape === 'van') {
+    const names = (shape === 'van' ? VANS : SEDANS).filter((n) => traffic.has(n))
+    return names.length ? traffic.get(names[Math.abs(variant) % names.length]) : undefined
+  }
+  if (shape === 'police') return traffic.get('sedan')
+  return templates.get(shape)
+}
+
+export function packCarNames() {
+  return [...traffic.keys()]
 }
 
 export function hasCarAsset(shape: CarShape) {
@@ -256,12 +362,13 @@ export interface AssetCar {
   half: { width: number; front: number; rear: number }
   materials: Material[]
   hit: (x: number, y: number, z: number, strength: number) => void
+  siren: { red: MeshBasicMaterial; blue: MeshBasicMaterial } | null
 }
 
 const TAIL = new Color('#ff1a2e').multiplyScalar(1.6)
 
-export function makeAssetCar(shape: CarShape, color: string): AssetCar | null {
-  const template = templates.get(shape)
+export function makeAssetCar(shape: CarShape, color: string, variant = 0): AssetCar | null {
+  const template = templateFor(shape, variant)
   if (!template) return null
   const { def, half } = template
   // car is in car space (metres, nose along +z); model is the scaled copy.
@@ -313,7 +420,8 @@ export function makeAssetCar(shape: CarShape, color: string): AssetCar | null {
     if (!m) return
     // Only the outermost matching node of each wheel.
     for (let p = o.parent; p; p = p.parent) if (def.wheels.test(p.name)) return
-    found.push({ front: m[1].startsWith('F'), node: o })
+    const centreZ = new Box3().setFromObject(o).getCenter(new Vector3()).z
+    found.push({ front: def.frontByPosition ? centreZ > 0 : (m[1] ?? '').startsWith('F'), node: o })
   })
   // Several nodes can make one wheel (tyre, rim, cap): merge by position.
   const merged: { front: boolean; nodes: Object3D[]; box: Box3 }[] = []
@@ -421,8 +529,53 @@ export function makeAssetCar(shape: CarShape, color: string): AssetCar | null {
     }
   }
 
+  // A patrol car: the pack's sedan in dark paint with white doors, a light
+  // bar on the roof and a push bar on the nose.
+  let siren: AssetCar['siren'] = null
+  if (shape === 'police') {
+    const dark = new Map<Material, Material>()
+    model.traverse((o) => {
+      const mesh = o as Mesh
+      if (!mesh.isMesh || inWheel(mesh) || !/^Body/.test((mesh.material as Material).name)) return
+      let m = dark.get(mesh.material as Material)
+      if (!m) {
+        m = (mesh.material as MeshStandardMaterial).clone()
+        ;(m as MeshStandardMaterial).color.set('#2a2d34')
+        dark.set(mesh.material as Material, m)
+      }
+      mesh.material = m
+    })
+    const box = new Box3().setFromObject(model)
+    const roof = box.max.y
+    const red = new MeshBasicMaterial({ color: new Color('#ff2030').multiplyScalar(4), toneMapped: false })
+    const blue = new MeshBasicMaterial({ color: new Color('#2050ff').multiplyScalar(4), toneMapped: false })
+    const black = new MeshStandardMaterial({ color: '#0d0e11', roughness: 0.5, metalness: 0.3 })
+    const base = new Mesh(new BoxGeometry(1.2, 0.05, 0.3), black)
+    base.position.set(0, roof + 0.03, -0.15)
+    car.add(base)
+    for (const [mat, x] of [
+      [red, -0.32],
+      [blue, 0.32],
+    ] as const) {
+      const block = new Mesh(new BoxGeometry(0.52, 0.09, 0.24), mat)
+      block.position.set(x, roof + 0.1, -0.15)
+      car.add(block)
+    }
+    const white = new MeshStandardMaterial({ color: '#e9ebf0', roughness: 0.4 })
+    for (const side of [-1, 1]) {
+      const door = new Mesh(new PlaneGeometry(1.9, roof * 0.24), white)
+      door.position.set(side * (half.width - 0.04), roof * 0.5, -0.1)
+      door.rotation.y = (side * Math.PI) / 2
+      car.add(door)
+    }
+    const bar = new Mesh(new BoxGeometry(1.0, 0.28, 0.08), black)
+    bar.position.set(0, 0.42, half.front + 0.04)
+    car.add(bar)
+    siren = { red, blue }
+  }
+
   const materials: Material[] = [tail, ...heads, flameMat, ...paints.values()]
-  return { root: car, wheels, frontPivots, tail, heads, flames, exhausts, tailLights, half, materials, hit }
+  return { root: car, wheels, frontPivots, tail, heads, flames, exhausts, tailLights, half, materials, hit, siren }
 }
 
 // The soft spot under the car, shared by the model cars.
