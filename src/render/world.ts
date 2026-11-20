@@ -1,4 +1,6 @@
 import {
+  EquirectangularReflectionMapping,
+  type Texture,
   ACESFilmicToneMapping,
   BoxGeometry,
   Color,
@@ -21,6 +23,7 @@ import {
 import { Reflector } from 'three/addons/objects/Reflector.js'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { daySky } from './assets'
+import { sky } from './textures'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
@@ -279,6 +282,7 @@ export class World {
     }
   }
   private readonly nightBackground = new Color('#05060c')
+  private lowSky: Texture | null = null
 
   // Daylight: the sky photo behind everything and in every reflection, a
   // high sun that casts shadows, and a softer bloom. Night puts back the
@@ -297,16 +301,23 @@ export class World {
       this.scene.environment = this.environment
       return
     }
+    // Low graphics, which software renderers and older phones get, draws a
+    // plain gradient sky: turning the HDR photo into a sky box needs float
+    // render targets that some of them cannot draw into.
+    this.lowSky ??= sky('day')
+    this.lowSky.mapping = EquirectangularReflectionMapping
+    this.scene.background = this.lowSky
     daySky(this.renderer).then(
-      (sky) => {
+      (photo) => {
         if (!this.day) return
-        this.scene.background = sky.background
-        this.scene.environment = sky.environment
-        this.scene.backgroundIntensity = 0.85
+        this.scene.environment = photo.environment
+        if (this.quality === 'high') {
+          this.scene.background = photo.background
+          this.scene.backgroundIntensity = 0.85
+        }
       },
       () => undefined,
     )
-    this.scene.background = this.nightBackground.set('#9fbfe0')
   }
 
   // Keeps the sun's shadow box centred on (x, z), where the action is.

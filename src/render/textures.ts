@@ -150,7 +150,7 @@ export function sign(text: string, color: string): CanvasTexture {
 
 // The night sky behind everything: a gradient with a purple city glow on the
 // horizon and a scatter of faint stars.
-export function sky(kind: 'clear' | 'rain' | 'dusk' = 'clear'): CanvasTexture {
+export function sky(kind: 'clear' | 'rain' | 'dusk' | 'day' = 'clear'): CanvasTexture {
   const rng: Rng = createRng('sky')
   const { el, g } = canvas(64, 512)
   const grad = g.createLinearGradient(0, 0, 0, 512)
@@ -160,6 +160,8 @@ export function sky(kind: 'clear' | 'rain' | 'dusk' = 'clear'): CanvasTexture {
     rain: [[0, '#07080d'], [0.38, '#151622'], [0.5, '#3a2a30'], [0.54, '#3d2d2c'], [0.6, '#0e0e14'], [1, '#050508']],
     // Last light: deep violet overhead, hot pink and orange at the horizon.
     dusk: [[0, '#14103a'], [0.3, '#3a1e5c'], [0.44, '#a83d6e'], [0.5, '#ff7a4d'], [0.53, '#ffb067'], [0.6, '#2b1630'], [1, '#0a0710']],
+    // A plain daylight sky for low graphics, where the sky photo is not used.
+    day: [[0, '#2c64b0'], [0.3, '#5d93d4'], [0.47, '#b7d1ec'], [0.5, '#d8e6f2'], [0.52, '#9fae8c'], [1, '#56603f']],
   }
   for (const [at, color] of stops[kind]) grad.addColorStop(at, color)
   g.fillStyle = grad
