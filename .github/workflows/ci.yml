@@ -41,6 +41,13 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium webkit
       - run: npm run e2e
+      # Screenshots and traces of anything that failed, for a look later.
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-results
+          path: test-results
+          retention-days: 7
 
   deploy:
     if: github.event_name == 'push'

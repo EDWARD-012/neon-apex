@@ -69,12 +69,13 @@ async function brightness(page: Page): Promise<number> {
 }
 
 test('the title screen draws the city', async ({ page }) => {
+  // A software renderer compiles every shader of the daytime valley before
+  // the first frame shows, which on CI can take most of a minute.
+  test.setTimeout(150_000)
   await open(page)
   await expect(page.locator('#menu')).toBeVisible()
   await expect(page.locator('.logo')).toContainText('Neon')
-  // Machines without a graphics card take a while over the first frames
-  // of the daytime valley, so keep looking for a few seconds.
-  await expect.poll(() => brightness(page), { timeout: 15000, intervals: [800, 1000, 2000] }).toBeGreaterThan(8)
+  await expect.poll(() => brightness(page), { timeout: 90_000, intervals: [800, 1000, 2000, 4000] }).toBeGreaterThan(8)
 })
 
 test('the car moves under the player’s control', async ({ page, isMobile }) => {
