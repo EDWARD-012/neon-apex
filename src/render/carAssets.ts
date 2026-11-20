@@ -297,8 +297,10 @@ export function makeAssetCar(shape: CarShape, color: string): AssetCar | null {
         paints.set(material, paint)
       }
       mesh.material = paint
-      panels.push(mesh)
     }
+    // Every part of the body dents together, so a paint shell over an
+    // inner body never sinks through it.
+    if (!inWheel(mesh)) panels.push(mesh)
   })
 
   // Wheels: each one's parts move into a steering pivot and a spinning
@@ -363,8 +365,9 @@ export function makeAssetCar(shape: CarShape, color: string): AssetCar | null {
   const hit = (x: number, y: number, z: number, strength: number) => {
     car.updateMatrixWorld(true)
     const carInverse = car.matrixWorld.clone().invert()
+    // Shallower than on the drawn cars: these models have layered panels.
     const radius = 0.55 + Math.min(0.6, strength * 0.03)
-    const depth = Math.min(0.22, strength * 0.012)
+    const depth = Math.min(0.14, strength * 0.008)
     for (const mesh of panels) {
       let entry = own.get(mesh)
       if (!entry) {
@@ -403,10 +406,10 @@ export function makeAssetCar(shape: CarShape, color: string): AssetCar | null {
         v.x -= (v.x / len) * push
         v.z -= ((v.z * 0.35) / len) * push
         v.y -= push * 0.25
-        // No point moves more than 30 cm from where it started.
+        // No point moves more than 15 cm from where it started.
         o.set(entry.original[i * 3], entry.original[i * 3 + 1], entry.original[i * 3 + 2])
         const off = v.clone().sub(o)
-        if (off.length() > 0.3) v.copy(o).add(off.setLength(0.3))
+        if (off.length() > 0.15) v.copy(o).add(off.setLength(0.15))
         v.applyMatrix4(entry.toMesh)
         position.setXYZ(i, v.x, v.y, v.z)
         moved = true
