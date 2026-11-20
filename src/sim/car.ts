@@ -40,6 +40,9 @@ export interface CarInput {
   steer: number
   handbrake: boolean
   nitro: boolean
+  // The player's driving aids: tapping the brake while steering hard at
+  // speed throws the car into a drift. The AI drives without them.
+  assist?: boolean
 }
 
 export const idle: CarInput = { throttle: 0, brake: 0, steer: 0, handbrake: false, nitro: false }
@@ -61,6 +64,13 @@ export interface CarState {
   drifting: boolean
   // Rises after the handbrake comes off, so grip returns over a moment.
   gripRecovery: number
+  // An arcade drift in progress: which way (+1 a right-hand corner, -1 a
+  // left-hand one, 0 none), the angle between nose and travel, how long
+  // the player has been easing out of it, and last step's brake.
+  driftDir: number
+  driftAngle: number
+  driftEase: number
+  brakeWas: number
   steer: number
   wheelSpin: number
   braking: boolean
@@ -105,6 +115,10 @@ export function createCar(x: number, z: number, heading: number, track: Track, s
     slip: 0,
     drifting: false,
     gripRecovery: 1,
+    driftDir: 0,
+    driftAngle: 0,
+    driftEase: 0,
+    brakeWas: 0,
     steer: 0,
     wheelSpin: 0,
     braking: false,
@@ -135,6 +149,27 @@ export function stepCar(car: CarState, input: CarInput, dt: number, track: Track
   // A battered car loses up to 12% of its top speed and 30% of its pull.
   const top = S.topSpeed * (car.nitroOn ? S.nitroTop : 1) * (1 - 0.12 * car.damage)
   const power = 1 - 0.3 * car.damage
+
+  // The player's brake-tap drift. At speed with the wheel turned hard, a
+  // tap of the brake (or the handbrake) kicks the tail out, and from then
+  // on the drift is flown rather than simulated tyre by tyre: steering into
+  // the corner deepens the angle and tightens the line, countersteering
+  // straightens up, and throttle keeps the speed. That is how arcade
+  // racers make a drift easy to hold and satisfying to link.
+  const travelSpeed = Math.hypot(car.vx, car.vz)
+  if (input.assist && car.driftDir === 0 && travelSpeed > 15 && Math.abs(input.steer) > 0.45 && ((input.brake > 0.3 && car.brakeWas <= 0.3) || input.handbrake)) {
+    car.driftDir = Math.sign(input.steer)
+    car.driftAngle = car.driftDir * Math.min(0.2, car.slip)
+    car.driftEase = 0
+  }
+  car.brakeWas = input.brake
+  if (car.driftDir !== 0) {
+    arcadeDrift(car, input, dt, top, power)
+    collideWithBarriers(car, track)
+    // A real hit ends the slide.
+    if (car.impact > 6) car.driftDir = 0
+    return
+  }
   let accel = 0
   if (input.throttle > 0) {
     if (vf >= -0.5) accel += input.throttle * S.engine * power * (car.nitroOn ? S.nitroBoost : 1) * Math.max(0, 1 - vf / top)
@@ -259,6 +294,59 @@ export function stepCar(car: CarState, input: CarInput, dt: number, track: Track
   car.wheelSpin += (vf / 0.34) * dt
 
   collideWithBarriers(car, track)
+}
+
+// One step of an arcade drift (see stepCar). The car's travel turns with
+// the steering, a little tighter than grip driving would, and the body is
+// held at an angle to it that the steering sets.
+function arcadeDrift(car: CarState, input: CarInput, dt: number, top: number, power: number) {
+  const S = car.spec
+  const dir = car.driftDir
+  let speed = Math.hypot(car.vx, car.vz)
+  let travel = Math.atan2(car.vx, car.vz)
+  // Into the corner is positive, countersteer negative.
+  const into = input.steer * dir
+  const lock = S.maxSteer * (1 - 0.6 * Math.min(1, speed / S.topSpeed))
+  car.steer += (input.steer * lock * 0.6 - car.steer) * Math.min(1, 12 * dt)
+  // Angle: about 20 degrees on its own, up to 40 steering in, down to a few
+  // degrees countersteering. It sags without throttle.
+  let target = Math.max(0.02, 0.34 + 0.36 * Math.max(0, into) - 0.45 * Math.max(0, -into))
+  if (input.throttle < 0.3) target = Math.min(target, 0.22)
+  // Letting the wheel go straight for a moment means "I'm done".
+  if (car.driftEase > 0.25) target = Math.min(target, 0.06)
+  car.driftAngle += (dir * target - car.driftAngle) * Math.min(1, 5 * dt)
+  // How fast the line turns: grip-limited cornering with a little extra,
+  // more when steering in and less when countersteering.
+  const reach = Math.min(1.3, (S.lateralLimit * 1.15) / Math.max(speed, 8))
+  const turn = -dir * reach * (0.45 + 0.55 * Math.max(0, into)) * (into < -0.2 ? 0.5 : 1)
+  travel += turn * dt
+  // Speed: throttle holds it, as the rear wheels spin; lifting or braking
+  // scrubs it off.
+  let accel = input.throttle * S.engine * power * 0.6 * (car.nitroOn ? S.nitroBoost : 1) * Math.max(0, 1 - speed / top)
+  accel -= input.throttle < 0.3 ? 3.5 : 0.8
+  if (input.brake > 0) accel -= input.brake * S.brake * 0.55
+  car.braking = input.brake > 0
+  speed = Math.max(0, speed + (accel - S.drag * speed * speed) * dt)
+  const before = car.heading
+  car.heading = travel - car.driftAngle
+  car.yawRate = (car.heading - before) / Math.max(dt, 1e-6)
+  car.vx = Math.sin(travel) * speed
+  car.vz = Math.cos(travel) * speed
+  car.x += car.vx * dt
+  car.z += car.vz * dt
+  car.slip = Math.abs(car.driftAngle)
+  car.drifting = car.slip > 0.16 && speed > 12
+  car.wheelSpin += (speed / 0.34) * dt
+  if (car.drifting) car.nitro = Math.min(1, car.nitro + 0.2 * Math.min(1, car.slip / 0.45) * dt)
+  // Ending it: straighten the wheel (or countersteer) and the angle comes
+  // down, and once it is small the tyres grip again. Running out of speed
+  // ends it too.
+  car.driftEase = into < 0.15 ? car.driftEase + dt : 0
+  if ((car.driftEase > 0.35 && Math.abs(car.driftAngle) < 0.14) || speed < 11) {
+    car.driftDir = 0
+    car.driftAngle = 0
+    car.gripRecovery = 0.5
+  }
 }
 
 function collideWithBarriers(car: CarState, track: Track) {

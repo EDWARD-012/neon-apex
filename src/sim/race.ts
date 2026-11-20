@@ -410,6 +410,6 @@ export class Race {
   reset(racer: Racer) {
     const where = locate(this.track, racer.car.x, racer.car.z, racer.car.hint)
     const at = pointAt(this.track, where.s, 0)
-    Object.assign(racer.car, { x: at.x, z: at.z, heading: at.heading, vx: 0, vz: 0, yawRate: 0, gripRecovery: 1 })
+    Object.assign(racer.car, { x: at.x, z: at.z, heading: at.heading, vx: 0, vz: 0, yawRate: 0, gripRecovery: 1, driftDir: 0, driftAngle: 0 })
   }
 }

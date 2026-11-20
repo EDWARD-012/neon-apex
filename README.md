@@ -81,7 +81,7 @@ Look and sound. Bloom on everything that glows, light trails behind tail lights 
 
 Steering and grip use a two-axle tyre model in [src/sim/car.ts](src/sim/car.ts). Each axle's tyres make a sideways force from their slip angle, the angle between where the wheel points and where it is actually going. The force follows a tyre curve that peaks at about six degrees of slip and then falls away a little, and it is capped by friction times the load on that axle. Braking moves load onto the front tyres and accelerating onto the rear. The rear tyres are slightly stiffer than the front, so at the limit a car pushes wide rather than spinning.
 
-The handbrake locks the rear wheels, which leaves them little sideways grip, and that starts a drift. Full throttle with the wheel turned keeps the rear wheels spinning and the slide going; let off or straighten up and the grip comes back. Two assists are there as in most racing games: a drift assist damps a slide past about 30 degrees so a held drift does not turn into a spin, and stability control nudges the car's rotation towards what the steering asks for whenever no handbrake slide is going. The tests check that a car corners at the tyres' grip limit and that a held drift lasts two seconds without spinning.
+For the player there is also an arcade drift, the kind street racing games use: at speed with the wheel turned hard, a tap of the brake (or the handbrake) throws the tail out, and from then on the drift is flown rather than simulated tyre by tyre. Steering into the corner deepens the angle to about 40 degrees and tightens the line, countersteering brings it down, the throttle holds the speed, and straightening the wheel for a moment ends it. The AI drives without it. Without the drift, the handbrake locks the rear wheels, which leaves them little sideways grip, and that starts a slide. Full throttle with the wheel turned keeps the rear wheels spinning and the slide going; let off or straighten up and the grip comes back. Two assists are there as in most racing games: a drift assist damps a slide past about 30 degrees so a held drift does not turn into a spin, and stability control nudges the car's rotation towards what the steering asks for whenever no handbrake slide is going. The tests check that a car corners at the tyres' grip limit and that a held drift lasts two seconds without spinning.
 
 ## How the AI drives
 
@@ -121,7 +121,7 @@ Lap counting does not trust where a car is on the map. Each car keeps a running 
 | --- | --- | --- | --- |
 | Accelerate, brake and reverse | Up, Down or W, S | Right and left triggers | Gas, Brake |
 | Steer | Left, Right or A, D | Left stick | Arrow buttons |
-| Drift | Space | B or right bumper | Drift |
+| Drift | Tap Down while steering, or Space | Tap left trigger while steering, or B / right bumper | Drift |
 | Nitro | Shift | A | Nitro |
 | Reset onto the road | R | Y | |
 | Change camera | C | X | |

@@ -109,6 +109,7 @@ export class Input {
       steer: this.steer,
       handbrake: on('drift'),
       nitro: on('nitro'),
+      assist: true,
     }
     // A gamepad, if one is plugged in, takes over wherever it is being used.
     const pad = navigator.getGamepads?.().find((p) => p)

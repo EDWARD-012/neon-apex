@@ -91,6 +91,32 @@ describe('car physics', () => {
     expect(speedOf(car)).toBeGreaterThan(20)
   })
 
+  it('a brake tap while steering at speed throws the car into a drift that holds and then straightens', () => {
+    const open = { ...track, width: 1e6 }
+    const car = createCar(0, 0, 0, open)
+    car.vz = 32
+    const play = (input: Partial<CarInput>, seconds: number) => {
+      for (let t = 0; t < seconds; t += STEP) stepCar(car, { ...idle, assist: true, ...input }, STEP, open)
+    }
+    play({ throttle: 1, steer: 0.8, brake: 1 }, 0.1)
+    play({ throttle: 1, steer: 0.8 }, 1.6)
+    expect(car.driftDir).toBe(1)
+    expect(car.drifting).toBe(true)
+    expect(car.slip).toBeGreaterThan(0.4)
+    expect(car.slip).toBeLessThan(0.8)
+    expect(speedOf(car)).toBeGreaterThan(24)
+    play({ throttle: 1, steer: -0.6 }, 1.2)
+    expect(car.driftDir).toBe(0)
+  })
+
+  it('the AI, without driving aids, does not drift from braking into a corner', () => {
+    const open = { ...track, width: 1e6 }
+    const car = createCar(0, 0, 0, open)
+    car.vz = 32
+    for (let t = 0; t < 0.6; t += STEP) stepCar(car, { ...idle, steer: 0.8, brake: 1 }, STEP, open)
+    expect(car.driftDir).toBe(0)
+  })
+
   it('barriers keep the car on the track', () => {
     const car = start()
     for (let t = 0; t < 8; t += STEP) stepCar(car, { ...full, steer: 1 }, STEP, track)
