@@ -4,6 +4,7 @@ import '@fontsource/chakra-petch/700-italic.css'
 import '@fontsource/chakra-petch/600-italic.css'
 import '@fontsource/chakra-petch/500-italic.css'
 import './styles.css'
+import { report, startClock } from './analytics'
 import { loadCarAssets } from './render/carAssets'
 import { AccountError, type Account, chooseLogin, cloudEnabled, currentAccount, googleButton, signIn, signInWithGoogle, signOut, uploadProgress } from './cloud'
 import { ALL_EVENTS, buy, type EventDef, type EventKind, loadProgress, type Outcome, type Progress, saveProgress, settle, TIERS, tidy, tierOpen, upgrade, WINS_TO_UNLOCK, winsIn } from './career'
@@ -494,6 +495,7 @@ function begin(spec: EventSpec) {
   current = spec
   if (touchScreen) void landscape()
   game.start(spec)
+  report('race_start', spec.kind, null, { career: Boolean(spec.careerId), laps: spec.laps, car: settings.car, weather: game.weather })
   setScreen('intro')
   const track = game.race.track
   $('intro-kind').textContent = spec.careerId ? `Career, ${spec.kind}` : spec.kind === 'trial' ? 'Time trial' : spec.kind
@@ -561,6 +563,7 @@ function results(outcome: Outcome) {
   )
   progress = paid.progress
   keep()
+  report('race_end', spec.kind, Math.round(Math.max(0, race.clock)), { career: Boolean(def), place, fate: me.fate, won: paid.result?.won ?? place === 1, coins: paid.total })
   const head = paid.result ? `<p class="pay-head">${paid.result.won ? 'Event won.' : 'Not won yet.'} ${paid.result.summary}</p>` : ''
   const lines = paid.lines.map((l) => `<li><span>${l.label}</span><b>+${coins(l.coins)}</b></li>`).join('')
   $('reward').innerHTML = `${head}<ul class="pay-lines">${lines}</ul><p class="pay-total">+${coins(paid.total)} coins</p>`
@@ -656,6 +659,8 @@ window.addEventListener('keydown', () => game.sound.start(), { once: true })
 game.showMenu()
 menu()
 $('loading').classList.add('done')
+report('visit', null, null, { touch: matchMedia('(pointer: coarse)').matches, quality: settings.quality, width: Math.round(innerWidth / 100) * 100 })
+startClock()
 
 // Hooks for the browser tests and the screenshot script.
 if (params.has('test')) {

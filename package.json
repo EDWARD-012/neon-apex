@@ -17,6 +17,7 @@
     "test": "vitest run",
     "e2e": "playwright test",
     "stats": "tsx scripts/stats.ts",
+    "analytics": "tsx scripts/analytics.ts",
     "cars": "node scripts/prepare-cars.mjs",
     "diagram": "tsx scripts/diagram.ts",
     "shots": "vite build && tsx scripts/shots.ts && python3 scripts/make_gif.py",
