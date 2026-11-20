@@ -1391,3 +1391,8 @@ kbd {
   color: #ff6b81;
   font-size: 14px;
 }
+/* Google's button sits in an iframe; matching its colour scheme keeps the
+   frame from painting a white box behind it on this dark page. */
+.google-button iframe {
+  color-scheme: light;
+}

@@ -18,6 +18,7 @@ import {
 import { barrierOffset } from '../sim/car'
 import { createRng } from '../sim/rng'
 import type { Track } from '../sim/track'
+import { pbr } from './assets'
 import { asphalt, banner, checker, spot } from './textures'
 
 // A ribbon along the track between two lateral offsets, at a height, with
@@ -39,9 +40,12 @@ function ribbon(track: Track, inner: number, outer: number, y: number, vScale = 
     }
   }
   const index: number[] = []
+  // Wound so the faces point up. The offset runs to the right of the
+  // direction of travel, so (along) x (across) points down; swapping the
+  // order turns the face over.
   for (let r = 0; r < track.n; r++) {
     const a = r * 2
-    index.push(a, a + 2, a + 1, a + 1, a + 2, a + 3)
+    index.push(a, a + 1, a + 2, a + 1, a + 3, a + 2)
   }
   const geo = new BufferGeometry()
   geo.setAttribute('position', new BufferAttribute(pos, 3))
@@ -64,7 +68,7 @@ function quads(track: Track, pieces: { from: number; to: number; inner: number; 
         if (p.color) col.push(p.color.r, p.color.g, p.color.b)
       }
     }
-    index.push(base, base + 2, base + 1, base + 1, base + 2, base + 3)
+    index.push(base, base + 1, base + 2, base + 1, base + 3, base + 2)
   }
   const geo = new BufferGeometry()
   geo.setAttribute('position', new BufferAttribute(new Float32Array(pos), 3))
@@ -76,18 +80,25 @@ function quads(track: Track, pieces: { from: number; to: number; inner: number; 
 
 const NEON = ['#3df5ff', '#ff2d95', '#a66bff', '#3df5ff', '#ffb52e']
 
-export function buildTrackMeshes(track: Track): Group {
+// `day` builds the mountain road: photo asphalt and steel guard rails. At
+// night it is the city circuit with neon-topped walls and street lights.
+export function buildTrackMeshes(track: Track, day = false): Group {
   const group = new Group()
   const half = track.width / 2
   const wall = barrierOffset(track)
 
   // Road with a narrow shoulder out to the barriers.
-  const { map, roughness } = asphalt()
-  map.repeat.set(1, 1)
-  const road = new Mesh(
-    ribbon(track, -wall, wall, 0, 12, 1.4),
-    new MeshStandardMaterial({ map, roughnessMap: roughness, roughness: 1, metalness: 0.05, envMapIntensity: 1.6 }),
-  )
+  let roadMaterial: MeshStandardMaterial
+  if (day) {
+    roadMaterial = new MeshStandardMaterial({ ...pbr('road', 3, 3), roughness: 1, metalness: 0, envMapIntensity: 0.5 })
+    roadMaterial.normalScale.set(0.7, 0.7)
+  } else {
+    const { map, roughness } = asphalt()
+    map.repeat.set(1, 1)
+    roadMaterial = new MeshStandardMaterial({ map, roughnessMap: roughness, roughness: 1, metalness: 0.05, envMapIntensity: 1.6 })
+  }
+  const road = new Mesh(ribbon(track, -wall, wall, 0, 12, 1.4), roadMaterial)
+  road.receiveShadow = true
   group.add(road)
   group.userData.road = road.material
 
@@ -100,7 +111,9 @@ export function buildTrackMeshes(track: Track): Group {
   for (let i = 0; i < track.n; i++) {
     for (const d of [-half + 0.3, half - 0.3]) lines.push({ from: i, to: i + 1, inner: d - 0.14, outer: d + 0.14, y: 0.02 })
   }
-  group.add(new Mesh(quads(track, lines), new MeshStandardMaterial({ color: '#cfd2da', roughness: 0.6 })))
+  const paint = new Mesh(quads(track, lines), new MeshStandardMaterial({ color: day ? '#bdbcb4' : '#cfd2da', roughness: day ? 0.85 : 0.6 }))
+  paint.receiveShadow = true
+  group.add(paint)
 
   // Red and white kerbs on the inside of the sharper corners.
   const kerbs: Parameters<typeof quads>[1] = []
@@ -115,6 +128,12 @@ export function buildTrackMeshes(track: Track): Group {
     kerbs.push({ from: i, to: i + 2, inner: side * (half - 0.05), outer: side * (half + 0.9), y: 0.03, color })
   }
   if (kerbs.length) group.add(new Mesh(quads(track, kerbs), new MeshStandardMaterial({ vertexColors: true, roughness: 0.5 })))
+
+  if (day) {
+    guardRails(track, wall, group)
+    addStart(track, wall, group)
+    return group
+  }
 
   // Barriers: a dark wall with a neon strip along the top that changes
   // colour section by section.
@@ -178,6 +197,59 @@ export function buildTrackMeshes(track: Track): Group {
   pool.renderOrder = 1
   group.add(pole, head, pool)
 
+  addStart(track, wall, group)
+  return group
+}
+
+// Steel crash barrier on posts, like a mountain road: a galvanised rail on
+// each side, with the post every 2.5 m.
+function guardRails(track: Track, wall: number, group: Group) {
+  const metal = new MeshStandardMaterial({ color: '#c3c8cc', metalness: 0.85, roughness: 0.32, side: DoubleSide })
+  for (const side of [-1, 1]) {
+    for (const [y0, y1] of [
+      [0.52, 0.86],
+      [0.86, 0.9],
+    ]) {
+      const rows = track.n + 1
+      const pos = new Float32Array(rows * 2 * 3)
+      for (let r = 0; r < rows; r++) {
+        const i = r % track.n
+        // The lip leans out a little, like the fold of a W-beam rail.
+        const d = side * (wall + (y0 > 0.8 ? 0.06 : 0))
+        const x = track.x[i] + d * track.nx[i]
+        const z = track.z[i] + d * track.nz[i]
+        pos.set([x, y0, z, x, y1, z], r * 6)
+      }
+      const index: number[] = []
+      for (let r = 0; r < track.n; r++) index.push(r * 2, r * 2 + 2, r * 2 + 1, r * 2 + 1, r * 2 + 2, r * 2 + 3)
+      const geo = new BufferGeometry()
+      geo.setAttribute('position', new BufferAttribute(pos, 3))
+      geo.setIndex(index)
+      geo.computeVertexNormals()
+      const rail = new Mesh(geo, metal)
+      rail.castShadow = true
+      rail.receiveShadow = true
+      group.add(rail)
+    }
+  }
+  const every = Math.max(1, Math.round(2.5 / track.spacing))
+  const count = Math.ceil(track.n / every) * 2
+  const posts = new InstancedMesh(new BoxGeometry(0.14, 0.9, 0.14), new MeshStandardMaterial({ color: '#8f969c', metalness: 0.7, roughness: 0.45 }), count)
+  const m = new Matrix4()
+  let k = 0
+  for (let i = 0; i < track.n; i += every) {
+    for (const side of [-1, 1]) {
+      const d = side * (wall + 0.12)
+      m.makeTranslation(track.x[i] + d * track.nx[i], 0.45, track.z[i] + d * track.nz[i])
+      posts.setMatrixAt(k++, m)
+    }
+  }
+  posts.count = k
+  posts.castShadow = true
+  group.add(posts)
+}
+
+function addStart(track: Track, wall: number, group: Group) {
   // Start line and the gantry over it.
   const sx = track.x[0]
   const sz = track.z[0]
@@ -206,6 +278,4 @@ export function buildTrackMeshes(track: Track): Group {
   gantry.position.set(sx, 0, sz)
   gantry.rotation.y = angle
   group.add(gantry)
-
-  return group
 }

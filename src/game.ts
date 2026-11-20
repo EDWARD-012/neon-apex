@@ -1,11 +1,12 @@
-import { Color, type Group, MathUtils, type MeshStandardMaterial, Object3D, SpotLight, Vector3 } from 'three'
+import { Color, type Group, type Material, MathUtils, type Mesh, type MeshStandardMaterial, Object3D, SpotLight, Vector3 } from 'three'
 import { Sound } from './audio'
 import type { EventKind, Outcome } from './career'
 import { bumper, finishOrbit, heli, INTRO_SECONDS, intro, tv, tvCameras } from './cinema'
 import { Input } from './input'
-import { applyWeather, type Weather, weatherFor } from './render/atmosphere'
+import { applyWeather, isDay, type Weather, weatherFor } from './render/atmosphere'
 import { type CarModel, createCarModel, WheelBank } from './render/carModel'
 import { buildCity, type City } from './render/city'
+import { buildLandscape } from './render/landscape'
 import { Particles, Rain, Skids, Trails } from './render/effects'
 import { Garage } from './render/garage'
 import { spot } from './render/textures'
@@ -130,7 +131,8 @@ export class Game {
   private readonly spotTexture = spot()
   private builtSeed = ''
   private scenery: Group[] = []
-  private materials: (City & { road: MeshStandardMaterial }) | null = null
+  // The night city (null by day), the road and the ground under it.
+  private materials: { city: City | null; road: MeshStandardMaterial; ground: MeshStandardMaterial } | null = null
   private readonly wheelBank = new WheelBank(200)
   private debris: Debris[] = []
   private readonly fire: Particles
@@ -219,26 +221,39 @@ export class Game {
       rivalSpecs: rivalCars.map((c) => c.spec),
       autopilot: attract || this.autopilot,
     })
-    if (this.builtSeed !== spec.seed) {
-      for (const g of this.scenery) this.world.scene.remove(g)
-      const track = buildTrackMeshes(this.race.track)
-      const city = buildCity(this.race.track)
-      this.scenery = [track, city.group]
-      this.materials = { ...city, road: track.userData.road }
-      this.world.scene.add(track, city.group)
-      this.cameras = tvCameras(this.race.track)
-      this.builtSeed = spec.seed
-    }
     this.weather = spec.weather === 'auto' ? weatherFor(spec.seed) : spec.weather
+    const day = isDay(this.weather)
+    const look = `${spec.seed}/${day ? 'day' : 'night'}`
+    if (this.builtSeed !== look) {
+      for (const g of this.scenery) this.world.scene.remove(g)
+      const track = buildTrackMeshes(this.race.track, day)
+      if (day) {
+        const land = buildLandscape(this.race.track)
+        this.scenery = [track, land.group]
+        this.materials = { city: null, road: track.userData.road, ground: land.ground }
+      } else {
+        const city = buildCity(this.race.track)
+        this.scenery = [track, city.group]
+        this.materials = { city, road: track.userData.road, ground: city.ground }
+      }
+      this.world.scene.add(...this.scenery)
+      this.cameras = tvCameras(this.race.track)
+      this.builtSeed = look
+    }
     const m = this.materials!
-    const mirror = this.world.quality === 'high'
+    // The wet-street mirror is a night thing; by day the road is dry.
+    const mirror = this.world.quality === 'high' && !day
     if (mirror) this.world.scene.add(this.world.makeReflector())
     else if (this.world.reflector) this.world.scene.remove(this.world.reflector)
-    this.raining = applyWeather(this.world, this.weather, m.road, m.facade, m.dome, m.ground, mirror)
+    this.raining = applyWeather(this.world, this.weather, m.road, m.city?.facade ?? null, m.city?.dome ?? null, m.ground, mirror)
     this.rain.lines.visible = this.raining
-    m.moon.visible = this.weather === 'clear'
-    m.sun.visible = this.weather === 'dusk'
-    for (const beam of m.beams) beam.visible = this.weather !== 'dusk'
+    if (m.city) {
+      m.city.moon.visible = this.weather === 'clear'
+      m.city.sun.visible = this.weather === 'dusk'
+      for (const beam of m.city.beams) beam.visible = this.weather !== 'dusk'
+    }
+    this.headlight.visible = !day
+    this.trails.mesh.visible = !day
     this.sound.setRain(this.raining && !attract)
 
     for (const v of this.views) this.world.scene.remove(v.model.group)
@@ -256,6 +271,16 @@ export class Game {
     for (const t of this.race.traffic) this.addView(t.car, createCarModel(t.color, this.spotTexture, { shape: t.shape, glow: false, bank: this.wheelBank }), null, false)
     for (const cop of this.race.police) this.addView(cop, createCarModel('#14161c', this.spotTexture, { shape: 'police', glow: false, bank: this.wheelBank }), null, true)
 
+    // By day the cars cast real shadows, and the headlight pools and
+    // underglow that only make sense in the dark are hidden.
+    for (const v of this.views) {
+      v.model.group.traverse((o) => {
+        if (o.userData.night) o.visible = !day
+        else if ((o as Mesh).isMesh && !((o as Mesh).material as Material).transparent) (o as Mesh).castShadow = day
+      })
+    }
+    this.wheelBank.tyres.castShadow = day
+    this.wheelBank.rims.castShadow = day
     this.headlight.removeFromParent()
     const playerModel = this.views[this.race.racers.length - 1].model.group
     this.headlight.position.set(0, 0.8, 2.0)
@@ -624,7 +649,8 @@ export class Game {
       this.updateDebris(dt)
     }
     this.nitroPulse *= Math.exp(-dt * 2.6)
-    const city = this.materials
+    const city = this.materials?.city
+    if (this.world.day) this.world.followSun(this.player.car.x, this.player.car.z)
     if (city) {
       city.beacons.opacity = Math.sin(this.time * 3) > 0.6 ? 1 : 0.15
       for (const t of city.tickers) t.offset.x = (t.offset.x + dt * 0.06) % 1

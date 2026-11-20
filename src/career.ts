@@ -38,16 +38,16 @@ export const TIERS: Tier[] = [
       { id: 'first-night', title: 'First night', kind: 'race', blurb: 'Three laps against three locals. Finish first.', seed: 'career-harbour', laps: 3, rivals: 3, skill: 0.88, traffic: 0, weather: 'clear', reward: 2500 },
       { id: 'wet-paint', title: 'Wet paint', kind: 'drift', blurb: 'Two laps on a wet road. Score 1,800 drift points.', seed: 'career-docks', laps: 2, rivals: 0, skill: 1, traffic: 0, weather: 'rain', target: 1800, reward: 2000 },
       { id: 'last-standing', title: 'Last one standing', kind: 'elimination', blurb: 'Last place is out every lap. Be the car still running.', seed: 'career-arcade', laps: 99, rivals: 4, skill: 0.9, traffic: 0, weather: 'dusk', reward: 3000 },
-      { id: 'blue-lights', title: 'Blue lights', kind: 'pursuit', blurb: 'Two patrol cars are on you. Get 300 m clear and stay there.', seed: 'career-overpass', laps: 99, rivals: 0, skill: 1, traffic: 8, police: 2, weather: 'clear', reward: 3500 },
+      { id: 'blue-lights', title: 'Blue lights', kind: 'pursuit', blurb: 'Two patrol cars are on you. Get 300 m clear and stay there.', seed: 'career-overpass', laps: 99, rivals: 0, skill: 1, traffic: 8, police: 2, weather: 'day', reward: 3500 },
     ],
   },
   {
     name: 'Downtown',
     events: [
       { id: 'downpour', title: 'Downpour', kind: 'race', blurb: 'Five rivals, traffic and standing water. Finish first.', seed: 'career-financial', laps: 3, rivals: 5, skill: 0.96, traffic: 6, weather: 'rain', reward: 4500 },
-      { id: 'clock', title: 'Against the clock', kind: 'trial', blurb: 'Set a lap within 12% of the reference lap.', seed: 'career-boulevard', laps: 3, rivals: 0, skill: 1, traffic: 0, weather: 'dusk', target: 1.12, reward: 4000 },
+      { id: 'clock', title: 'Against the clock', kind: 'trial', blurb: 'Set a lap within 12% of the reference lap, up in the mountains.', seed: 'career-boulevard', laps: 3, rivals: 0, skill: 1, traffic: 0, weather: 'day', target: 1.12, reward: 4000 },
       { id: 'heat-rising', title: 'Heat rising', kind: 'pursuit', blurb: 'Three patrol cars in the rain, more on the way.', seed: 'career-tunnels', laps: 99, rivals: 0, skill: 1, traffic: 10, police: 3, weather: 'rain', reward: 6000 },
-      { id: 'knockout', title: 'Knockout', kind: 'elimination', blurb: 'Six cars, five eliminations. Quicker rivals this time.', seed: 'career-market', laps: 99, rivals: 5, skill: 0.96, traffic: 0, weather: 'clear', reward: 5500 },
+      { id: 'knockout', title: 'Knockout', kind: 'elimination', blurb: 'Six cars, five eliminations. Quicker rivals this time.', seed: 'career-market', laps: 99, rivals: 5, skill: 0.96, traffic: 0, weather: 'day', reward: 5500 },
     ],
   },
   {

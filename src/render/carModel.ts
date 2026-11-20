@@ -533,6 +533,7 @@ export function createCarModel(color: string, spot: Texture, options: ModelOptio
       new MeshBasicMaterial({ map: spot, color: '#9fc4ff', transparent: true, opacity: 0.14, blending: AdditiveBlending, depthWrite: false }),
     )
     beam.position.set(0, 0.05, front + 8.3)
+    beam.userData.night = true
     group.add(beam)
   }
   const length = front - rear
@@ -543,6 +544,7 @@ export function createCarModel(color: string, spot: Texture, options: ModelOptio
       new MeshBasicMaterial({ map: spot, color: new Color(color).multiplyScalar(ghost ? 0.2 : 0.5), transparent: true, blending: AdditiveBlending, depthWrite: false }),
     )
     glow.position.y = 0.04
+    glow.userData.night = true
     group.add(glow)
   }
   if (!ghost) {

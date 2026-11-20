@@ -42,7 +42,8 @@ function loadSettings(): Settings {
     quality: (params.get('quality') as Quality) ?? saved.quality ?? (coarse ? 'low' : 'high'),
     sound: params.has('test') ? false : saved.sound ?? true,
     traffic: saved.traffic ?? true,
-    weather: (params.get('weather') as Weather) ?? saved.weather ?? 'auto',
+    // 'auto' was the old default; it now means the mountain road by day.
+    weather: (params.get('weather') as Weather) ?? (saved.weather === 'auto' || !saved.weather ? 'day' : saved.weather),
     kind: saved.kind && KINDS.includes(saved.kind) ? saved.kind : 'race',
   }
 }
@@ -129,7 +130,7 @@ document.querySelectorAll('.back').forEach((b) => b.addEventListener('click', ()
 function trackLabel() {
   const daily = settings.seed === dailySeed()
   const random = settings.seed.startsWith('random-')
-  $('track-name').textContent = daily ? `Tonight's track` : random ? `Track ${settings.seed.replace(/^random-/, '#')}` : `Track "${settings.seed}"`
+  $('track-name').textContent = daily ? `Today's track` : random ? `Track ${settings.seed.replace(/^random-/, '#')}` : `Track "${settings.seed}"`
   $('tonight').classList.toggle('hidden', daily)
   const url = new URL(location.href)
   if (daily) url.searchParams.delete('seed')
@@ -394,7 +395,7 @@ function begin(spec: EventSpec) {
   $('intro-kind').textContent = spec.careerId ? `Career, ${spec.kind}` : spec.kind === 'trial' ? 'Time trial' : spec.kind
   $('intro-title').textContent = spec.title
   const size = spec.kind === 'elimination' ? `${spec.rivals + 1} cars` : spec.kind === 'pursuit' ? `${spec.police} patrol cars` : `${spec.laps} ${spec.laps === 1 ? 'lap' : 'laps'}`
-  $('intro-detail').textContent = `${(track.length / 1000).toFixed(2)} km circuit, ${game.weather === 'clear' ? 'clear night' : game.weather}, ${size}`
+  $('intro-detail').textContent = `${(track.length / 1000).toFixed(2)} km circuit, ${({ day: 'sunny day', clear: 'clear night', rain: 'rainy night', dusk: 'dusk' } as Record<Weather, string>)[game.weather]}, ${size}`
 }
 
 // The intro ends itself after a few seconds or on a key press; this keeps

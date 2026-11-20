@@ -166,7 +166,7 @@ test('a new random track goes into the address bar', async ({ page }) => {
   await expect(page.locator('#track-name')).toContainText('Track #')
   expect(new URL(page.url()).searchParams.get('seed')).toMatch(/^random-/)
   await page.locator('#tonight').click()
-  await expect(page.locator('#track-name')).toHaveText("Tonight's track")
+  await expect(page.locator('#track-name')).toHaveText("Today's track")
 })
 
 test('the career pays out, and cash buys a car in the garage', async ({ page }) => {

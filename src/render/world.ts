@@ -12,6 +12,7 @@ import {
   Scene,
   SRGBColorSpace,
   HalfFloatType,
+  PCFSoftShadowMap,
   PlaneGeometry,
   Vector2,
   WebGLRenderer,
@@ -19,6 +20,7 @@ import {
 } from 'three'
 import { Reflector } from 'three/addons/objects/Reflector.js'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
+import { daySky } from './assets'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
@@ -97,6 +99,8 @@ const SpeedShader = {
     pulse: { value: 0 },
     time: { value: 0 },
     vignette: { value: 0.38 },
+    // 1 for the neon night grade, 0 for a plain daylight image.
+    look: { value: 1 },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -111,6 +115,7 @@ const SpeedShader = {
     uniform float pulse;
     uniform float time;
     uniform float vignette;
+    uniform float look;
     varying vec2 vUv;
     float hash(vec2 p) {
       return fract(sin(dot(p, vec2(12.9898, 78.233)) + time * 31.7) * 43758.5453);
@@ -131,13 +136,15 @@ const SpeedShader = {
       // tone mapping, where even a small addition lifts the blacks a lot, so
       // the tint multiplies instead and dark stays dark.
       float luma = dot(col.rgb, vec3(0.2126, 0.7152, 0.0722));
-      col.rgb *= mix(vec3(0.9, 1.0, 1.12), vec3(1.1, 0.97, 1.0), smoothstep(0.15, 1.4, luma));
-      col.rgb = max(mix(vec3(luma), col.rgb, 1.15), 0.0);
+      vec3 tint = mix(vec3(0.9, 1.0, 1.12), vec3(1.1, 0.97, 1.0), smoothstep(0.15, 1.4, luma));
+      // Daylight gets a gentle warm lift and a little extra saturation.
+      col.rgb *= mix(vec3(1.03, 1.0, 0.97), tint, look);
+      col.rgb = max(mix(vec3(luma), col.rgb, mix(1.08, 1.15, look)), 0.0);
       // Nitro: a ring of light rushing out from the middle.
       float ring = smoothstep(0.08, 0.0, abs(dist - (1.0 - pulse) * 0.9)) * pulse;
       col.rgb += vec3(0.4, 0.85, 1.0) * ring * 0.9 + vec3(0.05, 0.15, 0.22) * pulse;
-      col.rgb *= 1.0 - (vignette + amount * 0.25) * smoothstep(0.38, 0.95, dist);
-      col.rgb *= 1.0 + (hash(vUv * 512.0) - 0.5) * 0.08;
+      col.rgb *= 1.0 - (vignette * mix(0.55, 1.0, look) + amount * 0.25) * smoothstep(0.38, 0.95, dist);
+      col.rgb *= 1.0 + (hash(vUv * 512.0) - 0.5) * mix(0.03, 0.08, look);
       gl_FragColor = col;
     }
   `,
@@ -156,7 +163,10 @@ export class World {
   private bloom: UnrealBloomPass | null = null
   private speed: ShaderPass | null = null
   private readonly hemi: HemisphereLight
-  private readonly moon: DirectionalLight
+  // The moon at night and the sun by day. By day it casts shadows.
+  readonly moon: DirectionalLight
+  private readonly fill: DirectionalLight
+  day = false
   // Extra light for a lightning flash, fading back to zero.
   flash = 0
   quality: Quality
@@ -180,7 +190,15 @@ export class World {
     const fill = new DirectionalLight('#c8d2ff', 0.9)
     fill.position.set(0, 2, 6)
     fill.target.position.set(0, 0, -10)
+    this.fill = fill
     this.camera.add(fill, fill.target)
+    this.scene.add(moon.target)
+    this.renderer.shadowMap.enabled = true
+    this.renderer.shadowMap.type = PCFSoftShadowMap
+    moon.shadow.mapSize.set(2048, 2048)
+    Object.assign(moon.shadow.camera, { left: -45, right: 45, top: 45, bottom: -45, near: 10, far: 900 })
+    moon.shadow.bias = -0.0004
+    moon.shadow.normalBias = 0.03
     this.scene.add(this.camera)
     this.environment = this.neonEnvironment()
     this.scene.environment = this.environment
@@ -236,6 +254,7 @@ export class World {
       this.speed = null
       this.renderPass = null
     }
+    this.setDay(this.day)
     this.resize()
   }
 
@@ -251,11 +270,50 @@ export class World {
 
   private ambient = 0.7
 
-  setFog(color: string, density: number) {
+  setFog(color: string, density: number, background = true) {
     const fog = this.scene.fog as FogExp2
     fog.color.set(color)
     fog.density = density
-    ;(this.scene.background as Color).set(color).multiplyScalar(0.5)
+    if (background) {
+      this.scene.background = this.nightBackground.set(color).multiplyScalar(0.5)
+    }
+  }
+  private readonly nightBackground = new Color('#05060c')
+
+  // Daylight: the sky photo behind everything and in every reflection, a
+  // high sun that casts shadows, and a softer bloom. Night puts back the
+  // neon environment and the moon.
+  setDay(on: boolean) {
+    this.day = on
+    this.moon.color.set(on ? '#fff1dc' : '#8ea2ff')
+    this.moon.castShadow = on && this.quality === 'high'
+    this.fill.intensity = on ? 0.25 : 0.9
+    if (this.bloom) {
+      this.bloom.strength = on ? 0.32 : 0.8
+      this.bloom.threshold = on ? 2.4 : 0.86
+    }
+    if (this.speed) this.speed.uniforms.look.value = on ? 0 : 1
+    if (!on) {
+      this.scene.environment = this.environment
+      return
+    }
+    daySky(this.renderer).then(
+      (sky) => {
+        if (!this.day) return
+        this.scene.background = sky.background
+        this.scene.environment = sky.environment
+        this.scene.backgroundIntensity = 0.85
+      },
+      () => undefined,
+    )
+    this.scene.background = this.nightBackground.set('#9fbfe0')
+  }
+
+  // Keeps the sun's shadow box centred on (x, z), where the action is.
+  followSun(x: number, z: number) {
+    const sun = this.moon
+    sun.target.position.set(x, 0, z)
+    sun.position.set(x + 260, 520, z + 180)
   }
 
   setLight(sky: string, ground: string, ambient: number, moon: number) {

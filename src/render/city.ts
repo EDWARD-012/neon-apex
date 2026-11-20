@@ -37,7 +37,7 @@ interface Box {
 
 // Distance from a point to the nearest centre-line sample, using a coarse
 // grid of the samples so the city can be laid out quickly.
-function distanceField(track: Track) {
+export function distanceField(track: Track) {
   const cell = 40
   const grid = new Map<string, number[]>()
   for (let i = 0; i < track.n; i += 2) {
