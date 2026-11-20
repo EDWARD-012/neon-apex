@@ -28,6 +28,9 @@ export const CAR = {
   nitroBoost: 1.75,
   nitroTop: 1.22,
   nitroBurn: 0.3, // tank per second
+  // Divides the damage from every hit. Armour raises it, a lighter body
+  // lowers it.
+  toughness: 1,
 }
 
 // Barriers sit just outside the painted edge of the road.
@@ -98,7 +101,7 @@ function recordHit(car: CarState, dx: number, dz: number, strength: number) {
   const len = Math.hypot(lx, lz) || 1
   car.hits.push((lx / len) * 0.95, 0.55, (lz / len) * 2.25, strength)
   if (car.hits.length > 32) car.hits.splice(0, car.hits.length - 32)
-  car.damage = Math.min(1, car.damage + (strength - 2.5) * 0.011)
+  car.damage = Math.min(1, car.damage + ((strength - 2.5) * 0.011) / car.spec.toughness)
 }
 
 export function createCar(x: number, z: number, heading: number, track: Track, spec: CarSpec = CAR): CarState {

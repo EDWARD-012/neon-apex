@@ -173,7 +173,7 @@
       <div class="menu-card wide">
         <div class="career-head">
           <h2>Career</h2>
-          <p class="cash">Cash <b id="cash">0</b></p>
+          <p class="cash">Coins <b id="cash">0</b></p>
         </div>
         <div id="tiers" class="tiers"></div>
         <div class="menu-actions">
@@ -186,12 +186,19 @@
       <div class="menu-card">
         <div class="career-head">
           <h2>Garage</h2>
-          <p class="cash">Cash <b id="garage-cash">0</b></p>
+          <p class="cash">Coins <b id="garage-cash">0</b></p>
+        </div>
+        <div class="segmented garage-tabs" id="garage-tab">
+          <button data-value="cars" class="on">Cars</button>
+          <button data-value="upgrades">Upgrades</button>
         </div>
         <div id="car-list" class="car-list"></div>
         <p id="car-blurb" class="note"></p>
+        <p id="car-speed" class="top-speed"></p>
         <div id="car-stats" class="stats"></div>
-        <div class="setting">
+        <div id="parts" class="parts hidden"></div>
+        <p id="part-note" class="note small part-note hidden"></p>
+        <div class="setting" id="paint-row">
           <span class="label">Paint</span>
           <div class="swatches" id="colors"></div>
         </div>
@@ -206,7 +213,7 @@
       <div class="menu-card">
         <h2>Account</h2>
         <div id="acct-out">
-          <p class="note">Sign in to keep your cash, cars and career on every device.</p>
+          <p class="note">Sign in to keep your coins, cars, upgrades and career on every device.</p>
           <div id="google-button" class="google-button"></div>
           <p class="or">Already chose a username? Sign in with it.</p>
           <form id="login-form" class="acct-form">
@@ -294,7 +301,7 @@
         <p id="result-summary" class="summary"></p>
         <table class="standings" id="standings"></table>
         <p id="result-note" class="note"></p>
-        <p id="reward" class="reward hidden"></p>
+        <div id="reward" class="reward hidden"></div>
         <div class="menu-actions">
           <button id="again" class="primary">Race again</button>
           <button id="watch">Watch replay</button>

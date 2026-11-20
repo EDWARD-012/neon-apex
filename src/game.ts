@@ -14,7 +14,7 @@ import { spot } from './render/textures'
 import { buildTrackMeshes } from './render/trackMesh'
 import { type Quality, World } from './render/world'
 import { type Replay, Recorder } from './replay'
-import { CAR, type CarState, forwardSpeed, speedOf } from './sim/car'
+import { CAR, type CarSpec, type CarState, forwardSpeed, speedOf } from './sim/car'
 import { carById, CARS, type Shape } from './sim/cars'
 import { Race, type Racer, STEP } from './sim/race'
 
@@ -90,11 +90,11 @@ const $ = (id: string) => document.getElementById(id) as HTMLElement
 // has no gearbox.
 const GEARS = [0, 13, 24, 35, 46, 57, 1000]
 
-export function gearOf(speed: number): { gear: number; rpm: number } {
+export function gearOf(speed: number, spec: CarSpec = CAR): { gear: number; rpm: number } {
   let g = 0
   while (g < GEARS.length - 2 && speed >= GEARS[g + 1]) g++
   const lo = GEARS[g]
-  const hi = Math.min(GEARS[g + 1], CAR.topSpeed * CAR.nitroTop)
+  const hi = Math.min(GEARS[g + 1], spec.topSpeed * spec.nitroTop)
   return { gear: g + 1, rpm: 0.22 + 0.78 * Math.min(1, (speed - lo) / (hi - lo)) }
 }
 
@@ -119,6 +119,9 @@ export class Game {
   mode: Mode = 'menu'
   timeScale = 1
   onResults: ((outcome: Outcome) => void) | null = null
+  // The player's car with its upgrades. Set by the menus, which know the
+  // save; until then a car drives as it left the factory.
+  tune: (carId: string) => CarSpec = (carId) => carById(carId).spec
   // Lets the screenshot script place the camera by hand.
   cameraOverride: ((camera: import('three').PerspectiveCamera) => void) | null = null
   camMode: CameraMode = 'chase'
@@ -223,7 +226,7 @@ export class Game {
       police: spec.police,
       mode: spec.kind === 'elimination' ? 'elimination' : spec.kind === 'pursuit' ? 'pursuit' : 'circuit',
       playerColor: this.settings.color,
-      playerSpec: car.spec,
+      playerSpec: this.tune(car.id),
       rivalSpecs: rivalCars.map((c) => c.spec),
       autopilot: attract || this.autopilot,
     })
@@ -516,11 +519,13 @@ export class Game {
     for (const e of race.events) {
       if (e.type === 'nearMiss') {
         player.car.nitro = Math.min(1, player.car.nitro + 0.15)
-        popup('Near miss', 'cyan')
+        popup('Near miss +50', 'cyan')
         this.sound.whoosh()
         // A beat of slow motion as the car slips past.
         this.bulletUntil = now + 260
         this.nitroPulse = Math.max(this.nitroPulse, 0.3)
+      } else if (e.type === 'cleanLap') {
+        popup('Clean lap +100', 'gold')
       } else if (e.type === 'driftBank') {
         popup(`+${e.points.toLocaleString('en')} drift`, 'gold')
       } else if (e.type === 'driftLost') {
@@ -686,7 +691,7 @@ export class Game {
     }
     if (this.mode === 'race' || this.mode === 'results' || this.mode === 'paused') this.hud()
     const followed = this.mode === 'replay' ? this.race.racers[this.replayFollow].car : this.player.car
-    const { rpm } = gearOf(Math.abs(forwardSpeed(followed)))
+    const { rpm } = gearOf(Math.abs(forwardSpeed(followed)), followed.spec)
     const active = this.mode === 'race' || this.mode === 'results' || this.mode === 'replay'
     const throttle = this.mode === 'race' ? this.race.playerInput.throttle : 0.5
     this.sound.update(rpm, throttle, followed.slip * (speedOf(followed) > 8 ? 1 : 0), followed.nitroOn, active && this.race.phase !== 'countdown' && this.replayPlaying)
@@ -985,7 +990,7 @@ export class Game {
     $('pedals').classList.toggle('hidden', !firstPerson)
     if (inside) {
       const kmh = Math.abs(forwardSpeed(car)) * 3.6
-      const { gear, rpm } = gearOf(Math.abs(forwardSpeed(car)))
+      const { gear, rpm } = gearOf(Math.abs(forwardSpeed(car)), car.spec)
       this.cockpit.update(car.steer, kmh, rpm, gear, car.nitro, performance.now())
     }
     const fov = (inside ? 70 : 60) + Math.min(inside ? 8 : 14, speed * (inside ? 0.1 : 0.17)) + (car.nitroOn ? 7 : 0) + this.nitroPulse * 9
@@ -1013,8 +1018,8 @@ export class Game {
     $('ghost-row').classList.toggle('hidden', kind !== 'trial')
     $('ghost-time').textContent = this.ghost ? formatTime(this.ghost.time) : 'none yet'
     $('speed').textContent = String(Math.round(speed * 3.6))
-    $('gear').textContent = String(gearOf(speed).gear)
-    $('gauge-fill').style.strokeDashoffset = String(1 - Math.min(1, speed / (CAR.topSpeed * CAR.nitroTop)))
+    $('gear').textContent = String(gearOf(speed, car.spec).gear)
+    $('gauge-fill').style.strokeDashoffset = String(1 - Math.min(1, speed / (car.spec.topSpeed * car.spec.nitroTop)))
     $('nitro-fill').style.transform = `scaleX(${car.nitro})`
     // Driver inputs, shown in the first-person views.
     const input = this.race.playerInput

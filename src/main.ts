@@ -6,12 +6,13 @@ import '@fontsource/chakra-petch/500-italic.css'
 import './styles.css'
 import { loadCarAssets } from './render/carAssets'
 import { AccountError, type Account, chooseLogin, cloudEnabled, currentAccount, googleButton, signIn, signInWithGoogle, signOut, uploadProgress } from './cloud'
-import { ALL_EVENTS, buy, type EventDef, type EventKind, judge, loadProgress, type Outcome, type Progress, record, saveProgress, TIERS, tierOpen, WINS_TO_UNLOCK, winsIn } from './career'
+import { ALL_EVENTS, buy, type EventDef, type EventKind, loadProgress, type Outcome, type Progress, saveProgress, settle, TIERS, tidy, tierOpen, upgrade, WINS_TO_UNLOCK, winsIn } from './career'
 import { type EventSpec, formatTime, Game, ordinal, REPLAY_CAMERAS, type Settings } from './game'
 import type { Weather } from './render/atmosphere'
 import type { Quality } from './render/world'
-import { carById, CARS, ratings } from './sim/cars'
+import { carById, CARS, type Rating, ratings } from './sim/cars'
 import { dailySeed } from './sim/track'
+import { kmh, type Part, PARTS, partById, priceOf, STAGES, stageOf, tuned } from './upgrades'
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement
 const params = new URLSearchParams(location.search)
@@ -78,6 +79,9 @@ function keep() {
 }
 // The player can only drive cars they own.
 if (!progress.owned.includes(settings.car)) settings.car = CARS[0].id
+// A car's handling with the upgrades fitted to it.
+const specFor = (carId: string) => tuned(carById(carId), progress.upgrades[carId])
+const coins = (n: number) => n.toLocaleString('en')
 
 let game: Game
 try {
@@ -89,6 +93,7 @@ try {
   throw new Error('WebGL is not available')
 }
 game.input.bindTouch($('touch'))
+game.tune = specFor
 
 type Screen = 'menu' | 'quick' | 'career' | 'garage' | 'settings-screen' | 'account' | 'intro' | 'race' | 'results' | 'replay'
 const SCREENS = ['menu', 'quick', 'career', 'garage', 'settings-screen', 'account', 'results', 'pause']
@@ -121,7 +126,7 @@ function menu() {
   if (game.mode !== 'menu') game.showMenu()
   setScreen('menu')
   const tier = [...TIERS.keys()].filter((k) => tierOpen(progress, k)).pop() ?? 0
-  $('career-note').textContent = `${TIERS[tier].name} tier, ${progress.cash.toLocaleString('en')} cash`
+  $('career-note').textContent = `${TIERS[tier].name} tier, ${coins(progress.cash)} coins`
   $('garage-note').textContent = carById(settings.car).name
 }
 
@@ -199,7 +204,7 @@ $('go-race').addEventListener('click', () => begin(quickSpec()))
 
 function career() {
   setScreen('career')
-  $('cash').textContent = progress.cash.toLocaleString('en')
+  $('cash').textContent = coins(progress.cash)
   const box = $('tiers')
   box.innerHTML = ''
   TIERS.forEach((tier, t) => {
@@ -229,6 +234,9 @@ function careerSpec(e: EventDef): EventSpec {
 // Garage
 
 let viewing = settings.car
+let tab: 'cars' | 'upgrades' = 'cars'
+// The part picked on the upgrade tab, whose next stage the bars preview.
+let picked: Part = 'engine'
 function garage() {
   game.showGarage()
   setScreen('garage')
@@ -236,8 +244,25 @@ function garage() {
   drawGarage()
 }
 
+const STAT_NAMES: Record<Rating, string> = { speed: 'Top speed', acceleration: 'Acceleration', grip: 'Grip', drift: 'Drift', braking: 'Braking', nitro: 'Nitro', toughness: 'Toughness' }
+
+// Bars for the car as it is, and, when a stage is being looked at, what it
+// would change: green for a gain, red for a loss.
+function drawStats(now: ReturnType<typeof ratings>, next?: ReturnType<typeof ratings>) {
+  $('car-stats').innerHTML = (Object.keys(STAT_NAMES) as Rating[])
+    .map((k) => {
+      const a = now[k]
+      const b = next?.[k] ?? a
+      const change = b > a + 0.001 ? 'gain' : b < a - 0.001 ? 'loss' : ''
+      return `<div class="stat" data-stat="${k}"><span>${STAT_NAMES[k]}</span><div class="bar"><div class="change ${change}" style="transform:scaleX(${Math.max(a, b).toFixed(3)})"></div><div style="transform:scaleX(${Math.min(a, b).toFixed(3)})"></div></div></div>`
+    })
+    .join('')
+}
+
 function drawGarage() {
-  $('garage-cash').textContent = progress.cash.toLocaleString('en')
+  $('garage-cash').textContent = coins(progress.cash)
+  document.querySelectorAll<HTMLButtonElement>('#garage-tab button').forEach((b) => b.classList.toggle('on', b.dataset.value === tab))
+  const upgrading = tab === 'upgrades'
   const list = $('car-list')
   list.innerHTML = ''
   for (const car of CARS) {
@@ -245,7 +270,7 @@ function drawGarage() {
     const b = document.createElement('button')
     b.className = car.id === viewing ? 'on' : ''
     b.dataset.car = car.id
-    b.innerHTML = `<b>${car.name}</b><small>${car.id === settings.car ? 'Driving' : owned ? 'Owned' : `${car.price.toLocaleString('en')} cash`}</small>`
+    b.innerHTML = `<b>${car.name}</b><small>${car.id === settings.car ? 'Driving' : owned ? 'Owned' : `${coins(car.price)} coins`}</small>`
     b.addEventListener('click', () => {
       viewing = car.id
       game.refreshGarage(car.id)
@@ -254,19 +279,82 @@ function drawGarage() {
     list.appendChild(b)
   }
   const car = carById(viewing)
-  $('car-blurb').textContent = car.blurb
-  const r = ratings(car.spec)
-  $('car-stats').innerHTML = (['speed', 'acceleration', 'grip', 'drift'] as const)
-    .map((k) => `<div class="stat"><span>${k[0].toUpperCase() + k.slice(1)}</span><div class="bar"><div style="transform:scaleX(${r[k].toFixed(2)})"></div></div></div>`)
-    .join('')
-  const action = $('car-action') as HTMLButtonElement
   const owned = progress.owned.includes(car.id)
-  action.textContent = car.id === settings.car ? 'Driving this one' : owned ? 'Drive this car' : `Buy for ${car.price.toLocaleString('en')}`
-  action.disabled = car.id === settings.car || (!owned && progress.cash < car.price)
+  const fitted = progress.upgrades[car.id]
+  const spec = specFor(car.id)
+  // The upgrade tab works on the car picked on the Cars tab; the list is
+  // hidden there to leave room for the parts.
+  $('car-blurb').textContent = upgrading ? `Upgrades for the ${car.name}` : car.blurb
+  list.classList.toggle('hidden', upgrading)
+  $('paint-row').classList.toggle('hidden', upgrading)
+  $('parts').classList.toggle('hidden', !upgrading)
+  $('part-note').classList.toggle('hidden', !upgrading)
+  const action = $('car-action') as HTMLButtonElement
+
+  if (!upgrading) {
+    $('car-speed').textContent = `Top speed ${kmh(spec)} km/h`
+    drawStats(ratings(spec))
+    action.textContent = car.id === settings.car ? 'Driving this one' : owned ? 'Drive this car' : `Buy for ${coins(car.price)}`
+    action.disabled = car.id === settings.car || (!owned && progress.cash < car.price)
+    return
+  }
+
+  // The upgrade tab: one button per part with its stages, and the bars
+  // previewing the next stage of the picked part.
+  const parts = $('parts')
+  parts.innerHTML = ''
+  for (const part of PARTS) {
+    const stage = stageOf(fitted, part.id)
+    const b = document.createElement('button')
+    b.className = `part${part.id === picked ? ' on' : ''}`
+    b.dataset.part = part.id
+    const pips = Array.from({ length: STAGES }, (_, k) => `<i class="${k < stage ? 'on' : ''}"></i>`).join('')
+    const next = stage < STAGES ? `Stage ${stage + 1}: ${coins(priceOf(car, part.id, stage + 1))}` : 'Fully upgraded'
+    b.innerHTML = `<b>${part.name}</b><span class="pips" aria-label="Stage ${stage} of ${STAGES}">${pips}</span><small>${next}</small>`
+    b.addEventListener('click', () => {
+      picked = part.id
+      drawGarage()
+    })
+    parts.appendChild(b)
+  }
+  const part = partById(picked)
+  const stage = stageOf(fitted, picked)
+  const maxed = stage >= STAGES
+  const after = maxed ? spec : tuned(car, { ...fitted, [picked]: stage + 1 })
+  const price = maxed ? 0 : priceOf(car, picked, stage + 1)
+  const faster = kmh(after) !== kmh(spec) ? `, ${kmh(after)} km/h with stage ${stage + 1}` : ''
+  $('car-speed').textContent = `Top speed ${kmh(spec)} km/h${faster}`
+  drawStats(ratings(spec), ratings(after))
+  $('part-note').textContent = `${part.does}.`
+  if (!owned) {
+    action.textContent = 'Buy this car to upgrade it'
+    action.disabled = true
+  } else if (maxed) {
+    action.textContent = `${part.name} fully upgraded`
+    action.disabled = true
+  } else {
+    action.textContent = progress.cash >= price ? `Fit stage ${stage + 1} for ${coins(price)}` : `Stage ${stage + 1} needs ${coins(price)} coins`
+    action.disabled = progress.cash < price
+  }
 }
+
+document.querySelectorAll<HTMLButtonElement>('#garage-tab button').forEach((b) =>
+  b.addEventListener('click', () => {
+    tab = b.dataset.value as typeof tab
+    drawGarage()
+  }),
+)
 
 $('car-action').addEventListener('click', () => {
   const car = carById(viewing)
+  if (tab === 'upgrades') {
+    const fitted = upgrade(progress, car.id, picked)
+    if (!fitted) return
+    progress = fitted
+    keep()
+    drawGarage()
+    return
+  }
   if (!progress.owned.includes(car.id)) {
     const bought = buy(progress, car.id)
     if (!bought) return
@@ -326,7 +414,7 @@ function adopt(account: Account) {
   $('acct-error').textContent = ''
   if (account.username) {
     if (account.progress && typeof account.progress.cash === 'number') {
-      progress = { ...loadProgress(), ...account.progress }
+      progress = tidy({ ...loadProgress(), ...account.progress })
       saveProgress(progress)
       if (!progress.owned.includes(settings.car)) settings.car = CARS[0].id
     } else uploadProgress(progress)
@@ -435,14 +523,35 @@ function results(outcome: Outcome) {
   const race = game.race
   const spec = current as EventSpec
   const def = spec.careerId ? ALL_EVENTS.find((e) => e.id === spec.careerId) : undefined
-  // The career pays out once per result, when the screen first opens.
-  if (def) {
-    const result = judge(def, outcome, Boolean(progress.won[def.id]))
-    progress = record(progress, def, result)
-    keep()
-    $('reward').textContent = `${result.won ? 'Event won.' : 'Not won yet.'} ${result.summary} +${result.cash.toLocaleString('en')} cash`
-    $('reward').classList.remove('hidden')
-  } else $('reward').classList.add('hidden')
+  // Coins are paid once per result, when the screen first opens.
+  const me = race.player
+  const place = race.position(me)
+  const closeWin =
+    spec.kind === 'race' && place === 1 && me.finishTime !== null && race.racers.some((r) => !r.player && r.finishTime !== null && r.finishTime - (me.finishTime as number) < 0.5)
+  const today = dailySeed()
+  const paid = settle(
+    progress,
+    {
+      ...outcome,
+      kind: spec.kind,
+      laps: spec.laps,
+      finished: me.finishTime !== null,
+      target: spec.target,
+      heat: race.pursuit.heat,
+      nearMisses: race.nearMissCount,
+      cleanLaps: race.cleanLaps,
+      closeWin,
+      daily: !def && spec.seed === today,
+    },
+    today.slice(today.indexOf('-') + 1),
+    def,
+  )
+  progress = paid.progress
+  keep()
+  const head = paid.result ? `<p class="pay-head">${paid.result.won ? 'Event won.' : 'Not won yet.'} ${paid.result.summary}</p>` : ''
+  const lines = paid.lines.map((l) => `<li><span>${l.label}</span><b>+${coins(l.coins)}</b></li>`).join('')
+  $('reward').innerHTML = `${head}<ul class="pay-lines">${lines}</ul><p class="pay-total">+${coins(paid.total)} coins</p>`
+  $('reward').classList.remove('hidden')
 
   const draw = () => {
     const player = race.player

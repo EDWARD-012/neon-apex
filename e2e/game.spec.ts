@@ -173,7 +173,7 @@ test('a new random track goes into the address bar', async ({ page }) => {
   await expect(page.locator('#track-name')).toHaveText("Today's track")
 })
 
-test('the career pays out, and cash buys a car in the garage', async ({ page }) => {
+test('the career pays coins, which buy a car and its upgrades in the garage', async ({ page }) => {
   await open(page, '&autopilot')
   await page.locator('#go-career').click()
   // Only the first tier is open at the start.
@@ -183,11 +183,11 @@ test('the career pays out, and cash buys a car in the garage', async ({ page }) 
   await forward(page, 3.2)
   await forward(page, 200)
   await expect(page.locator('#results')).toBeVisible({ timeout: 20000 })
-  await expect(page.locator('#reward')).toContainText('cash')
+  await expect(page.locator('#reward')).toContainText('coins')
   const cash = await page.evaluate(() => (window as any).__neon.progress().cash)
   expect(cash).toBeGreaterThan(0)
 
-  // Give the career enough cash for the Kite and buy it.
+  // Give the career enough coins for the Kite and buy it.
   await page.evaluate(() => localStorage.setItem('neon-apex/career', JSON.stringify({ cash: 7000, owned: ['vanta'], won: {} })))
   await open(page)
   await page.locator('#go-garage').click()
@@ -198,6 +198,24 @@ test('the career pays out, and cash buys a car in the garage', async ({ page }) 
   await page.locator('#car-action').click()
   await expect(page.locator('#car-action')).toHaveText('Driving this one')
   await expect(page.locator('#garage-cash')).toHaveText('1,000')
+
+  // Then the first engine stage, which is 15% of the car's price.
+  await page.locator('#garage-tab button[data-value="upgrades"]').click()
+  await expect(page.locator('#parts .part')).toHaveCount(8)
+  await expect(page.locator('#car-speed')).toHaveText('Top speed 238 km/h, 247 km/h with stage 1')
+  await expect(page.locator('#car-action')).toHaveText('Fit stage 1 for 900')
+  await page.locator('#car-action').click()
+  await expect(page.locator('#garage-cash')).toHaveText('100')
+  await expect(page.locator('#parts .part[data-part="engine"] .pips i.on')).toHaveCount(1)
+  await expect(page.locator('#car-action')).toHaveText('Stage 2 needs 1,800 coins')
+  await expect(page.locator('#car-action')).toBeDisabled()
+  // The next race is driven with the upgraded engine.
+  const top = await page.evaluate(() => {
+    const neon = (window as any).__neon
+    neon.start('race')
+    return neon.game.race.player.car.spec.topSpeed as number
+  })
+  expect(top).toBeCloseTo(66 * 1.04, 5)
 })
 
 test('a phone held upright is asked to turn sideways, and the race waits', async ({ page, isMobile }) => {

@@ -64,6 +64,7 @@ export interface RaceOptions {
 
 export type RaceEvent =
   | { type: 'nearMiss' }
+  | { type: 'cleanLap' }
   | { type: 'contact'; strength: number }
   | { type: 'driftBank'; points: number }
   | { type: 'driftLost' }
@@ -118,6 +119,12 @@ export class Race {
   drift = { score: 0, total: 0, quiet: 0 }
   // Things that happened to the player since the game last looked.
   events: RaceEvent[] = []
+  // Counts for the coins paid at the finish: near misses, and laps the
+  // player drove without taking damage.
+  nearMissCount = 0
+  cleanLaps = 0
+  // The player's damage when the current lap began.
+  private lapDamage = 0
   // Per traffic car: which side of it the player was on last step, and when
   // the player last touched it.
   private passing: { ahead: boolean; touched: number }[] = []
@@ -350,7 +357,7 @@ export class Race {
   // A near miss: the player goes from behind a traffic car to ahead of it,
   // close alongside, clearly faster, and without having touched it.
   private nearMisses() {
-    if (this.phase !== 'racing' || this.traffic.length === 0) return
+    if (this.phase !== 'racing' || this.traffic.length === 0 || this.player.finishTime !== null || this.player.out) return
     const player = this.player.car
     const n = this.track.n
     const speed = forwardSpeed(player)
@@ -364,7 +371,10 @@ export class Race {
       const ahead = gap >= 1 ? true : gap <= -1 ? false : state.ahead
       if (ahead && !state.ahead && Math.abs(gap) < 8) {
         const side = Math.hypot(player.x - t.car.x, player.z - t.car.z)
-        if (side < 4.2 && speed - forwardSpeed(t.car) > 6 && this.clock - state.touched > 0.6) this.events.push({ type: 'nearMiss' })
+        if (side < 4.2 && speed - forwardSpeed(t.car) > 6 && this.clock - state.touched > 0.6) {
+          this.nearMissCount++
+          this.events.push({ type: 'nearMiss' })
+        }
       }
       state.ahead = ahead
     })
@@ -390,6 +400,13 @@ export class Race {
       // The first crossing is the start of lap 1, every later one ends a lap.
       if (racer.checkpoints > 1) {
         racer.lapTimes.push(this.clock - racer.lapStart)
+        if (racer.player) {
+          if (racer.car.damage <= this.lapDamage) {
+            this.cleanLaps++
+            this.events.push({ type: 'cleanLap' })
+          }
+          this.lapDamage = racer.car.damage
+        }
         if (this.mode === 'elimination' && racer.lapTimes.length > this.lapsLed) {
           this.lapsLed = racer.lapTimes.length
           this.eliminateLast()
@@ -402,6 +419,7 @@ export class Race {
         }
       }
       racer.lapStart = this.clock
+      if (racer.player) this.lapDamage = racer.car.damage
     }
   }
 

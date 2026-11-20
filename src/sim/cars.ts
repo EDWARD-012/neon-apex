@@ -59,13 +59,20 @@ export function carById(id: string): CarDef {
   return CARS.find((c) => c.id === id) ?? CARS[0]
 }
 
-// Bars for the garage screen, each 0 to 1 across the range of the cars.
+// Bars for the garage screen, each 0 to 1 across the range of the cars,
+// stock to fully upgraded.
 export function ratings(spec: CarSpec) {
   const scale = (v: number, lo: number, hi: number) => Math.max(0.08, Math.min(1, (v - lo) / (hi - lo)))
   return {
-    speed: scale(spec.topSpeed, 60, 80),
-    acceleration: scale(spec.engine, 13, 21),
-    grip: scale(spec.lateralLimit, 16, 22),
+    speed: scale(spec.topSpeed, 60, 90),
+    acceleration: scale(spec.engine, 13, 30),
+    grip: scale(spec.lateralLimit, 16, 25),
     drift: scale(1 / spec.driftGrip, 1 / 2.6, 1 / 0.9),
+    braking: scale(spec.brake, 20, 34),
+    // Boost times how long the tank lasts.
+    nitro: scale((spec.nitroBoost - 1) / spec.nitroBurn, 1.5, 6),
+    toughness: scale(spec.toughness, 0.7, 1.7),
   }
 }
+
+export type Rating = keyof ReturnType<typeof ratings>

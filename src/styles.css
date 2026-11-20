@@ -977,6 +977,101 @@ kbd {
   transition: transform 300ms var(--ease-out);
 }
 
+/* Two layers in one cell: the car now on top, and under it what the
+   upgrade being looked at would add (green) or take away (red). */
+.stat .bar {
+  display: grid;
+}
+
+.stat .bar div {
+  grid-area: 1 / 1;
+}
+
+.stat .bar .change {
+  background: transparent;
+}
+
+.stat .bar .change.gain {
+  background: #5dff7a;
+}
+
+.stat .bar .change.loss {
+  background: #ff4d5e;
+}
+
+.garage-tabs {
+  margin: 4px 0 2px;
+}
+
+.garage-tabs button {
+  padding: 8px 20px;
+  font-size: 16px;
+}
+
+.top-speed {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 600;
+  font-style: italic;
+  color: var(--gold);
+}
+
+.parts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0 0 10px;
+}
+
+.parts .part {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 2px 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--glass);
+  text-align: left;
+  cursor: pointer;
+}
+
+.parts .part b {
+  font-size: 16px;
+  font-style: italic;
+}
+
+.parts .part small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+}
+
+.parts .part.on {
+  border-color: var(--cyan);
+  box-shadow: inset 0 0 0 1px var(--cyan);
+}
+
+.pips {
+  display: flex;
+  gap: 3px;
+}
+
+.pips i {
+  width: 14px;
+  height: 6px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.14);
+  transform: skewX(-18deg);
+}
+
+.pips i.on {
+  background: var(--gold);
+}
+
+.part-note {
+  margin: 0 0 12px;
+}
+
 /* HUD extras */
 
 .goal {
@@ -1117,6 +1212,35 @@ kbd {
 
 .reward {
   margin: 0 0 18px;
+}
+
+.reward .pay-head {
+  margin: 0 0 6px;
+  font-size: 17px;
+  color: var(--text);
+}
+
+.pay-lines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 15px;
+  color: var(--muted);
+}
+
+.pay-lines li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 2px 0;
+}
+
+.pay-lines b {
+  color: var(--gold);
+}
+
+.pay-total {
+  margin: 6px 0 0;
   font-size: 20px;
   font-weight: 700;
   font-style: italic;

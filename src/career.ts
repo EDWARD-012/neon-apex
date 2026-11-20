@@ -1,9 +1,11 @@
 import type { Weather } from './render/atmosphere'
 import { CARS } from './sim/cars'
+import { type Fitted, type Part, priceOf, STAGES, stageOf } from './upgrades'
 
-// The career: three tiers of events. Winning pays cash, cash buys cars, and
-// winning three events in a tier opens the next one. Progress is kept in
-// the browser.
+// The career: three tiers of events, and the coins that every event pays.
+// Coins buy cars and upgrades, and winning three events in a tier opens
+// the next one. Progress is kept in the browser. In the code and the save
+// the coins are still called cash, the name they had first.
 
 export type EventKind = 'race' | 'elimination' | 'drift' | 'pursuit' | 'trial'
 
@@ -69,9 +71,27 @@ export interface Progress {
   owned: string[]
   // Event id to whether it has been won.
   won: Record<string, boolean>
+  // Car id to the stage of each part fitted to it.
+  upgrades: Record<string, Fitted>
+  // The last day (UTC, as in the daily track's seed) the daily bonus was
+  // paid, and how many days in a row before it.
+  daily: { day: string; streak: number } | null
 }
 
-export const fresh = (): Progress => ({ cash: 0, owned: [CARS[0].id], won: {} })
+export const fresh = (): Progress => ({ cash: 0, owned: [CARS[0].id], won: {}, upgrades: {}, daily: null })
+
+// Fills in what an older or damaged save is missing.
+export function tidy(saved: Partial<Progress>): Progress {
+  const object = (v: unknown) => Boolean(v) && typeof v === 'object' && !Array.isArray(v)
+  const daily = saved.daily
+  return {
+    ...fresh(),
+    ...saved,
+    won: object(saved.won) ? (saved.won as Progress['won']) : {},
+    upgrades: object(saved.upgrades) ? (saved.upgrades as Progress['upgrades']) : {},
+    daily: daily && typeof daily.day === 'string' && Number.isInteger(daily.streak) ? daily : null,
+  }
+}
 
 // What happened in an event, as the game reports it.
 export interface Outcome {
@@ -144,6 +164,106 @@ export function tierOpen(progress: Progress, tier: number): boolean {
   return tier === 0 || winsIn(progress, tier - 1) >= WINS_TO_UNLOCK
 }
 
+// What a finished event pays, beyond the career's own reward.
+export interface Run extends Outcome {
+  kind: EventKind
+  laps: number
+  // Crossed the line (or was the last car running).
+  finished: boolean
+  // Drift points to reach, or the lap to beat as a multiple of the
+  // reference lap. Only quick events read it; career events have their own.
+  target?: number
+  heat: number
+  nearMisses: number
+  cleanLaps: number
+  // Won a race by under half a second.
+  closeWin: boolean
+  // Run on today's daily track.
+  daily: boolean
+}
+
+export interface Line {
+  label: string
+  coins: number
+}
+
+const round50 = (n: number) => Math.round(n / 50) * 50
+
+// Quick races and the daily track: 1,000 for a win, 500 for a podium, 200
+// for finishing. Those are for three laps; one lap pays a third, five laps
+// five thirds, so short races are not the quick way to get rich.
+function quickPay(run: Run): Line | null {
+  const perLap = (n: number) => round50((n * run.laps) / 3)
+  const place = run.place ?? 99
+  switch (run.kind) {
+    case 'race':
+      if (!run.finished) return null
+      return place === 1 ? { label: 'Win', coins: perLap(1000) } : place <= 3 ? { label: 'Podium', coins: perLap(500) } : { label: 'Finished', coins: perLap(200) }
+    case 'elimination':
+      return place === 1 ? { label: 'Last car running', coins: 1000 } : place <= 3 ? { label: 'Podium', coins: 500 } : { label: `Out in ${place}${['th', 'st', 'nd', 'rd'][place] ?? 'th'}`, coins: 200 }
+    case 'drift':
+      return (run.points ?? 0) >= (run.target ?? Infinity) ? { label: 'Drift target reached', coins: perLap(1000) } : { label: 'Finished', coins: perLap(200) }
+    case 'trial': {
+      if (run.bestLap === undefined) return null
+      const beat = run.bestLap <= (run.referenceLap ?? 0) * (run.target ?? 1)
+      return beat ? { label: 'Target lap beaten', coins: perLap(1000) } : { label: 'Lap set', coins: perLap(200) }
+    }
+    case 'pursuit':
+      return run.escaped ? { label: `Escaped at heat ${run.heat}`, coins: 1000 * run.heat } : null
+  }
+}
+
+function dayBefore(day: string): string {
+  const d = new Date(`${day}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() - 1)
+  return d.toISOString().slice(0, 10)
+}
+
+// Pays out a finished event: the career reward or the quick-race pay, a
+// fifth more for a close win, the skills, and the first run of the day on
+// the daily track. Busted in a pursuit pays nothing, but costs nothing.
+export function settle(progress: Progress, run: Run, today: string, event?: EventDef): { progress: Progress; lines: Line[]; total: number; result: Result | null } {
+  const lines: Line[] = []
+  const busted = run.kind === 'pursuit' && !run.escaped
+  const result = event ? judge(event, run, Boolean(progress.won[event.id])) : null
+  if (result) {
+    if (result.cash > 0) lines.push({ label: result.won ? 'Event won' : 'Event result', coins: result.cash })
+  } else if (!busted) {
+    const base = quickPay(run)
+    if (base && base.coins > 0) lines.push(base)
+  }
+  if (run.closeWin && lines.length > 0) lines.push({ label: 'Close finish, a fifth more', coins: round50(lines[0].coins * 0.2) })
+  if (!busted) {
+    const misses = run.nearMisses
+    if (misses > 0) lines.push({ label: `${misses} near ${misses === 1 ? 'miss' : 'misses'}`, coins: misses * 50 })
+    const points = run.points ?? 0
+    if (points >= 10) lines.push({ label: `${points.toLocaleString('en')} drift points`, coins: Math.floor(points / 10) })
+    if (run.cleanLaps > 0) lines.push({ label: `${run.cleanLaps} clean ${run.cleanLaps === 1 ? 'lap' : 'laps'}`, coins: run.cleanLaps * 100 })
+  }
+  let daily = progress.daily
+  if (run.daily && !busted && daily?.day !== today) {
+    const streak = daily?.day === dayBefore(today) ? daily.streak + 1 : 1
+    lines.push({ label: streak > 1 ? `Today's track, day ${streak} in a row` : `First run on today's track`, coins: 1000 + 250 * (Math.min(streak, 7) - 1) })
+    daily = { day: today, streak }
+  }
+  const total = lines.reduce((sum, l) => sum + l.coins, 0)
+  const won = event && result ? { ...progress.won, [event.id]: progress.won[event.id] || result.won } : progress.won
+  return { progress: { ...progress, cash: progress.cash + total, won, daily }, lines, total, result }
+}
+
+// Fits the next stage of a part to a car the player owns, if there is
+// enough cash. Otherwise returns null.
+export function upgrade(progress: Progress, carId: string, part: Part): Progress | null {
+  const car = CARS.find((c) => c.id === carId)
+  if (!car || !progress.owned.includes(carId)) return null
+  const fitted = progress.upgrades[carId] ?? {}
+  const stage = stageOf(fitted, part) + 1
+  if (stage > STAGES) return null
+  const price = priceOf(car, part, stage)
+  if (progress.cash < price) return null
+  return { ...progress, cash: progress.cash - price, upgrades: { ...progress.upgrades, [carId]: { ...fitted, [part]: stage } } }
+}
+
 // Buys a car if there is enough cash, otherwise returns null.
 export function buy(progress: Progress, carId: string): Progress | null {
   const car = CARS.find((c) => c.id === carId)
@@ -156,7 +276,7 @@ const KEY = 'neon-apex/career'
 export function loadProgress(): Progress {
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) ?? 'null')
-    if (saved && typeof saved.cash === 'number' && Array.isArray(saved.owned)) return { ...fresh(), ...saved }
+    if (saved && typeof saved.cash === 'number' && Array.isArray(saved.owned)) return tidy(saved)
   } catch {
     // Unreadable: start again.
   }
