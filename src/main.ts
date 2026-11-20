@@ -8,7 +8,8 @@ import { report, startClock } from './analytics'
 import { loadCarAssets } from './render/carAssets'
 import { AccountError, type Account, chooseLogin, cloudEnabled, currentAccount, googleButton, signIn, signInWithGoogle, signOut, uploadProgress } from './cloud'
 import { ALL_EVENTS, buy, type EventDef, type EventKind, loadProgress, type Outcome, type Progress, saveProgress, settle, TIERS, tidy, tierOpen, upgrade, WINS_TO_UNLOCK, winsIn } from './career'
-import { type EventSpec, formatTime, Game, ordinal, REPLAY_CAMERAS, type Settings } from './game'
+import { type EventSpec, formatTime, Game, ordinal, REPLAY_CAMERAS, type Settings, TOOL_INFO } from './game'
+import { TOOL_IDS, type ToolId } from './sim/race'
 import type { Weather } from './render/atmosphere'
 import type { Quality } from './render/world'
 import { carById, CARS, type Rating, ratings } from './sim/cars'
@@ -51,6 +52,7 @@ function loadSettings(): Settings {
     driftAssist: saved.driftAssist ?? true,
     brakeAssist: saved.brakeAssist ?? false,
     stability: saved.stability ?? true,
+    tools: Array.isArray(saved.tools) && saved.tools.length === 2 && saved.tools.every((t) => TOOL_IDS.includes(t)) ? saved.tools : ['shockwave', 'turbo'],
     // 'auto' was the old default; it now means the mountain road by day.
     weather: (params.get('weather') as Weather) ?? (saved.weather === 'auto' || !saved.weather ? 'day' : saved.weather),
     kind: saved.kind && KINDS.includes(saved.kind) ? saved.kind : 'race',
@@ -159,7 +161,26 @@ function quickKind(kind: EventKind) {
   settings.kind = kind
   $('kind-note').textContent = KIND_NOTES[kind]
   $('laps-row').classList.toggle('hidden', kind === 'elimination' || kind === 'pursuit')
+  $('tools-row').classList.toggle('hidden', kind !== 'pursuit')
+  $('tools-note').classList.toggle('hidden', kind !== 'pursuit')
 }
+
+// Two racer tools for pursuits, quick or career. Picking a third drops the
+// one picked longest ago.
+function drawTools() {
+  document.querySelectorAll<HTMLButtonElement>('#tools-pick button').forEach((b) => b.classList.toggle('on', settings.tools.includes(b.dataset.tool as ToolId)))
+  $('tools-note').textContent = settings.tools.map((t) => `${TOOL_INFO[t].name}: ${TOOL_INFO[t].does}`).join(' ') + ' Keys 1 and 2, or Q and E. Each works twice in a pursuit.'
+}
+document.querySelectorAll<HTMLButtonElement>('#tools-pick button').forEach((b) =>
+  b.addEventListener('click', () => {
+    const id = b.dataset.tool as ToolId
+    if (settings.tools.includes(id)) return
+    settings.tools = [settings.tools[1], id]
+    saveSettings(settings)
+    drawTools()
+  }),
+)
+drawTools()
 
 function quick() {
   setScreen('quick')
@@ -515,6 +536,8 @@ window.setInterval(() => {
 $('resume').addEventListener('click', () => game.resume())
 $('touch-pause').addEventListener('click', () => game.pause())
 $('touch-camera').addEventListener('click', () => game.input.press('camera'))
+$('touch-tool-1').addEventListener('click', () => game.input.press('tool1'))
+$('touch-tool-2').addEventListener('click', () => game.input.press('tool2'))
 $('restart').addEventListener('click', () => current && begin(current))
 $('quit').addEventListener('click', () => {
   game.showMenu()

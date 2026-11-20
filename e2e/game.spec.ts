@@ -150,6 +150,8 @@ test('a pursuit puts police on the road and shows the meters', async ({ page }) 
   expect(s.police).toBeGreaterThanOrEqual(2)
   await expect(page.locator('#pursuit')).toBeVisible({ timeout: 15000 })
   await expect(page.locator('#goal')).toContainText('patrol car')
+  // The two racer tools, ready to use.
+  await expect(page.locator('#tools-hud .tool')).toHaveCount(2)
 })
 
 test('a patrol car waits by the road in a race and chases a car that flies past', async ({ page }) => {

@@ -46,6 +46,10 @@ export const driftTier = (charge: number) => (charge >= DRIFT_TIERS[1] ? 2 : cha
 
 // What is left of the engine's pull while an interceptor's pulse lasts.
 export const PULSE_POWER = 0.15
+// The racer's turbo tool: a strong push for a few seconds, up to a quarter
+// past the car's top speed.
+const TURBO_PUSH = 14
+const TURBO_TOP = 1.25
 
 // Barriers sit just outside the painted edge of the road.
 export const barrierOffset = (track: Track) => track.width / 2 + 0.8
@@ -119,6 +123,8 @@ export interface CarState {
   // Seconds left of an interceptor's pulse, which cuts the engine's power
   // and the nitro.
   stunned: number
+  // Seconds left of the turbo tool.
+  turbo: number
 }
 
 // Where on the body a hit lands, in car space: +x is the car's left, +z its
@@ -164,6 +170,7 @@ export function createCar(x: number, z: number, heading: number, track: Track, s
     boost: 0,
     wallHit: 0,
     stunned: 0,
+    turbo: 0,
     hint: locate(track, x, z).i,
   }
 }
@@ -226,6 +233,10 @@ export function stepCar(car: CarState, input: CarInput, dt: number, track: Track
   if (car.boost > 0) {
     car.boost = Math.max(0, car.boost - dt)
     if (vf > 0) accel += BOOST_PUSH * Math.max(0, 1 - vf / (top * 1.08))
+  }
+  if (car.turbo > 0) {
+    car.turbo = Math.max(0, car.turbo - dt)
+    if (vf > 0) accel += TURBO_PUSH * Math.max(0, 1 - vf / (S.topSpeed * TURBO_TOP))
   }
   car.braking = false
   if (input.brake > 0) {

@@ -461,6 +461,26 @@ button {
   place-items: center;
 }
 
+/* Pursuit tools on a touch screen: two buttons above the steering. */
+#touch .touch-tools {
+  position: fixed;
+  left: 18px;
+  bottom: 112px;
+  display: flex;
+  gap: 10px;
+}
+
+#touch .touch-tools.hidden {
+  display: none;
+}
+
+#touch .touch-tools button {
+  width: 78px;
+  height: 46px;
+  border-radius: 12px;
+  font-size: 12px;
+}
+
 /* Menus */
 
 .screen {
@@ -1214,6 +1234,44 @@ kbd {
   gap: 6px;
   margin-top: 12px;
   width: 220px;
+}
+
+.tools-hud {
+  display: grid;
+  gap: 3px;
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.tools-hud .tool kbd {
+  display: inline-block;
+  min-width: 16px;
+  margin-right: 6px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(61, 245, 255, 0.18);
+  color: var(--cyan);
+  font: inherit;
+  text-align: center;
+}
+
+.tools-hud .tool i {
+  font-style: normal;
+  color: var(--cyan);
+  letter-spacing: 1px;
+}
+
+.tools-hud .tool.spent {
+  opacity: 0.4;
+}
+
+/* On a touch screen the tool buttons show the same, and the list would
+   push the panel down over them. */
+@media (pointer: coarse) {
+  .tools-hud {
+    display: none;
+  }
 }
 
 .meter {

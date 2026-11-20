@@ -85,6 +85,7 @@
         <div id="pursuit" class="meters hidden">
           <div class="meter"><span>Busted</span><div class="bar red"><div id="busted-fill"></div></div></div>
           <div class="meter"><span>Escape</span><div class="bar cyan"><div id="escape-fill"></div></div></div>
+          <div id="tools-hud" class="tools-hud hidden"></div>
         </div>
       </div>
       <div class="hud-corner hud-right">
@@ -131,6 +132,10 @@
         <button data-touch="drift" class="small">Drift</button>
         <button data-touch="brake">Brake</button>
         <button data-touch="gas" class="gas">Gas</button>
+      </div>
+      <div id="touch-tools" class="touch-tools hidden">
+        <button id="touch-tool-1" class="small">Tool 1</button>
+        <button id="touch-tool-2" class="small">Tool 2</button>
       </div>
       <button id="touch-pause" class="touch-pause" aria-label="Pause">II</button>
       <button id="touch-camera" class="touch-camera" aria-label="Change camera"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
@@ -206,6 +211,16 @@
               <button data-value="off">Off</button>
             </div>
           </div>
+          <div class="setting" id="tools-row">
+            <span class="label">Tools</span>
+            <div class="segmented wrap" id="tools-pick">
+              <button data-tool="jammer">Jammer</button>
+              <button data-tool="shockwave">Shockwave</button>
+              <button data-tool="turbo">Turbo</button>
+              <button data-tool="mine">Mine</button>
+            </div>
+          </div>
+          <p id="tools-note" class="note small"></p>
           <div class="setting">
             <span class="label">Police</span>
             <div class="segmented" id="police">

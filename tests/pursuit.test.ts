@@ -3,7 +3,7 @@ import { collideCars, createCar, idle, stepCar } from '../src/sim/car'
 import { HEAVY_SPEC, POLICE_SPEC } from '../src/sim/cars'
 import { racingLine } from '../src/sim/line'
 import { chase } from '../src/sim/police'
-import { HEAT_STEP, HELI_ESCAPE, HELI_HEAT, HELI_SIGHT, MAX_HEAT, PULSE_LOCK, PULSE_STUN, PUNCTURED, Race, type RaceEvent, ROADBLOCK_GAP, SETUP_AHEAD, SETUP_EVERY, SETUP_HEAT, STEP } from '../src/sim/race'
+import { HEAT_STEP, HELI_ESCAPE, HELI_HEAT, HELI_SIGHT, JAMMER_TIME, MAX_HEAT, MINE_ARM, MINE_DAMAGE, PULSE_LOCK, PULSE_STUN, PUNCTURED, Race, type RaceEvent, ROADBLOCK_GAP, SETUP_AHEAD, SETUP_EVERY, SETUP_HEAT, STEP, type ToolId } from '../src/sim/race'
 import { buildTrack, locate, pointAt } from '../src/sim/track'
 
 describe('heat levels', () => {
@@ -236,5 +236,91 @@ describe('helicopter, units called ahead and the pulse', () => {
       stepCar(fresh, { ...idle, throttle: 1 }, STEP, track)
     }
     expect(Math.hypot(cut.vx, cut.vz)).toBeLessThan(Math.hypot(fresh.vx, fresh.vz) * 0.3)
+  })
+})
+
+describe('racer tools', () => {
+  const start = (tools: ToolId[], seed = 'tools') => {
+    const race = new Race({ seed, laps: 99, rivals: 0, mode: 'pursuit', police: 1, tools })
+    for (let t = 0; t < 3.1; t += STEP) race.step()
+    return race
+  }
+
+  it('each of the two tools can be used twice, a second apart', () => {
+    const race = start(['turbo', 'mine'])
+    expect(race.tools.map((t) => t.id)).toEqual(['turbo', 'mine'])
+    expect(race.useTool(0)).toBe(true)
+    expect(race.useTool(0)).toBe(false)
+    for (let t = 0; t < 1.1; t += STEP) race.step()
+    expect(race.useTool(0)).toBe(true)
+    for (let t = 0; t < 1.1; t += STEP) race.step()
+    expect(race.useTool(0)).toBe(false)
+    expect(race.useTool(1)).toBe(true)
+    expect(race.useTool(2)).toBe(false)
+  })
+
+  it('the jammer hides the player from the helicopter and stops the setups ahead', () => {
+    const race = start(['jammer', 'turbo'])
+    while (race.pursuit.heat < HELI_HEAT) {
+      race.pursuit.sinceJoin = HEAT_STEP + 1
+      race.step()
+    }
+    const me = race.player.car
+    race.useTool(0)
+    expect(race.jammed).toBe(JAMMER_TIME)
+    const roadblocks = race.blockade.length
+    for (let t = 0; t < JAMMER_TIME - 0.5; t += STEP) {
+      Object.assign(race.heli!, { x: me.x, z: me.z })
+      race.pursuit.busted = 0
+      race.step()
+      expect(race.heli!.seeing).toBe(false)
+    }
+    expect(race.blockade.length).toBe(roadblocks)
+  })
+
+  it('the shockwave throws close cars away from the player', () => {
+    const race = start(['shockwave', 'turbo'])
+    const me = race.player.car
+    const cop = race.police[0]
+    const at = pointAt(race.track, locate(race.track, me.x, me.z).s - 8, 0)
+    Object.assign(cop, { x: at.x, z: at.z, vx: 0, vz: 0, hint: locate(race.track, at.x, at.z).i })
+    race.useTool(0)
+    const away = (cop.vx * (cop.x - me.x) + cop.vz * (cop.z - me.z)) / Math.hypot(cop.x - me.x, cop.z - me.z)
+    expect(away).toBeGreaterThan(5)
+  })
+
+  it('the turbo pushes the car past its top speed', () => {
+    const track = buildTrack('turbo')
+    const open = { ...track, width: 1e6 }
+    const p = pointAt(track, 20, 0)
+    const car = createCar(p.x, p.z, p.heading, track)
+    for (let t = 0; t < 40; t += STEP) stepCar(car, { ...idle, throttle: 1 }, STEP, open)
+    const flat = Math.hypot(car.vx, car.vz)
+    car.turbo = 2.5
+    for (let t = 0; t < 2.5; t += STEP) stepCar(car, { ...idle, throttle: 1 }, STEP, open)
+    expect(Math.hypot(car.vx, car.vz)).toBeGreaterThan(flat * 1.08)
+  })
+
+  it('a mine goes off under a police car once it is armed', () => {
+    const race = start(['mine', 'turbo'])
+    race.useTool(0)
+    const mine = race.mines[0]
+    const cop = race.police[0]
+    // Too soon: not armed yet.
+    Object.assign(cop, { x: mine.x, z: mine.z, vx: 0, vz: 0 })
+    race.step()
+    expect(race.mines).toHaveLength(1)
+    for (let t = 0; t < MINE_ARM + 0.1; t += STEP) {
+      Object.assign(cop, { x: mine.x + 30, z: mine.z, vx: 0, vz: 0 })
+      race.step()
+    }
+    const events: RaceEvent[] = []
+    Object.assign(cop, { x: mine.x, z: mine.z, vx: 0, vz: 0 })
+    race.events = []
+    race.step()
+    events.push(...race.events)
+    expect(events.map((e) => e.type)).toContain('mineHit')
+    expect(race.mines).toHaveLength(0)
+    expect(cop.damage).toBeGreaterThanOrEqual(MINE_DAMAGE / cop.spec.toughness - 0.01)
   })
 })

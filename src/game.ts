@@ -1,4 +1,4 @@
-import { Color, type Group, type Material, MathUtils, type Mesh, type MeshStandardMaterial, Object3D, SpotLight, Vector3 } from 'three'
+import { AdditiveBlending, Color, CylinderGeometry, DoubleSide, type Group, Group as GroupObject, type Material, MathUtils, type Mesh, Mesh as MeshObject, MeshBasicMaterial, MeshStandardMaterial, Object3D, RingGeometry, SphereGeometry, SpotLight, Vector3 } from 'three'
 import { type EngineKind, Sound } from './audio'
 import { type EventKind, ESCAPE_PAY, type Outcome, TAKEDOWN_PAY } from './career'
 import { bumper, finishOrbit, heli, INTRO_SECONDS, intro, tv, tvCameras } from './cinema'
@@ -18,7 +18,7 @@ import { type Quality, World } from './render/world'
 import { type Replay, Recorder } from './replay'
 import { CAR, type CarSpec, type CarState, driftTier, forwardSpeed, PHYSICS_VERSION, speedOf } from './sim/car'
 import { carById, CARS, type Shape } from './sim/cars'
-import { Race, type Racer, type SpikeStrip, STEP } from './sim/race'
+import { type Mine, Race, type Racer, SHOCK_RANGE, type SpikeStrip, STEP, type ToolId } from './sim/race'
 import { pointAt } from './sim/track'
 
 export type Mode = 'menu' | 'garage' | 'intro' | 'race' | 'paused' | 'results' | 'replay'
@@ -55,6 +55,8 @@ export interface Settings {
   driftAssist: boolean
   brakeAssist: boolean
   stability: boolean
+  // The two racer tools taken into a pursuit.
+  tools: ToolId[]
   weather: Weather | 'auto'
   kind: EventKind
 }
@@ -156,9 +158,13 @@ export class Game {
   private materials: { city: City | null; road: MeshStandardMaterial; ground: MeshStandardMaterial } | null = null
   private readonly wheelBank = new WheelBank(200)
   private debris: Debris[] = []
-  // A model for each spike strip on the road, and the helicopter's.
+  // A model for each spike strip and mine on the road, the helicopter's,
+  // and shockwave rings still spreading.
   private strips = new Map<SpikeStrip, Group>()
+  private mines = new Map<Mine, Group>()
+  private rings: { mesh: Mesh; age: number }[] = []
   private copter: HelicopterModel | null = null
+  private toolsHtml = ''
   private readonly fire: Particles
   private readonly darkSmoke: Particles
   private nitroWas = false
@@ -263,6 +269,7 @@ export class Game {
       playerSpec: this.tune(car.id),
       rivalSpecs: rivalCars.map((c) => c.spec),
       autopilot: attract || this.autopilot,
+      tools: spec.kind === 'pursuit' ? this.settings.tools : undefined,
     })
     this.race.brakeHelp = this.settings.brakeAssist
     this.weather = spec.weather === 'auto' ? weatherFor(spec.seed) : spec.weather
@@ -311,6 +318,10 @@ export class Game {
     }
     this.strips.clear()
     if (this.copter) this.world.scene.remove(this.copter.group, this.copter.beam, this.copter.light.target)
+    for (const g of this.mines.values()) this.world.scene.remove(g)
+    this.mines.clear()
+    for (const r of this.rings) this.world.scene.remove(r.mesh)
+    this.rings = []
     this.nitroWas = false
     this.boostWas = 0
     this.gearWas = 0
@@ -477,6 +488,8 @@ export class Game {
       popup(`Camera: ${CAMERA_NAMES[this.camMode]}`, 'cyan')
     }
     if (this.input.take('reset') && this.race.phase === 'racing') this.race.reset(this.player)
+    if (this.input.take('tool1')) this.race.useTool(0)
+    if (this.input.take('tool2')) this.race.useTool(1)
   }
 
   pause() {
@@ -650,6 +663,21 @@ export class Game {
         popup('Roadblock ahead: find the gap', 'red')
       } else if (e.type === 'spikesAhead') {
         popup('Spike strip ahead: keep to the clear side', 'red')
+      } else if (e.type === 'tool') {
+        const me = race.player.car
+        popup(TOOL_INFO[e.id].used, 'cyan')
+        if (e.id === 'shockwave') {
+          const ring = shockRing()
+          ring.position.set(me.x, 0.4, me.z)
+          this.world.scene.add(ring)
+          this.rings.push({ mesh: ring, age: 0 })
+          this.sound.hit(8)
+          this.shake = Math.min(1, this.shake + 0.4)
+        } else if (e.id === 'turbo') this.sound.ignite()
+        else this.sound.beep(false)
+      } else if (e.type === 'mineHit') {
+        this.wreckBurst({ x: e.x, z: e.z, vx: 0, vz: 0 } as CarState)
+        this.shake = Math.min(1, this.shake + 0.5)
       } else if (e.type === 'heliJoined') {
         popup('Helicopter overhead: outrun the searchlight', 'red')
       } else if (e.type === 'pulseLock') {
@@ -795,9 +823,40 @@ export class Game {
     ;(m.beam.material as MeshStandardMaterial).opacity = day ? 0.015 : 0.05
   }
 
+  // Mines blink on the road; shockwave rings spread and fade.
+  private drawTools(dt: number) {
+    const live = new Set(this.race.mines)
+    for (const [mine, g] of this.mines) {
+      if (live.has(mine)) continue
+      this.world.scene.remove(g)
+      this.mines.delete(mine)
+    }
+    for (const mine of live) {
+      let g = this.mines.get(mine)
+      if (!g) {
+        g = mineModel()
+        g.position.set(mine.x, 0, mine.z)
+        this.world.scene.add(g)
+        this.mines.set(mine, g)
+      }
+      const led = g.children[1] as Mesh
+      ;(led.material as MeshStandardMaterial).color.set(mine.armIn > 0 || Math.floor(this.time * 3) % 2 === 0 ? '#ff2030' : '#3a0508')
+    }
+    this.rings = this.rings.filter((r) => {
+      r.age += dt
+      const k = r.age / 0.4
+      r.mesh.scale.setScalar(1 + k * SHOCK_RANGE)
+      ;(r.mesh.material as MeshStandardMaterial).opacity = Math.max(0, 0.8 * (1 - k))
+      if (k < 1) return true
+      this.world.scene.remove(r.mesh)
+      return false
+    })
+  }
+
   private draw(dt: number) {
     this.syncStrips()
     this.drawCopter(dt)
+    this.drawTools(dt)
     // Blown tyres: the rims throw sparks off the road.
     const me = this.race.player.car
     if (this.race.punctured && (this.mode === 'race' || this.mode === 'results') && speedOf(me) > 4) {
@@ -833,9 +892,10 @@ export class Game {
       v.model.body.rotation.z = MathUtils.lerp(v.model.body.rotation.z, MathUtils.clamp(car.yawRate * speed * -0.0035, -0.07, 0.07), 0.2)
       v.model.body.rotation.x = MathUtils.lerp(v.model.body.rotation.x, car.braking ? 0.025 : 0, 0.15)
       v.model.tail.color.copy(TAIL).multiplyScalar(car.braking ? 5 : 1.6)
+      const burning = car.nitroOn || car.turbo > 0
       for (const flame of v.model.flames) {
-        flame.visible = car.nitroOn
-        if (car.nitroOn) {
+        flame.visible = burning
+        if (burning) {
           const big = v.racer?.player ? this.nitroPulse * 1.4 : 0
           flame.scale.set(1 + big * 0.4, 1 + big * 0.4, 0.8 + Math.random() * 0.7 + big)
         }
@@ -1306,6 +1366,23 @@ export class Game {
     $('goal').textContent = goal
     $('goal').classList.toggle('hidden', goal === '')
     $('pursuit').classList.toggle('hidden', !chased)
+    // The racer tools: which key, uses left, and the jammer's time.
+    const tools = race.tools
+    $('tools-hud').classList.toggle('hidden', tools.length === 0)
+    $('touch-tools').classList.toggle('hidden', tools.length === 0 || this.mode !== 'race')
+    if (tools.length) {
+      const html = tools
+        .map((t, k) => {
+          const extra = t.id === 'jammer' && race.jammed > 0 ? ` ${Math.ceil(race.jammed)} s` : ''
+          return `<span class="tool${t.left === 0 ? ' spent' : ''}"><kbd>${k + 1}</kbd>${TOOL_INFO[t.id].name}${extra} <i>${'●'.repeat(t.left)}${'○'.repeat(2 - t.left)}</i></span>`
+        })
+        .join('')
+      if (html !== this.toolsHtml) {
+        this.toolsHtml = html
+        $('tools-hud').innerHTML = html
+        tools.forEach((t, k) => ($(`touch-tool-${k + 1}`).textContent = `${TOOL_INFO[t.id].name} ${'●'.repeat(t.left)}${'○'.repeat(2 - t.left)}`))
+      }
+    }
     // A warning while the busted meter fills: keep moving.
     const boxed = chased && race.pursuit.busted > 0.3 && !race.pursuit.outcome && !player.out
     if (boxed !== this.boxedShown) {
@@ -1484,6 +1561,32 @@ export function ordinal(n: number): string {
 
 // What each heat level brings, for the message when it arrives.
 const HEAT_NEWS: Record<number, string> = { 2: 'patrol cars in pairs', 3: 'a heavy unit, roadblocks and spikes', 4: 'a helicopter, and units called ahead', 5: 'interceptors with a power-cutting pulse' }
+// The racer tools: their names, and what the popup says when one is used.
+export const TOOL_INFO: Record<ToolId, { name: string; does: string; used: string }> = {
+  jammer: { name: 'Jammer', does: 'Hides you from the helicopter and the interceptors\' lock, and stops roadblocks and spikes being set up, for 8 seconds.', used: 'Jammer on: they cannot see you' },
+  shockwave: { name: 'Shockwave', does: 'Throws every car within 18 m away from you. A police car it sends into a wall is a takedown.', used: 'Shockwave' },
+  turbo: { name: 'Turbo', does: 'A big push for 2.5 seconds, up to a quarter past your top speed.', used: 'Turbo' },
+  mine: { name: 'Mine', does: 'Dropped behind you, it goes off under the first police car to reach it and can wreck it.', used: 'Mine dropped' },
+}
+
+// A ring of light for the shockwave, flat on the road.
+function shockRing(): Mesh {
+  const ring = new MeshObject(new RingGeometry(0.85, 1, 48), new MeshBasicMaterial({ color: '#7ff7ff', transparent: true, opacity: 0.8, blending: AdditiveBlending, depthWrite: false, side: DoubleSide }))
+  ring.rotation.x = -Math.PI / 2
+  return ring
+}
+
+// A mine: a dark disc with a red light on top that blinks once armed.
+function mineModel(): Group {
+  const g = new GroupObject()
+  const disc = new MeshObject(new CylinderGeometry(0.34, 0.38, 0.12, 20), new MeshStandardMaterial({ color: '#22252b', metalness: 0.7, roughness: 0.4 }))
+  disc.position.y = 0.06
+  const led = new MeshObject(new SphereGeometry(0.06, 10, 8), new MeshBasicMaterial({ color: '#ff2030' }))
+  led.position.y = 0.15
+  g.add(disc, led)
+  return g
+}
+
 // The searchlight beam is a cone built pointing down.
 const DOWN = new Vector3(0, -1, 0)
 

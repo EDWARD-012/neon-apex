@@ -64,6 +64,8 @@ export interface RaceOptions {
   mode?: 'circuit' | 'elimination' | 'pursuit'
   // Police cars at the start of a pursuit. More join as the heat rises.
   police?: number
+  // The player's two racer tools in a pursuit.
+  tools?: ToolId[]
   // Police in a race: a patrol car waits by the road and gives chase when
   // the player goes past it fast. Up to this many can be after the player
   // at once. Not used in a pursuit, which has its own police.
@@ -93,6 +95,8 @@ export type RaceEvent =
   | { type: 'heliJoined' }
   | { type: 'pulseLock' }
   | { type: 'pulsed' }
+  | { type: 'tool'; id: ToolId }
+  | { type: 'mineHit'; x: number; z: number }
 
 export interface Pursuit {
   // Both run 0 to 1. Busted fills while the player is slow with a patrol
@@ -165,6 +169,31 @@ export const PULSE_RANGE = 70
 export const PULSE_LOCK = 1.5
 export const PULSE_STUN = 1.4
 export const PULSE_COOLDOWN = 8
+
+// Racer tools: two are picked before a pursuit, and each can be used twice.
+// The jammer hides the player from the helicopter and the interceptors'
+// lock and stops the police setting up ahead, for JAMMER_TIME seconds. The
+// shockwave shoves every car within SHOCK_RANGE away. The turbo is a big
+// push for TURBO_TIME seconds. A mine dropped behind goes off under the
+// first police car to come within MINE_RANGE once it is armed.
+export type ToolId = 'jammer' | 'shockwave' | 'turbo' | 'mine'
+export const TOOL_IDS: ToolId[] = ['jammer', 'shockwave', 'turbo', 'mine']
+export const TOOL_USES = 2
+export const JAMMER_TIME = 8
+export const SHOCK_RANGE = 18
+export const SHOCK_PUSH = 18
+export const TURBO_TIME = 2.5
+export const MINE_RANGE = 3.4
+export const MINE_ARM = 0.6
+export const MINE_LIFE = 40
+export const MINE_DAMAGE = 0.6
+
+export interface Mine {
+  x: number
+  z: number
+  armIn: number
+  life: number
+}
 
 export interface Helicopter {
   x: number
@@ -240,6 +269,12 @@ export class Race {
   private pulses = new Map<CarState, { lock: number; cooldown: number }>()
   // The strongest lock on the player right now, 0 to 1, for the HUD.
   pulseLock = 0
+  // The player's tools and the uses left of each, the jammer's seconds
+  // left, and mines on the road.
+  tools: { id: ToolId; left: number }[] = []
+  jammed = 0
+  mines: Mine[] = []
+  private toolWait = 0
   private setupRng: Rng
   // The player's drift: the slide in progress and everything banked.
   drift = { score: 0, total: 0, quiet: 0 }
@@ -291,6 +326,7 @@ export class Race {
     }
     this.autopilot = options.autopilot ? createDriver(0.97) : null
     this.setupRng = createRng(`setup/${options.seed}`)
+    this.tools = (options.mode === 'pursuit' ? options.tools ?? [] : []).slice(0, 2).map((id) => ({ id, left: TOOL_USES }))
     this.traffic = spawnTraffic(this.track, options.traffic ?? 0, options.seed)
     this.passing = this.traffic.map(() => ({ ahead: false, touched: -10 }))
     this.mode = options.mode ?? 'circuit'
@@ -578,9 +614,12 @@ export class Race {
     // Heat rises over time, and each level brings more police.
     p.sinceJoin += dt
     if (p.sinceJoin > HEAT_STEP) this.heatUp(MAX_POLICE)
+    this.jammed = Math.max(0, this.jammed - dt)
+    this.toolWait = Math.max(0, this.toolWait - dt)
     this.fly(dt)
     this.pulse(dt)
-    if (p.heat >= SETUP_HEAT && !p.outcome) {
+    this.updateMines(dt)
+    if (p.heat >= SETUP_HEAT && !p.outcome && this.jammed === 0) {
       this.sinceSetup += dt
       if (this.sinceSetup >= SETUP_EVERY) {
         this.sinceSetup = 0
@@ -610,7 +649,7 @@ export class Race {
       h.z += (dz / d) * move
       if (d > 2) h.heading = Math.atan2(dx, dz)
     }
-    h.seeing = Math.hypot(me.x - h.x, me.z - h.z) < HELI_SIGHT
+    h.seeing = this.jammed === 0 && Math.hypot(me.x - h.x, me.z - h.z) < HELI_SIGHT
   }
 
   // Interceptors lock on from behind and fire a pulse that cuts the
@@ -630,7 +669,7 @@ export class Race {
       const ax = me.x - cop.x
       const az = me.z - cop.z
       const lateral = Math.abs(ax * -fz + az * fx)
-      const lined = behind > 5 && behind < PULSE_RANGE && lateral < 6 && ax * fx + az * fz > 0
+      const lined = this.jammed === 0 && behind > 5 && behind < PULSE_RANGE && lateral < 6 && ax * fx + az * fz > 0
       if (lined && state.cooldown === 0) {
         if (state.lock === 0) this.events.push({ type: 'pulseLock' })
         state.lock += dt
@@ -644,6 +683,68 @@ export class Race {
       strongest = Math.max(strongest, state.lock / PULSE_LOCK)
     }
     this.pulseLock = strongest
+  }
+
+  // Uses the tool in the given slot (0 or 1), if it has a use left. Returns
+  // whether it went off.
+  useTool(slot: number): boolean {
+    const tool = this.tools[slot]
+    const me = this.player.car
+    if (!tool || tool.left <= 0 || this.toolWait > 0 || this.phase !== 'racing' || this.pursuit.outcome) return false
+    tool.left--
+    this.toolWait = 1
+    if (tool.id === 'jammer') {
+      this.jammed = JAMMER_TIME
+      if (this.heli) this.heli.seeing = false
+      this.pulses.forEach((p) => (p.lock = 0))
+      this.pulseLock = 0
+    } else if (tool.id === 'turbo') {
+      me.turbo = TURBO_TIME
+    } else if (tool.id === 'mine') {
+      this.mines.push({ x: me.x - Math.sin(me.heading) * 3.2, z: me.z - Math.cos(me.heading) * 3.2, armIn: MINE_ARM, life: MINE_LIFE })
+    } else {
+      for (const car of this.cars) {
+        if (car === me) continue
+        const dx = car.x - me.x
+        const dz = car.z - me.z
+        const d = Math.hypot(dx, dz)
+        if (d >= SHOCK_RANGE || d < 0.01) continue
+        const push = (SHOCK_PUSH * (1 - d / SHOCK_RANGE)) / car.spec.mass
+        car.vx += (dx / d) * push
+        car.vz += (dz / d) * push
+        car.yawRate += (this.setupRng() - 0.5) * 2
+        // A car the shockwave sends into a wall counts as the player's hit,
+        // so it can be a takedown.
+        this.hitByPlayer.set(car, this.clock)
+      }
+    }
+    this.events.push({ type: 'tool', id: tool.id })
+    return true
+  }
+
+  // Armed mines go off under the first police car to reach them.
+  private updateMines(dt: number) {
+    if (this.mines.length === 0) return
+    this.mines = this.mines.filter((mine) => {
+      mine.armIn = Math.max(0, mine.armIn - dt)
+      mine.life -= dt
+      if (mine.armIn > 0) return mine.life > 0
+      const cop = this.activeCops.find((c) => Math.hypot(c.x - mine.x, c.z - mine.z) < MINE_RANGE)
+      if (!cop) return mine.life > 0
+      // Thrown sideways and badly hurt: often a wreck.
+      const side = this.setupRng() < 0.5 ? -1 : 1
+      cop.vx = cop.vx * 0.3 + Math.cos(cop.heading) * 14 * side
+      cop.vz = cop.vz * 0.3 - Math.sin(cop.heading) * 14 * side
+      cop.yawRate += side * 4
+      cop.damage = Math.min(1, cop.damage + MINE_DAMAGE / cop.spec.toughness)
+      this.events.push({ type: 'mineHit', x: mine.x, z: mine.z })
+      if (cop.damage >= 1 && !this.wreckedCops.has(cop)) {
+        this.wreckedCops.add(cop)
+        this.takedowns.cops.push(this.pursuit.heat)
+        this.events.push({ type: 'takedown', cop })
+      }
+      return false
+    })
   }
 
   // The next roadblock or spike strip, out of sight ahead of the player.
