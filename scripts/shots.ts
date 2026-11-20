@@ -76,6 +76,39 @@ await shot('drift')
 await page.keyboard.up('ArrowRight')
 await page.keyboard.up('ArrowUp')
 
+// The bonnet camera, with the autopilot driving so the car is at speed.
+await open(page, '&seed=readme&weather=rain&autopilot')
+await run(page, `window.__neon.begin(window.__neon.quickSpec('race'))`)
+await run(page, 'window.__neon.game.fastForward(3.2)')
+await run(page, `window.__neon.game.camMode = 'hood'`)
+await page.waitForTimeout(5000)
+await shot('bonnet')
+await run(page, `window.__neon.game.camMode = 'chase'`)
+// Damage: hits on the front left and the rear right, recorded the same way
+// a barrier or another car records them, then a close-up with time stopped.
+await run(
+  page,
+  `const car = window.__neon.game.race.player.car
+  for (const [x, z, s] of [[0.6, 2.2, 14], [0.95, 1.2, 12], [0.95, 0.2, 9], [-0.7, -2.2, 13], [-0.95, -1.4, 10]]) car.hits.push(x, 0.55, z, s)
+  car.damage = 0.45`,
+)
+await page.waitForTimeout(300)
+await run(
+  page,
+  `const g = window.__neon.game
+  g.timeScale = 0
+  g.cameraOverride = (cam) => {
+    const c = g.race.player.car
+    const fx = Math.sin(c.heading), fz = Math.cos(c.heading)
+    cam.position.set(c.x + fx * 4.2 + fz * 3.2, 1.25, c.z + fz * 4.2 - fx * 3.2)
+    cam.lookAt(c.x, 0.6, c.z)
+    cam.fov = 42
+    cam.updateProjectionMatrix()
+  }`,
+)
+await page.waitForTimeout(600)
+await shot('damage')
+
 // The fly-in before a race, part of the way through.
 await open(page, '&seed=readme&weather=dusk')
 await run(page, `window.__neon.begin(window.__neon.quickSpec('race'))`)
