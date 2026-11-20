@@ -68,6 +68,27 @@ export interface CarState {
   // by the renderer.
   impact: number
   hint: number
+  // 0 is a fresh car, 1 is as bad as it gets. Damage costs power and top
+  // speed. In a pursuit, a car at 1 is wrecked.
+  damage: number
+  // Hits not yet shown on the model: x, y, z in car space and a strength,
+  // repeated. The renderer takes them; only the latest few are kept.
+  hits: number[]
+}
+
+// Where on the body a hit lands, in car space: +x is the car's left, +z its
+// nose, matching the 3D model. dx and dz are the world direction from the
+// middle of the car towards the point of impact.
+function recordHit(car: CarState, dx: number, dz: number, strength: number) {
+  if (strength < 2.5) return
+  const c = Math.cos(car.heading)
+  const s = Math.sin(car.heading)
+  const lx = dx * c - dz * s
+  const lz = dx * s + dz * c
+  const len = Math.hypot(lx, lz) || 1
+  car.hits.push((lx / len) * 0.95, 0.55, (lz / len) * 2.25, strength)
+  if (car.hits.length > 32) car.hits.splice(0, car.hits.length - 32)
+  car.damage = Math.min(1, car.damage + (strength - 2.5) * 0.011)
 }
 
 export function createCar(x: number, z: number, heading: number, track: Track, spec: CarSpec = CAR): CarState {
@@ -88,6 +109,8 @@ export function createCar(x: number, z: number, heading: number, track: Track, s
     wheelSpin: 0,
     braking: false,
     impact: 0,
+    damage: 0,
+    hits: [],
     hint: locate(track, x, z).i,
   }
 }
@@ -109,10 +132,12 @@ export function stepCar(car: CarState, input: CarInput, dt: number, track: Track
   car.nitroOn = input.nitro && car.nitro > 0 && vf > 3 && input.throttle > 0
   if (car.nitroOn) car.nitro = Math.max(0, car.nitro - S.nitroBurn * dt)
 
-  const top = S.topSpeed * (car.nitroOn ? S.nitroTop : 1)
+  // A battered car loses up to 12% of its top speed and 30% of its pull.
+  const top = S.topSpeed * (car.nitroOn ? S.nitroTop : 1) * (1 - 0.12 * car.damage)
+  const power = 1 - 0.3 * car.damage
   let accel = 0
   if (input.throttle > 0) {
-    if (vf >= -0.5) accel += input.throttle * S.engine * (car.nitroOn ? S.nitroBoost : 1) * Math.max(0, 1 - vf / top)
+    if (vf >= -0.5) accel += input.throttle * S.engine * power * (car.nitroOn ? S.nitroBoost : 1) * Math.max(0, 1 - vf / top)
     else accel += input.throttle * S.brake
   }
   car.braking = false
@@ -195,6 +220,7 @@ function collideWithBarriers(car: CarState, track: Track) {
     car.vx *= scrub
     car.vz *= scrub
     car.impact = Math.max(car.impact, into)
+    recordHit(car, nx, nz, into)
     // Turn the nose away from the wall.
     car.yawRate *= 0.5
   }
@@ -232,6 +258,8 @@ export function collideCars(a: CarState, b: CarState): number {
   b.z += (uz * best) / 2
   const closing = (a.vx - b.vx) * ux + (a.vz - b.vz) * uz
   if (closing <= 0) return 0
+  recordHit(a, ux, uz, closing)
+  recordHit(b, -ux, -uz, closing)
   const j = closing * 0.6
   a.vx -= j * ux
   a.vz -= j * uz

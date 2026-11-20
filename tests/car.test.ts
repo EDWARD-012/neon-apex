@@ -97,3 +97,55 @@ describe('car physics', () => {
     expect(Math.hypot(b.x - a.x, b.z - a.z)).toBeCloseTo(2.9, 6)
   })
 })
+
+describe('damage', () => {
+  it('a hard barrier hit damages the car and records where it landed', () => {
+    const car = start()
+    // Drive straight at the right-hand barrier.
+    car.heading -= Math.PI / 2
+    car.vx = Math.sin(car.heading) * 30
+    car.vz = Math.cos(car.heading) * 30
+    for (let t = 0; t < 2; t += STEP) stepCar(car, { ...idle, throttle: 1 }, STEP, track)
+    expect(car.damage).toBeGreaterThan(0.1)
+    expect(car.hits.length).toBeGreaterThanOrEqual(4)
+    // Head first into the wall: the first hit is on the nose.
+    expect(car.hits[2]).toBeGreaterThan(1.5)
+  })
+
+  it('a light touch does no damage', () => {
+    const a = start()
+    const b = start()
+    b.x += Math.sin(b.heading) * 3.5
+    b.z += Math.cos(b.heading) * 3.5
+    a.vx = Math.sin(a.heading) * 2
+    a.vz = Math.cos(a.heading) * 2
+    collideCars(a, b)
+    expect(a.damage).toBe(0)
+    expect(a.hits).toHaveLength(0)
+  })
+
+  it('a rear-end shunt marks the front of one car and the back of the other', () => {
+    const a = start()
+    const b = start()
+    b.x += Math.sin(b.heading) * 3
+    b.z += Math.cos(b.heading) * 3
+    a.vx = Math.sin(a.heading) * 20
+    a.vz = Math.cos(a.heading) * 20
+    collideCars(a, b)
+    expect(a.hits[2]).toBeGreaterThan(0)
+    expect(b.hits[2]).toBeLessThan(0)
+    expect(a.damage).toBeGreaterThan(0)
+  })
+
+  it('a damaged car is slower', () => {
+    const open = { ...track, width: 1e6 }
+    const fresh = start()
+    const wrecked = start()
+    wrecked.damage = 1
+    for (let t = 0; t < 30; t += STEP) {
+      stepCar(fresh, full, STEP, open)
+      stepCar(wrecked, full, STEP, open)
+    }
+    expect(speedOf(wrecked)).toBeLessThan(speedOf(fresh) * 0.92)
+  })
+})

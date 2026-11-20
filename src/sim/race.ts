@@ -306,6 +306,8 @@ export class Race {
     const slow = Math.hypot(me.vx, me.vz) < 6
     if (slow && nearest < 14) p.busted = Math.min(1, p.busted + dt / 2.5)
     else p.busted = Math.max(0, p.busted - dt / 2)
+    // A wrecked car is caught wherever it is.
+    if (me.damage >= 1) p.busted = 1
     if (alongNearest > ESCAPE_DISTANCE) p.escape = Math.min(1, p.escape + dt / 6)
     else p.escape = Math.max(0, p.escape - dt / 3)
     if (p.busted >= 1) {

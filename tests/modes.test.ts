@@ -155,3 +155,13 @@ describe('cars', () => {
     expect(race.player.lapTimes).toHaveLength(1)
   })
 })
+
+describe('damage in a pursuit', () => {
+  it('a wrecked car is busted', () => {
+    const race = new Race({ seed: 'wreck', laps: 99, rivals: 0, mode: 'pursuit', police: 1, autopilot: true })
+    run(race, 4)
+    race.player.car.damage = 1
+    run(race, 0.5)
+    expect(race.pursuit.outcome).toBe('busted')
+  })
+})
