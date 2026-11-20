@@ -97,8 +97,95 @@ button {
 }
 
 .laps {
-  margin-top: 6px;
   font-size: 22px;
+  color: var(--muted);
+}
+
+/* Race HUD: standings with gaps on the left, time and progress on the
+   right, the map at the bottom left and the speedo at the bottom right. */
+.hud-right {
+  right: 26px;
+  min-width: 190px;
+  text-align: right;
+}
+
+.hud-right .times div {
+  justify-content: flex-end;
+}
+
+.race-time {
+  font-size: 34px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.progress {
+  height: 6px;
+  margin-top: 10px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+  transform: skewX(-18deg);
+}
+
+#progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--cyan), var(--gold));
+  transform-origin: left;
+  transform: scaleX(0);
+}
+
+.board {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 16px;
+  min-width: 200px;
+}
+
+.board li {
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  gap: 8px;
+  padding: 1px 0;
+  color: var(--muted);
+}
+
+.board li b {
+  color: var(--text);
+}
+
+.board li.you {
+  color: var(--gold);
+}
+
+.board li.you b {
+  color: var(--gold);
+}
+
+.board .gap {
+  font-variant-numeric: tabular-nums;
+}
+
+.board .ahead {
+  color: #ff8fb2;
+}
+
+.board .behind {
+  color: var(--cyan);
+}
+
+.map-box {
+  position: absolute;
+  left: 26px;
+  bottom: 22px;
+  text-align: center;
+}
+
+.area {
+  margin: 6px 0 0;
+  font-size: 14px;
   color: var(--muted);
 }
 
@@ -127,9 +214,7 @@ button {
 }
 
 #minimap {
-  position: absolute;
-  top: 18px;
-  right: 22px;
+  display: block;
   width: 190px;
   height: 190px;
   border-radius: 50%;
@@ -202,12 +287,21 @@ button {
 }
 
 .nitro {
+  position: relative;
   height: 10px;
   margin-top: 10px;
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.1);
   overflow: hidden;
   transform: skewX(-18deg);
+}
+
+/* Eight segments, cut by thin dark gaps over the fill. */
+.nitro::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(90deg, transparent 0 calc(12.5% - 2px), rgba(5, 6, 12, 0.9) calc(12.5% - 2px) 12.5%);
 }
 
 #nitro-fill {
@@ -713,11 +807,45 @@ kbd {
     font-size: 14px;
   }
 
+  /* Phones keep the map at the top right, clear of the touch buttons, with
+     time and laps under it and only the nearest rivals on the board. */
+  .map-box {
+    left: auto;
+    bottom: auto;
+    top: 10px;
+    right: 12px;
+  }
+
   #minimap {
     width: 96px;
     height: 96px;
-    top: 10px;
+  }
+
+  .area {
+    display: none;
+  }
+
+  .hud-right {
+    top: 114px;
     right: 12px;
+    min-width: 0;
+  }
+
+  .race-time {
+    font-size: 18px;
+  }
+
+  .progress {
+    margin-top: 6px;
+  }
+
+  .board {
+    min-width: 150px;
+    font-size: 13px;
+  }
+
+  .board li.far {
+    display: none;
   }
 
   .speed {
@@ -1123,7 +1251,7 @@ kbd {
 
 #popups {
   position: absolute;
-  top: 34%;
+  top: 46%;
   left: 26px;
   display: grid;
   gap: 6px;
@@ -1698,7 +1826,8 @@ kbd {
 }
 
 /* HUD: the same glass, so numbers read over sky and snow as well as night. */
-.hud-left {
+.hud-left,
+.hud-right {
   padding: 14px 18px 12px;
   border-radius: 18px;
   background: rgba(6, 8, 14, 0.42);
@@ -1749,4 +1878,21 @@ kbd {
 }
 .credits a {
   color: rgba(238, 240, 255, 0.85);
+}
+
+/* Phones: a tighter panel for the time and laps under the map. */
+@media (max-width: 760px), (max-height: 520px) {
+  .hud-right {
+    padding: 6px 10px 8px;
+    border-radius: 12px;
+  }
+
+  .hud-right .times {
+    margin-top: 4px;
+    font-size: 12px;
+  }
+
+  .hud-right .times dt {
+    width: 38px;
+  }
 }

@@ -1109,6 +1109,16 @@ export class Game {
     $('place-row').classList.toggle('hidden', kind === 'drift' || kind === 'pursuit' || kind === 'trial')
     $('lap').textContent = kind === 'elimination' ? String(race.lapOf(player)) : `${race.lapOf(player)}/${race.laps}`
     $('lap-row').classList.toggle('hidden', kind === 'pursuit')
+    $('race-time').textContent = formatTime(Math.max(0, player.finishTime ?? race.clock))
+    // Progress through the whole race, for events with a set number of laps.
+    const laps = kind === 'race' || kind === 'drift' || kind === 'trial'
+    $('progress').classList.toggle('hidden', !laps)
+    if (laps) $('progress-fill').style.transform = `scaleX(${MathUtils.clamp(player.distance / (race.laps * race.track.length), 0, 1).toFixed(3)})`
+    $('area').textContent = isDay(this.weather) ? 'Mountain road' : 'City streets'
+    if (performance.now() - this.boardAt > 250) {
+      this.boardAt = performance.now()
+      this.board()
+    }
     const current = player.checkpoints >= 1 && player.finishTime === null ? race.clock - player.lapStart : player.checkpoints >= 1 ? player.lapTimes.at(-1) ?? 0 : 0
     $('lap-time').textContent = formatTime(Math.max(0, current))
     $('best-lap').textContent = player.lapTimes.length ? formatTime(Math.min(...player.lapTimes)) : 'none yet'
@@ -1161,6 +1171,39 @@ export class Game {
       } else banner.className = ''
     }
     this.minimap()
+  }
+
+  // Standings with the gap to each rival, in seconds at the player's
+  // speed: + for a car ahead, - for one behind. The board shows the cars
+  // round the player; phones show only the nearest (the rest are marked
+  // far and hidden there).
+  private boardAt = 0
+  private board() {
+    const race = this.race
+    const box = $('board')
+    const show = race.racers.length > 1 && (this.event.kind === 'race' || this.event.kind === 'elimination')
+    box.classList.toggle('hidden', !show)
+    if (!show) return
+    const order = race.standings()
+    const me = this.player
+    const at = order.indexOf(me)
+    const speed = Math.max(15, speedOf(me.car))
+    const from = MathUtils.clamp(at - 2, 0, Math.max(0, order.length - 5))
+    box.innerHTML = order
+      .slice(from, from + 5)
+      .map((r, k) => {
+        const place = from + k + 1
+        const near = Math.abs(from + k - at) <= 1
+        let gap = ''
+        if (r.out) gap = r.fate ?? 'out'
+        else if (r !== me) {
+          const seconds = (r.distance - me.distance) / speed
+          const level = Math.abs(seconds) < 0.05
+          gap = `<span class="gap ${level ? '' : seconds > 0 ? 'ahead' : 'behind'}">${level ? '' : seconds > 0 ? '+' : '-'}${Math.abs(seconds).toFixed(1)}</span>`
+        }
+        return `<li class="${r === me ? 'you' : ''}${near ? '' : ' far'}"><b>${place}</b><span>${r.name}</span>${gap}</li>`
+      })
+      .join('')
   }
 
   private mapScale = 0

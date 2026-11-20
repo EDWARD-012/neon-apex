@@ -177,6 +177,18 @@ test('a patrol car waits by the road in a race and chases a car that flies past'
   await expect(page.locator('#goal')).toContainText('Police on you')
 })
 
+test('the race HUD shows the standings with gaps, the time, the map and the speed', async ({ page }) => {
+  await open(page)
+  await quickRace(page, 'race', false)
+  await forward(page, 4)
+  await expect(page.locator('#board li')).toHaveCount(5, { timeout: 15000 })
+  await expect(page.locator('#board li.you')).toContainText('You')
+  await expect(page.locator('#board .gap').first()).toHaveText(/^[+-]?\d+\.\d$/)
+  await expect(page.locator('#race-time')).toHaveText(/^0:0\d\.\d\d$/)
+  await expect(page.locator('#minimap')).toBeVisible()
+  await expect(page.locator('#speed')).toBeVisible()
+})
+
 test('pause stops the race and resume carries on', async ({ page, isMobile }) => {
   await open(page)
   await quickRace(page)
