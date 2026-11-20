@@ -134,7 +134,7 @@ export interface City {
 
 const TICKERS: [string, string][] = [
   ['RACE TONIGHT   OPEN ALL NIGHT   NOODLES 24H', '#ff4fa8'],
-  ['NEON APEX   DRIFT CITY   NO SPEED LIMIT ON THE SCREEN', '#3df5ff'],
+  ['SKIDLINE   DRIFT CITY   NO SPEED LIMIT ON THE SCREEN', '#3df5ff'],
   ['KARAOKE   ARCADE   LIVE MUSIC   LATE BAR', '#ffb52e'],
 ]
 

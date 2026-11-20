@@ -1,8 +1,10 @@
 <p align="center">
-  <img src="docs/logo.svg" width="96" alt="Neon Apex logo: two slanted neon bars over a dashed road line">
+  <img src="docs/logo.svg" width="96" alt="Skidline logo: two slanted neon bars over a dashed road line">
 </p>
 
-<h1 align="center">Neon Apex</h1>
+<h1 align="center">Skidline</h1>
+
+<p align="center"><sub>Called Neon Apex until 21 November 2026. The repository keeps that name, so old links still work.</sub></p>
 
 <p align="center">
   A street racing game that runs in the browser, on a mountain road by day or in a neon city at night.<br>
@@ -228,7 +230,7 @@ The daytime sky and the road, rock and ground textures are from [Poly Haven](htt
 
 ## Contact and support
 
-Neon Apex is free to play. To support it, to report something, to ask about a licence or to buy the source code, write to [ravi5258p@gmail.com](mailto:ravi5258p@gmail.com).
+Skidline is free to play. To support it, to report something, to ask about a licence or to buy the source code, write to [ravi5258p@gmail.com](mailto:ravi5258p@gmail.com).
 
 ## Licence
 

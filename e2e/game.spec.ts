@@ -77,7 +77,7 @@ test('the title screen draws the city', async ({ page }) => {
   test.setTimeout(210_000)
   await open(page)
   await expect(page.locator('#menu')).toBeVisible()
-  await expect(page.locator('.logo')).toContainText('Neon')
+  await expect(page.locator('.logo')).toContainText('Skidline')
   await expect.poll(() => brightness(page), { timeout: 160_000, intervals: [800, 1000, 2000, 4000] }).toBeGreaterThan(8)
 })
 

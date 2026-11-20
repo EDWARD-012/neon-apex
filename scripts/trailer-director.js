@@ -12,7 +12,7 @@ async () => {
 
   // A card is shown from `at` for `for` seconds, fading in and out.
   const cards = [
-    { at: 0.4, for: 3.4, big: 'NEON APEX', small: 'Night street racing in the browser', align: 'centre' },
+    { at: 0.4, for: 3.4, big: 'SKIDLINE', small: 'Night street racing in the browser', align: 'centre' },
     { at: 5.2, for: 3, big: 'Rain', small: 'Wet roads that mirror the neon' },
     { at: 10.4, for: 3, big: 'Five rivals', small: 'AI that drives a computed racing line' },
     { at: 16.2, for: 3, big: 'Lose the police', small: 'Pursuits with rising heat' },

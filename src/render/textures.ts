@@ -221,11 +221,11 @@ export function banner(): CanvasTexture {
   g.shadowColor = '#ff2d95'
   g.shadowBlur = 30
   g.fillStyle = '#ff5fb0'
-  g.fillText('NEON APEX', 512, 68)
+  g.fillText('SKIDLINE', 512, 68)
   g.shadowColor = '#3df5ff'
   g.shadowBlur = 0
   g.fillStyle = '#ffffff'
   g.globalAlpha = 0.6
-  g.fillText('NEON APEX', 512, 68)
+  g.fillText('SKIDLINE', 512, 68)
   return texture(el)
 }
