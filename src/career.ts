@@ -20,6 +20,8 @@ export interface EventDef {
   skill: number
   traffic: number
   police?: number
+  // Races: patrol cars that can chase the player at once.
+  patrols?: number
   weather: Weather
   // Drift: points to reach. Time attack: the lap to beat, as a multiple of
   // the track's reference lap.
@@ -37,28 +39,28 @@ export const TIERS: Tier[] = [
   {
     name: 'Street',
     events: [
-      { id: 'first-night', title: 'First night', kind: 'race', blurb: 'Three laps against three locals. Finish first.', seed: 'career-harbour', laps: 3, rivals: 3, skill: 0.88, traffic: 0, weather: 'clear', reward: 2500 },
+      { id: 'first-night', title: 'First night', kind: 'race', blurb: 'Three laps against three locals. Finish first.', seed: 'career-harbour', laps: 3, rivals: 3, skill: 0.88, traffic: 0, patrols: 1, weather: 'clear', reward: 2500 },
       { id: 'wet-paint', title: 'Wet paint', kind: 'drift', blurb: 'Two laps on a wet road. Score 1,800 drift points.', seed: 'career-docks', laps: 2, rivals: 0, skill: 1, traffic: 0, weather: 'rain', target: 1800, reward: 2000 },
-      { id: 'last-standing', title: 'Last one standing', kind: 'elimination', blurb: 'Last place is out every lap. Be the car still running.', seed: 'career-arcade', laps: 99, rivals: 4, skill: 0.9, traffic: 0, weather: 'dusk', reward: 3000 },
+      { id: 'last-standing', title: 'Last one standing', kind: 'elimination', blurb: 'Last place is out every lap. Be the car still running.', seed: 'career-arcade', laps: 99, rivals: 4, skill: 0.9, traffic: 0, patrols: 1, weather: 'dusk', reward: 3000 },
       { id: 'blue-lights', title: 'Blue lights', kind: 'pursuit', blurb: 'Two patrol cars are on you. Get 300 m clear and stay there.', seed: 'career-overpass', laps: 99, rivals: 0, skill: 1, traffic: 8, police: 2, weather: 'day', reward: 3500 },
     ],
   },
   {
     name: 'Downtown',
     events: [
-      { id: 'downpour', title: 'Downpour', kind: 'race', blurb: 'Five rivals, traffic and standing water. Finish first.', seed: 'career-financial', laps: 3, rivals: 5, skill: 0.96, traffic: 6, weather: 'rain', reward: 4500 },
+      { id: 'downpour', title: 'Downpour', kind: 'race', blurb: 'Five rivals, traffic and standing water. Finish first.', seed: 'career-financial', laps: 3, rivals: 5, skill: 0.96, traffic: 6, patrols: 2, weather: 'rain', reward: 4500 },
       { id: 'clock', title: 'Against the clock', kind: 'trial', blurb: 'Set a lap within 12% of the reference lap, up in the mountains.', seed: 'career-boulevard', laps: 3, rivals: 0, skill: 1, traffic: 0, weather: 'day', target: 1.12, reward: 4000 },
       { id: 'heat-rising', title: 'Heat rising', kind: 'pursuit', blurb: 'Three patrol cars in the rain, more on the way.', seed: 'career-tunnels', laps: 99, rivals: 0, skill: 1, traffic: 10, police: 3, weather: 'rain', reward: 6000 },
-      { id: 'knockout', title: 'Knockout', kind: 'elimination', blurb: 'Six cars, five eliminations. Quicker rivals this time.', seed: 'career-market', laps: 99, rivals: 5, skill: 0.96, traffic: 0, weather: 'day', reward: 5500 },
+      { id: 'knockout', title: 'Knockout', kind: 'elimination', blurb: 'Six cars, five eliminations. Quicker rivals this time.', seed: 'career-market', laps: 99, rivals: 5, skill: 0.96, traffic: 0, patrols: 2, weather: 'day', reward: 5500 },
     ],
   },
   {
     name: 'Apex',
     events: [
-      { id: 'neon-mile', title: 'Neon mile', kind: 'race', blurb: 'Five laps, the best drivers in the city. Finish first.', seed: 'career-skyline', laps: 5, rivals: 5, skill: 1.0, traffic: 8, weather: 'clear', reward: 8000 },
+      { id: 'neon-mile', title: 'Neon mile', kind: 'race', blurb: 'Five laps, the best drivers in the city. Finish first.', seed: 'career-skyline', laps: 5, rivals: 5, skill: 1.0, traffic: 8, patrols: 3, weather: 'clear', reward: 8000 },
       { id: 'sideways', title: 'Sideways', kind: 'drift', blurb: 'Three laps at dusk. Score 6,000 drift points.', seed: 'career-quarry', laps: 3, rivals: 0, skill: 1, traffic: 0, weather: 'dusk', target: 6000, reward: 7000 },
       { id: 'full-alert', title: 'Full alert', kind: 'pursuit', blurb: 'Four patrol cars from the start, rain and heavy traffic.', seed: 'career-ringroad', laps: 99, rivals: 0, skill: 1, traffic: 12, police: 4, weather: 'rain', reward: 10000 },
-      { id: 'apex', title: 'Apex', kind: 'race', blurb: 'The final. Five laps at dusk against the quickest field there is.', seed: 'career-apex', laps: 5, rivals: 5, skill: 1.03, traffic: 8, weather: 'dusk', reward: 15000 },
+      { id: 'apex', title: 'Apex', kind: 'race', blurb: 'The final. Five laps at dusk against the quickest field there is.', seed: 'career-apex', laps: 5, rivals: 5, skill: 1.03, traffic: 8, patrols: 3, weather: 'dusk', reward: 15000 },
     ],
   },
 ]
@@ -178,6 +180,10 @@ export interface Run extends Outcome {
   cleanLaps: number
   // Won a race by under half a second.
   closeWin: boolean
+  // Out of a race early: wrecked by damage, or busted by the police.
+  fate?: 'wrecked' | 'busted' | null
+  // The heat each time the player lost the police during a race.
+  escapes?: number[]
   // Run on today's daily track.
   daily: boolean
 }
@@ -188,6 +194,10 @@ export interface Line {
 }
 
 const round50 = (n: number) => Math.round(n / 50) * 50
+
+// Getting away from the police pays this much for each heat level, in a
+// pursuit or when losing them in a race.
+export const ESCAPE_PAY = 1000
 
 // Quick races and the daily track: 1,000 for a win, 500 for a podium, 200
 // for finishing. Those are for three laps; one lap pays a third, five laps
@@ -209,7 +219,7 @@ function quickPay(run: Run): Line | null {
       return beat ? { label: 'Target lap beaten', coins: perLap(1000) } : { label: 'Lap set', coins: perLap(200) }
     }
     case 'pursuit':
-      return run.escaped ? { label: `Escaped at heat ${run.heat}`, coins: 1000 * run.heat } : null
+      return run.escaped ? { label: `Escaped at heat ${run.heat}`, coins: ESCAPE_PAY * run.heat } : null
   }
 }
 
@@ -220,15 +230,20 @@ function dayBefore(day: string): string {
 }
 
 // Pays out a finished event: the career reward or the quick-race pay, a
-// fifth more for a close win, the skills, and the first run of the day on
-// the daily track. Busted in a pursuit pays nothing, but costs nothing.
+// fifth more for a close win, the skills, losing the police, and the first
+// run of the day on the daily track. Busted pays nothing, but costs
+// nothing. A wrecked car keeps what it earned on the way but gets nothing
+// for its place.
 export function settle(progress: Progress, run: Run, today: string, event?: EventDef): { progress: Progress; lines: Line[]; total: number; result: Result | null } {
   const lines: Line[] = []
-  const busted = run.kind === 'pursuit' && !run.escaped
-  const result = event ? judge(event, run, Boolean(progress.won[event.id])) : null
-  if (result) {
+  const busted = (run.kind === 'pursuit' && !run.escaped) || run.fate === 'busted'
+  const out = run.fate === 'wrecked' || run.fate === 'busted'
+  const judged = event ? judge(event, run, Boolean(progress.won[event.id])) : null
+  const result = judged && out ? { won: false, cash: 0, summary: run.fate === 'busted' ? 'Busted by the police.' : 'Wrecked.' } : judged
+  // A car that went out gets nothing for its place.
+  if (result && !out) {
     if (result.cash > 0) lines.push({ label: result.won ? 'Event won' : 'Event result', coins: result.cash })
-  } else if (!busted) {
+  } else if (!result && !out && !busted) {
     const base = quickPay(run)
     if (base && base.coins > 0) lines.push(base)
   }
@@ -239,6 +254,8 @@ export function settle(progress: Progress, run: Run, today: string, event?: Even
     const points = run.points ?? 0
     if (points >= 10) lines.push({ label: `${points.toLocaleString('en')} drift points`, coins: Math.floor(points / 10) })
     if (run.cleanLaps > 0) lines.push({ label: `${run.cleanLaps} clean ${run.cleanLaps === 1 ? 'lap' : 'laps'}`, coins: run.cleanLaps * 100 })
+    const escapes = run.escapes ?? []
+    if (escapes.length > 0) lines.push({ label: escapes.length === 1 ? `Lost the police at heat ${escapes[0]}` : `Lost the police ${escapes.length} times`, coins: escapes.reduce((sum, h) => sum + ESCAPE_PAY * h, 0) })
   }
   let daily = progress.daily
   if (run.daily && !busted && daily?.day !== today) {

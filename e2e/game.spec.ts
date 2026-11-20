@@ -29,9 +29,10 @@ const forward = (page: Page, seconds: number) => page.evaluate((s) => (window as
 const open = (page: Page, query = '') => page.goto(`./?test${process.env.CI ? '&quality=low' : ''}${query}`)
 
 // Main menu, then Quick race, pick the event, Start, and skip the fly-in.
-async function quickRace(page: Page, kind = 'race') {
+async function quickRace(page: Page, kind = 'race', police = true) {
   await page.locator('#go-quick').click()
   await page.locator(`#kind button[data-value="${kind}"]`).click()
+  if (!police) await page.locator('#police button[data-value="off"]').click()
   await page.locator('#go-race').click()
   await expect(page.locator('#intro')).toBeVisible()
   await forward(page, 3.2)
@@ -104,8 +105,10 @@ test('the car moves under the player’s control', async ({ page, isMobile }) =>
 
 test('a race runs to the results table, and the replay plays it back', async ({ page }) => {
   await open(page, '&autopilot&laps=1')
-  await quickRace(page)
+  // Police off, so a patrol car cannot end the race early.
+  await quickRace(page, 'race', false)
   expect((await state(page)).traffic).toBeGreaterThan(0)
+  expect((await state(page)).police).toBe(0)
   await forward(page, 120)
   expect((await state(page)).finished).toBe(true)
   await expect(page.locator('#results')).toBeVisible({ timeout: 20000 })
@@ -147,6 +150,31 @@ test('a pursuit puts police on the road and shows the meters', async ({ page }) 
   expect(s.police).toBeGreaterThanOrEqual(2)
   await expect(page.locator('#pursuit')).toBeVisible({ timeout: 15000 })
   await expect(page.locator('#goal')).toContainText('patrol car')
+})
+
+test('a patrol car waits by the road in a race and chases a car that flies past', async ({ page }) => {
+  await open(page)
+  await page.locator('#go-career').click()
+  await expect(page.locator('.event[data-event="first-night"] .kind')).toContainText('police')
+  await expect(page.locator('.event[data-event="wet-paint"] .kind')).not.toContainText('police')
+  await page.locator('#career .back').click()
+  await quickRace(page)
+  const cops = () => page.evaluate(() => {
+    const race = (window as any).__neon.game.race
+    return { police: race.police.length, parked: race.parked.size, chasing: race.chasing }
+  })
+  expect(await cops()).toEqual({ police: 1, parked: 1, chasing: false })
+  // Put the car 40 m short of the patrol car at 144 km/h and let it roll.
+  await page.evaluate(() => {
+    const race = (window as any).__neon.game.race
+    const t = race.track
+    const j = (race.police[0].hint - 20 + t.n) % t.n
+    Object.assign(race.player.car, { x: t.x[j], z: t.z[j], heading: Math.atan2(t.tx[j], t.tz[j]), vx: t.tx[j] * 40, vz: t.tz[j] * 40, yawRate: 0, hint: j })
+  })
+  await forward(page, 1.5)
+  expect(await cops()).toMatchObject({ parked: 0, chasing: true })
+  await expect(page.locator('#pursuit')).toBeVisible({ timeout: 15000 })
+  await expect(page.locator('#goal')).toContainText('Police on you')
 })
 
 test('pause stops the race and resume carries on', async ({ page, isMobile }) => {

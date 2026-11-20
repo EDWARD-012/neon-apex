@@ -22,8 +22,8 @@ const COLORS = ['#f2a900', '#c8102e', '#0d47a1', '#ff5a1f', '#1f6f4a', '#e9e9ec'
 const STORE = 'neon-apex/settings'
 const KINDS: EventKind[] = ['race', 'elimination', 'drift', 'pursuit', 'trial']
 const KIND_NOTES: Record<EventKind, string> = {
-  race: 'Five rivals. First across the line after the last lap wins.',
-  elimination: 'Last place is out at the end of every lap. Be the last car running.',
+  race: 'Five rivals. First across the line after the last lap wins. With police on, a patrol car waits by the road.',
+  elimination: 'Last place is out at the end of every lap. Be the last car running. With police on, a patrol car waits by the road.',
   drift: 'On your own. Score as many drift points as you can before the laps run out.',
   pursuit: 'Police are on you. Get 300 m clear of every patrol car and stay there.',
   trial: 'On your own against a ghost of your best lap on this track.',
@@ -46,6 +46,7 @@ function loadSettings(): Settings {
     quality: (params.get('quality') as Quality) ?? saved.quality ?? (coarse ? 'low' : 'high'),
     sound: params.has('test') ? false : saved.sound ?? true,
     traffic: saved.traffic ?? true,
+    police: saved.police ?? true,
     // 'auto' was the old default; it now means the mountain road by day.
     weather: (params.get('weather') as Weather) ?? (saved.weather === 'auto' || !saved.weather ? 'day' : saved.weather),
     kind: saved.kind && KINDS.includes(saved.kind) ? saved.kind : 'race',
@@ -165,6 +166,7 @@ function quick() {
 segmented('kind', settings.kind, (v) => quickKind(v as EventKind))
 segmented('laps', String(settings.laps), (v) => (settings.laps = Number(v)))
 segmented('traffic', settings.traffic ? 'on' : 'off', (v) => (settings.traffic = v === 'on'))
+segmented('police', settings.police ? 'on' : 'off', (v) => (settings.police = v === 'on'))
 segmented('weather', settings.weather, (v) => {
   settings.weather = v as Weather | 'auto'
   game.showMenu()
@@ -191,6 +193,7 @@ function quickSpec(kind: EventKind = settings.kind): EventSpec {
     skill: 1,
     traffic: settings.traffic && kind !== 'trial' && kind !== 'drift' ? 8 : 0,
     police: kind === 'pursuit' ? 2 : undefined,
+    patrols: settings.police && (kind === 'race' || kind === 'elimination') ? 2 : 0,
     weather: settings.weather,
     // Quick drift events aim for 900 points a lap; time trials for a lap
     // within 12% of the reference.
@@ -219,7 +222,7 @@ function career() {
       b.dataset.event = e.id
       b.style.setProperty('--kind', KIND_COLORS[e.kind])
       b.disabled = !open
-      b.innerHTML = `<b>${e.title}</b><span class="pay">${e.reward.toLocaleString('en')}</span><span class="kind">${e.kind}, ${e.weather}</span><span class="blurb">${e.blurb}</span>`
+      b.innerHTML = `<b>${e.title}</b><span class="pay">${e.reward.toLocaleString('en')}</span><span class="kind">${e.kind}, ${e.weather}${e.patrols ? ', police' : ''}</span><span class="blurb">${e.blurb}</span>`
       b.addEventListener('click', () => begin(careerSpec(e)))
       col.appendChild(b)
     }
@@ -228,7 +231,7 @@ function career() {
 }
 
 function careerSpec(e: EventDef): EventSpec {
-  return { kind: e.kind, title: e.title, seed: e.seed, laps: e.laps, rivals: e.rivals, skill: e.skill, traffic: e.traffic, police: e.police, weather: e.weather, target: e.target, careerId: e.id }
+  return { kind: e.kind, title: e.title, seed: e.seed, laps: e.laps, rivals: e.rivals, skill: e.skill, traffic: e.traffic, police: e.police, patrols: e.patrols, weather: e.weather, target: e.target, careerId: e.id }
 }
 
 // Garage
@@ -490,7 +493,8 @@ function begin(spec: EventSpec) {
   $('intro-kind').textContent = spec.careerId ? `Career, ${spec.kind}` : spec.kind === 'trial' ? 'Time trial' : spec.kind
   $('intro-title').textContent = spec.title
   const size = spec.kind === 'elimination' ? `${spec.rivals + 1} cars` : spec.kind === 'pursuit' ? `${spec.police} patrol cars` : `${spec.laps} ${spec.laps === 1 ? 'lap' : 'laps'}`
-  $('intro-detail').textContent = `${(track.length / 1000).toFixed(2)} km circuit, ${({ day: 'sunny day', clear: 'clear night', rain: 'rainy night', dusk: 'dusk' } as Record<Weather, string>)[game.weather]}, ${size}`
+  const patrol = spec.patrols ? ', police on patrol' : ''
+  $('intro-detail').textContent = `${(track.length / 1000).toFixed(2)} km circuit, ${({ day: 'sunny day', clear: 'clear night', rain: 'rainy night', dusk: 'dusk' } as Record<Weather, string>)[game.weather]}, ${size}${patrol}`
 }
 
 // The intro ends itself after a few seconds or on a key press; this keeps
@@ -541,6 +545,8 @@ function results(outcome: Outcome) {
       nearMisses: race.nearMissCount,
       cleanLaps: race.cleanLaps,
       closeWin,
+      fate: me.fate,
+      escapes: race.escapes,
       daily: !def && spec.seed === today,
     },
     today.slice(today.indexOf('-') + 1),
@@ -559,7 +565,9 @@ function results(outcome: Outcome) {
     const kind = spec.kind
     let title = ''
     let summary = ''
-    if (kind === 'race') title = place === 1 ? 'You won' : `You finished ${ordinal(place)}`
+    if (player.fate === 'busted') title = 'Busted'
+    else if (player.fate === 'wrecked') title = 'Wrecked'
+    else if (kind === 'race') title = place === 1 ? 'You won' : `You finished ${ordinal(place)}`
     else if (kind === 'elimination') title = player.out ? `Out in ${ordinal(place)}` : 'Last car running'
     else if (kind === 'pursuit') title = race.pursuit.outcome === 'escaped' ? 'Escaped' : 'Busted'
     else if (kind === 'drift') title = `${race.drift.total.toLocaleString('en')} drift points`
@@ -567,11 +575,13 @@ function results(outcome: Outcome) {
     if (kind === 'drift') summary = race.drift.total >= (spec.target ?? 0) ? `Target of ${(spec.target ?? 0).toLocaleString('en')} reached.` : `The target was ${(spec.target ?? 0).toLocaleString('en')}.`
     if (kind === 'pursuit') summary = `Heat ${race.pursuit.heat}, ${race.police.length} patrol cars, ${formatTime(Math.max(0, race.clock))} on the run.`
     if (kind === 'trial') summary = `Target lap ${formatTime(race.line.lapTime * (spec.target ?? 1.12))}.`
+    if (player.fate === 'wrecked') summary = 'Too much damage: the car is out of the race. Fewer hits, or armour in the garage, keep it running.'
+    if (player.fate === 'busted') summary = 'The police boxed you in. Keep moving when they are close, and get 300 m clear to lose them.'
     $('result-title').textContent = title
     $('result-summary').textContent = summary
     const solo = race.racers.length === 1
     const rows = race.standings().map((r, k) => {
-      const time = r.finishTime !== null ? formatTime(r.finishTime) : r.out ? 'out' : 'still racing'
+      const time = r.finishTime !== null ? formatTime(r.finishTime) : r.fate ?? (r.out ? 'out' : 'still racing')
       const best = r.lapTimes.length ? formatTime(Math.min(...r.lapTimes)) : 'none'
       return `<tr class="${r.player ? 'you' : ''}"><td>${k + 1}</td><td><span class="dot" style="color:${r.color};background:${r.color}"></span>${r.name}</td><td>${time}</td><td>${best}</td></tr>`
     })

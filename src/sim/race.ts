@@ -1,5 +1,5 @@
 import { createDriver, drive, type Driver } from './ai'
-import { CAR, type CarInput, type CarSpec, type CarState, collideCars, createCar, forwardSpeed, idle, stepCar } from './car'
+import { CAR, type CarInput, type CarSpec, type CarState, collideCars, createCar, forwardSpeed, idle, speedOf, stepCar } from './car'
 import { racingLine, type RacingLine } from './line'
 import { createRng } from './rng'
 import { buildTrack, locate, pointAt, type Track } from './track'
@@ -33,8 +33,12 @@ export interface Racer {
   lapStart: number
   finishTime: number | null
   wrongWay: number
-  // Knocked out of an elimination race.
+  // Out of the race: knocked out of an elimination, wrecked, or busted.
   out: boolean
+  // Why a car went out when it stays on the road afterwards: a wreck sits
+  // where it stopped and a busted car stays with the police. Cars knocked
+  // out of an elimination just leave.
+  fate: 'wrecked' | 'busted' | null
 }
 
 export type Phase = 'countdown' | 'racing' | 'finished'
@@ -60,6 +64,10 @@ export interface RaceOptions {
   mode?: 'circuit' | 'elimination' | 'pursuit'
   // Police cars at the start of a pursuit. More join as the heat rises.
   police?: number
+  // Police in a race: a patrol car waits by the road and gives chase when
+  // the player goes past it fast. Up to this many can be after the player
+  // at once. Not used in a pursuit, which has its own police.
+  patrols?: number
 }
 
 export type RaceEvent =
@@ -72,6 +80,9 @@ export type RaceEvent =
   | { type: 'copJoined' }
   | { type: 'busted' }
   | { type: 'escaped' }
+  | { type: 'spotted' }
+  | { type: 'lostPolice'; heat: number }
+  | { type: 'wrecked'; id: number }
 
 export interface Pursuit {
   // Both run 0 to 1. Busted fills while the player is slow with a patrol
@@ -86,6 +97,9 @@ export interface Pursuit {
 
 export const MAX_POLICE = 4
 export const ESCAPE_DISTANCE = 300
+// A waiting patrol car sees the player go past this close and this fast.
+export const SPOT_RANGE = 30
+export const SPOT_SPEED = 30
 
 const RIVALS = [
   { name: 'Vesper', color: '#d01f3c' },
@@ -115,6 +129,13 @@ export class Race {
   readonly mode: 'circuit' | 'elimination' | 'pursuit'
   readonly police: CarState[] = []
   pursuit: Pursuit = { busted: 0, escape: 0, heat: 1, outcome: null, sinceJoin: 0 }
+  // Police in a race: how many can chase at once, the ones still waiting by
+  // the road, whether any are after the player now, and the heat each time
+  // the player lost them.
+  readonly patrols: number
+  readonly parked = new Set<CarState>()
+  chasing = false
+  readonly escapes: number[] = []
   // The player's drift: the slide in progress and everything banked.
   drift = { score: 0, total: 0, quiet: 0 }
   // Things that happened to the player since the game last looked.
@@ -160,6 +181,7 @@ export class Race {
         finishTime: null,
         wrongWay: 0,
         out: false,
+        fate: null,
       })
     }
     this.autopilot = options.autopilot ? createDriver(0.97) : null
@@ -167,11 +189,50 @@ export class Race {
     this.passing = this.traffic.map(() => ({ ahead: false, touched: -10 }))
     this.mode = options.mode ?? 'circuit'
     for (let k = 0; k < (this.mode === 'pursuit' ? options.police ?? 2 : 0); k++) this.addCop(55 + k * 45)
+    this.patrols = this.mode === 'pursuit' ? 0 : options.patrols ?? 0
+    // The first patrol car waits a little under halfway round the lap.
+    if (this.patrols > 0) this.parkCop(this.track.length * 0.4)
   }
 
-  // Every car on the road: racers still running, then traffic, then police.
+  // Every car on the road: racers still running or stopped where they went
+  // out, then traffic, then police.
   get cars(): CarState[] {
-    return [...this.racers.filter((r) => !r.out).map((r) => r.car), ...this.traffic.map((t) => t.car), ...this.police]
+    return [...this.racers.filter((r) => !r.out || r.fate).map((r) => r.car), ...this.traffic.map((t) => t.car), ...this.police]
+  }
+
+  // Parks a patrol car (a new one, or one that lost the player) at the edge
+  // of the road near the given distance along the lap. It picks the
+  // straightest spot close by and the side away from the racing line, and
+  // sits outside the traffic lanes so traffic does not queue behind it.
+  private parkCop(s: number, reuse?: CarState) {
+    const track = this.track
+    const n = track.n
+    const near = Math.round((((s % track.length) + track.length) % track.length) / track.spacing)
+    let best = near % n
+    for (let k = -60; k <= 60; k++) {
+      const j = (near + k + n) % n
+      if (Math.abs(this.line.offset[j]) < Math.abs(this.line.offset[best])) best = j
+    }
+    const side = this.line.offset[best] > 0 ? -1 : 1
+    const at = pointAt(track, best * track.spacing, side * (track.width / 2 - 0.5))
+    const fresh = createCar(at.x, at.z, at.heading, track, POLICE_SPEC)
+    fresh.nitro = 0
+    if (reuse) Object.assign(reuse, fresh)
+    else this.police.push(fresh)
+    this.parked.add(reuse ?? fresh)
+  }
+
+  // Takes a car out of the race. A wrecked or busted car stays where it is.
+  private knockOut(racer: Racer, fate: 'wrecked' | 'busted') {
+    racer.out = true
+    racer.fate = fate
+    this.eliminated.push(racer.id)
+    // In an elimination, the last car still running wins.
+    const left = this.racers.filter((r) => !r.out)
+    if (this.mode === 'elimination' && left.length === 1 && left[0].finishTime === null) {
+      left[0].finishTime = this.clock
+      this.finishOrder.push(left[0].id)
+    }
   }
 
   // A patrol car on the road some distance behind the player.
@@ -229,11 +290,16 @@ export class Race {
     if (this.phase === 'countdown' && this.clock >= 0) this.phase = 'racing'
     const cars = this.cars
     for (const t of this.traffic) stepCar(t.car, driveTraffic(t, this.track, cars), dt, this.track)
-    for (const cop of this.police) stepCar(cop, this.phase === 'racing' && !this.pursuit.outcome ? chase(cop, this.player.car, this.track, this.line) : idle, dt, this.track)
+    // The police hunt the player until the event is decided for them.
+    const hunting = this.phase === 'racing' && !this.pursuit.outcome && this.player.finishTime === null && !this.player.out
+    for (const cop of this.police) stepCar(cop, hunting && !this.parked.has(cop) ? chase(cop, this.player.car, this.track, this.line) : idle, dt, this.track)
     for (const racer of this.racers) {
-      if (racer.out) continue
+      if (racer.out && !racer.fate) continue
       let input = idle
-      if (this.phase !== 'countdown') {
+      if (racer.fate) {
+        // Wrecked or busted: the car brakes to a stop and stays there.
+        input = forwardSpeed(racer.car) > 1 ? { ...idle, brake: 1 } : idle
+      } else if (this.phase !== 'countdown') {
         if (racer.finishTime !== null && racer.driver === null && !this.autopilot) {
           // The player crossed the line: the car rolls to a stop.
           input = { ...idle, brake: 0.3 }
@@ -263,14 +329,26 @@ export class Race {
     }
     this.nearMisses()
     this.scoreDrift(dt)
+    // Too much damage wrecks the player's car and puts it out of the race.
+    // In a pursuit the police get a wrecked car instead (see
+    // updatePursuit). Rivals are not wrecked: they trade paint with each
+    // other all race, and a field that thinned out on its own would make
+    // races too easy.
+    // The title screen's AI-driven car is not wrecked either.
+    const me = this.player
+    if (this.mode !== 'pursuit' && !this.autopilot && this.phase === 'racing' && !me.out && me.finishTime === null && me.car.damage >= 1) {
+      this.knockOut(me, 'wrecked')
+      this.events.push({ type: 'wrecked', id: me.id })
+    }
     if (this.mode === 'pursuit') this.updatePursuit(dt)
+    else if (this.patrols > 0) this.updatePatrol(dt)
     for (const racer of this.racers) if (!racer.out) this.track_(racer, dt)
     if (this.finishOrder.length > 0) this.sinceFirstFinish += dt
     const running = this.racers.filter((r) => !r.out)
     const everyone = running.every((r) => r.finishTime !== null)
     const playerDone = this.player.finishTime !== null || this.player.out
     if (this.phase === 'racing' && (everyone || (playerDone && this.sinceFirstFinish > 25))) this.phase = 'finished'
-    if (this.phase === 'racing' && this.player.out && this.mode === 'elimination') this.phase = 'finished'
+    if (this.phase === 'racing' && this.player.out) this.phase = 'finished'
     if (this.phase === 'racing' && this.pursuit.outcome) this.phase = 'finished'
   }
 
@@ -298,14 +376,16 @@ export class Race {
     d.score = 0
   }
 
-  private updatePursuit(dt: number) {
+  // The busted and escape meters for the patrol cars on the player's tail.
+  // Busted fills while the player is slow with one close by, escape while
+  // every one is far away along the road.
+  private meters(dt: number, cops: CarState[]): 'busted' | 'escaped' | null {
     const p = this.pursuit
-    if (this.phase !== 'racing' || p.outcome) return
     const me = this.player.car
     const n = this.track.n
     let nearest = Infinity
     let alongNearest = Infinity
-    for (const cop of this.police) {
+    for (const cop of cops) {
       nearest = Math.min(nearest, Math.hypot(cop.x - me.x, cop.z - me.z))
       const gap = ((me.hint - cop.hint + n) % n) * this.track.spacing
       alongNearest = Math.min(alongNearest, gap, this.track.length - gap)
@@ -313,14 +393,22 @@ export class Race {
     const slow = Math.hypot(me.vx, me.vz) < 6
     if (slow && nearest < 14) p.busted = Math.min(1, p.busted + dt / 2.5)
     else p.busted = Math.max(0, p.busted - dt / 2)
-    // A wrecked car is caught wherever it is.
-    if (me.damage >= 1) p.busted = 1
     if (alongNearest > ESCAPE_DISTANCE) p.escape = Math.min(1, p.escape + dt / 6)
     else p.escape = Math.max(0, p.escape - dt / 3)
-    if (p.busted >= 1) {
+    return p.busted >= 1 ? 'busted' : p.escape >= 1 ? 'escaped' : null
+  }
+
+  private updatePursuit(dt: number) {
+    const p = this.pursuit
+    if (this.phase !== 'racing' || p.outcome) return
+    // A wrecked car is caught wherever it is.
+    const wrecked = this.player.car.damage >= 1
+    if (wrecked) p.busted = 1
+    const result = wrecked ? 'busted' : this.meters(dt, this.police)
+    if (result === 'busted') {
       p.outcome = 'busted'
       this.events.push({ type: 'busted' })
-    } else if (p.escape >= 1) {
+    } else if (result === 'escaped') {
       p.outcome = 'escaped'
       this.events.push({ type: 'escaped' })
     }
@@ -331,6 +419,48 @@ export class Race {
       p.heat++
       this.addCop(220)
       this.events.push({ type: 'copJoined' })
+    }
+  }
+
+  // Police in a race. A waiting patrol car that sees the player go past
+  // fast joins the chase. Busted puts the player out of the race. Getting
+  // 300 m clear for long enough loses them, and they go back to waiting by
+  // the road further on. While the chase lasts, the heat rises and more
+  // patrol cars join, up to the race's limit.
+  private updatePatrol(dt: number) {
+    const me = this.player.car
+    if (this.phase !== 'racing' || this.player.out || this.player.finishTime !== null) return
+    const p = this.pursuit
+    if (speedOf(me) > SPOT_SPEED) {
+      for (const cop of this.parked) {
+        if (Math.hypot(cop.x - me.x, cop.z - me.z) > SPOT_RANGE) continue
+        this.parked.delete(cop)
+        if (!this.chasing) Object.assign(p, { busted: 0, escape: 0, heat: 1, sinceJoin: 0 })
+        this.chasing = true
+        this.events.push({ type: 'spotted' })
+      }
+    }
+    if (!this.chasing) return
+    const cops = this.police.filter((c) => !this.parked.has(c))
+    const result = this.meters(dt, cops)
+    if (result === 'busted') {
+      this.knockOut(this.player, 'busted')
+      this.events.push({ type: 'busted' })
+    } else if (result === 'escaped') {
+      this.escapes.push(p.heat)
+      this.events.push({ type: 'lostPolice', heat: p.heat })
+      this.chasing = false
+      const s = locate(this.track, me.x, me.z, me.hint).s
+      cops.forEach((cop, k) => this.parkCop(s + 700 + 450 * k, cop))
+      Object.assign(p, { busted: 0, escape: 0, heat: 1, sinceJoin: 0 })
+    } else {
+      p.sinceJoin += dt
+      if (p.sinceJoin > 40 && cops.length < this.patrols) {
+        p.sinceJoin = 0
+        p.heat++
+        this.addCop(220)
+        this.events.push({ type: 'copJoined' })
+      }
     }
   }
 

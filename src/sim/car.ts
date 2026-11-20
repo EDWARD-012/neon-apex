@@ -149,7 +149,9 @@ export function stepCar(car: CarState, input: CarInput, dt: number, track: Track
   car.nitroOn = input.nitro && car.nitro > 0 && vf > 3 && input.throttle > 0
   if (car.nitroOn) car.nitro = Math.max(0, car.nitro - S.nitroBurn * dt)
 
-  // A battered car loses up to 12% of its top speed and 30% of its pull.
+  // A battered car loses up to 12% of its top speed and 30% of its pull,
+  // and (below) some grip. At full damage it is wrecked: out of a race, or
+  // caught in a pursuit.
   const top = S.topSpeed * (car.nitroOn ? S.nitroTop : 1) * (1 - 0.12 * car.damage)
   const power = 1 - 0.3 * car.damage
 
@@ -220,7 +222,8 @@ export function stepCar(car: CarState, input: CarInput, dt: number, track: Track
   } else {
     // A touch more grip than the racing line plans with, so a car on the
     // planned speed has a little in hand.
-    const mu = (S.lateralLimit * 1.08) / 9.81
+    // A battered car also has up to a fifth less grip.
+    const mu = (S.lateralLimit * 1.08 * (1 - 0.2 * car.damage)) / 9.81
     const ax = accel - resist
     const loadF = Math.max(0.2, (9.81 * b - ax * 0.35) / L)
     const loadR = Math.max(0.2, (9.81 * a + ax * 0.35) / L)
@@ -274,7 +277,7 @@ export function stepCar(car: CarState, input: CarInput, dt: number, track: Track
     // yaw towards what the steering asks for, so a car on the limit does
     // not swap ends on its own.
     if (!sliding) {
-      const cap = S.lateralLimit / Math.max(vf, 4)
+      const cap = (S.lateralLimit * (1 - 0.2 * car.damage)) / Math.max(vf, 4)
       const target = Math.max(-cap, Math.min(cap, (vf * Math.tan(delta)) / L))
       yaw += (target - yaw) * Math.min(1, 4 * dt)
       vy *= Math.exp(-1.5 * dt)

@@ -1,6 +1,6 @@
 import { Color, type Group, type Material, MathUtils, type Mesh, type MeshStandardMaterial, Object3D, SpotLight, Vector3 } from 'three'
 import { type EngineKind, Sound } from './audio'
-import type { EventKind, Outcome } from './career'
+import { type EventKind, ESCAPE_PAY, type Outcome } from './career'
 import { bumper, finishOrbit, heli, INTRO_SECONDS, intro, tv, tvCameras } from './cinema'
 import { Input } from './input'
 import { applyWeather, isDay, type Weather, weatherFor } from './render/atmosphere'
@@ -30,6 +30,8 @@ export interface EventSpec {
   skill: number
   traffic: number
   police?: number
+  // Patrol cars that can chase the player in a race.
+  patrols?: number
   weather: Weather | 'auto'
   target?: number
   careerId?: string
@@ -43,6 +45,8 @@ export interface Settings {
   quality: Quality
   sound: boolean
   traffic: boolean
+  // Patrol cars in quick races and eliminations.
+  police: boolean
   weather: Weather | 'auto'
   kind: EventKind
 }
@@ -180,6 +184,8 @@ export class Game {
   private introTime = 0
   private lastCount = 0
   private lapsSeen = 0
+  // How far the damage warnings have gone this race: 0, 1 or 2.
+  private damageWarned = 0
   private endAt = 0
   private slowUntil = 0
   private finishCamera = false
@@ -224,6 +230,8 @@ export class Game {
       skill: spec.skill,
       traffic: spec.traffic,
       police: spec.police,
+      // No patrol cars for the AI-driven car of the title screen and tests.
+      patrols: attract || this.autopilot ? 0 : spec.patrols,
       mode: spec.kind === 'elimination' ? 'elimination' : spec.kind === 'pursuit' ? 'pursuit' : 'circuit',
       playerColor: this.settings.color,
       playerSpec: this.tune(car.id),
@@ -303,6 +311,7 @@ export class Game {
     this.acc = 0
     this.lastCount = 0
     this.lapsSeen = 0
+    this.damageWarned = 0
     this.endAt = 0
     this.slowUntil = 0
     this.finishCamera = false
@@ -534,6 +543,20 @@ export class Game {
         const out = race.racers[e.id]
         if (out.player) flash('Eliminated', 'warn')
         else popup(`${out.name} is out`, 'red')
+      } else if (e.type === 'spotted') {
+        flash('Police on your tail', 'warn')
+        this.shake = Math.min(1, this.shake + 0.2)
+      } else if (e.type === 'lostPolice') {
+        flash('Lost them')
+        popup(`Lost the police +${(ESCAPE_PAY * e.heat).toLocaleString('en')}`, 'gold')
+      } else if (e.type === 'wrecked') {
+        const out = race.racers[e.id]
+        this.wreckBurst(out.car)
+        if (out.player) {
+          flash('Wrecked', 'warn')
+          this.shake = 1
+          this.slowMotion(now)
+        } else popup(`${out.name} is wrecked`, 'red')
       } else if (e.type === 'copJoined') {
         popup(`Heat ${race.pursuit.heat}: another patrol car`, 'red')
       } else if (e.type === 'busted') {
@@ -546,6 +569,17 @@ export class Game {
       }
     }
     race.events = []
+
+    // Warn as the damage builds, once for each step in a race.
+    const dmg = player.car.damage
+    if (this.damageWarned < 1 && dmg > 0.6) {
+      this.damageWarned = 1
+      popup('Heavy damage', 'red')
+    }
+    if (this.damageWarned < 2 && dmg > 0.85 && dmg < 1) {
+      this.damageWarned = 2
+      flash('One more big hit wrecks the car', 'small')
+    }
 
     // Ghost: record the current lap, 30 times a second.
     if (this.event.kind === 'trial' && player.checkpoints >= 1 && player.finishTime === null) {
@@ -613,11 +647,16 @@ export class Game {
     for (const v of this.views) {
       const car = v.car
       const g = v.model.group
-      const hidden = v.racer?.out ?? false
+      // Cars knocked out of an elimination leave; wrecks stay.
+      const hidden = Boolean(v.racer?.out && !v.racer.fate)
       g.visible = !hidden
       if (hidden) continue
-      g.position.set(MathUtils.lerp(v.prev.x, car.x, alpha), 0, MathUtils.lerp(v.prev.z, car.z, alpha))
-      g.rotation.y = v.prev.heading + (car.heading - v.prev.heading) * alpha
+      // A patrol car sent back to wait further on jumps there in one step:
+      // no sliding across the map in between.
+      const jumped = Math.hypot(car.x - v.prev.x, car.z - v.prev.z) > 40
+      const t = jumped ? 1 : alpha
+      g.position.set(MathUtils.lerp(v.prev.x, car.x, t), 0, MathUtils.lerp(v.prev.z, car.z, t))
+      g.rotation.y = v.prev.heading + (car.heading - v.prev.heading) * t
       for (const wheel of v.model.wheels) wheel.rotation.x = car.wheelSpin
       for (const pivot of v.model.frontPivots) pivot.rotation.y = -car.steer
       const speed = forwardSpeed(car)
@@ -640,9 +679,12 @@ export class Game {
       if (!v.racer?.player && car.braking && !v.wasBraking && speed > 30 && v.model.exhausts.length && Math.random() < 0.6) this.backfire(v, false)
       v.wasBraking = car.braking
       if (v.model.siren) {
+        // A patrol car waiting by the road keeps its lights low until it
+        // sees someone.
         const phase = Math.floor(this.time * 7) % 2
-        v.model.siren.red.color.copy(RED).multiplyScalar(phase ? 5 : 0.4)
-        v.model.siren.blue.color.copy(BLUE).multiplyScalar(phase ? 0.4 : 5)
+        const on = this.race.parked.has(car) ? 0.25 : 1
+        v.model.siren.red.color.copy(RED).multiplyScalar((phase ? 5 : 0.4) * on)
+        v.model.siren.blue.color.copy(BLUE).multiplyScalar((phase ? 0.4 : 5) * on)
       }
       // Tail light streaks once a car is properly moving.
       const c = Math.cos(g.rotation.y)
@@ -696,7 +738,7 @@ export class Game {
     const throttle = this.mode === 'race' ? this.race.playerInput.throttle : 0.5
     this.sound.update(rpm, throttle, followed.slip * (speedOf(followed) > 8 ? 1 : 0), followed.nitroOn, active && this.race.phase !== 'countdown' && this.replayPlaying)
     let nearest = Infinity
-    for (const cop of this.race.police) nearest = Math.min(nearest, Math.hypot(cop.x - followed.x, cop.z - followed.z))
+    for (const cop of this.race.police) if (!this.race.parked.has(cop)) nearest = Math.min(nearest, Math.hypot(cop.x - followed.x, cop.z - followed.z))
     this.sound.siren(active && this.race.police.length ? Math.max(0, 1 - nearest / 260) : 0)
     const boost = followed.nitroOn ? 0.85 : MathUtils.clamp((speedOf(followed) - 55) / 30, 0, 0.35)
     this.world.setSpeedEffect(this.mode === 'race' ? boost : this.mode === 'replay' ? boost * 0.6 : 0, this.mode === 'race' ? this.nitroPulse : 0)
@@ -763,6 +805,21 @@ export class Game {
   }
 
   // Flames and a crackle from the exhausts.
+  // A car wrecked: a burst of fire, sparks and black smoke. It keeps
+  // burning afterwards, as any car past 85% damage does.
+  private wreckBurst(car: CarState) {
+    for (let k = 0; k < 50; k++) {
+      const a = Math.random() * Math.PI * 2
+      const v = 4 + Math.random() * 10
+      const cx = Math.cos(a)
+      const cz = Math.sin(a)
+      this.fire.emit(car.x, 0.9, car.z, cx * v * 0.5 + car.vx * 0.3, 2 + Math.random() * 5, cz * v * 0.5 + car.vz * 0.3, 0.5 + Math.random() * 0.6, 0.6 + Math.random() * 0.5)
+      this.sparks.emit(car.x, 0.7, car.z, cx * v * 1.6, 3 + Math.random() * 7, cz * v * 1.6, 0.3, 0.5)
+      if (k % 2 === 0) this.darkSmoke.emit(car.x, 1.2, car.z, cx * 1.5, 2 + Math.random() * 2, cz * 1.5, 2.2, 1.6)
+    }
+    this.sound.hit(14)
+  }
+
   private backfire(v: View, loud: boolean) {
     const g = v.model.group
     const c = Math.cos(g.rotation.y)
@@ -1038,10 +1095,13 @@ export class Game {
     else if (kind === 'elimination') goal = `${running} cars left. Last place is out at the end of each lap.`
     else if (kind === 'trial') goal = `Target lap ${formatTime(race.line.lapTime * (this.event.target ?? 1.12))}`
     else if (kind === 'pursuit') goal = `Heat ${race.pursuit.heat}. Get ${300} m clear of every patrol car.`
+    // Police after the player in a race: the same meters as a pursuit.
+    const chased = kind === 'pursuit' || race.chasing
+    if (race.chasing) goal = `Police on you, heat ${race.pursuit.heat}. Get ${300} m clear to lose them.`
     $('goal').textContent = goal
     $('goal').classList.toggle('hidden', goal === '')
-    $('pursuit').classList.toggle('hidden', kind !== 'pursuit')
-    if (kind === 'pursuit') {
+    $('pursuit').classList.toggle('hidden', !chased)
+    if (chased) {
       $('busted-fill').style.transform = `scaleX(${race.pursuit.busted})`
       $('escape-fill').style.transform = `scaleX(${race.pursuit.escape})`
     }
