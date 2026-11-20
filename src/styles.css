@@ -1590,3 +1590,13 @@ kbd {
     margin-bottom: 14px;
   }
 }
+
+.credits {
+  margin: 14px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.credits a {
+  color: rgba(238, 240, 255, 0.85);
+}

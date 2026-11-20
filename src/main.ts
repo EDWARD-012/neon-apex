@@ -4,6 +4,7 @@ import '@fontsource/chakra-petch/700-italic.css'
 import '@fontsource/chakra-petch/600-italic.css'
 import '@fontsource/chakra-petch/500-italic.css'
 import './styles.css'
+import { loadCarAssets } from './render/carAssets'
 import { AccountError, type Account, chooseLogin, cloudEnabled, currentAccount, googleButton, signIn, signInWithGoogle, signOut, uploadProgress } from './cloud'
 import { ALL_EVENTS, buy, type EventDef, type EventKind, judge, loadProgress, type Outcome, type Progress, record, saveProgress, TIERS, tierOpen, WINS_TO_UNLOCK, winsIn } from './career'
 import { type EventSpec, formatTime, Game, ordinal, REPLAY_CAMERAS, type Settings } from './game'
@@ -63,6 +64,10 @@ function saveSettings(s: Settings) {
 // have to be loaded before the city is built.
 await document.fonts.load('700 italic 40px "Chakra Petch"').catch(() => undefined)
 await document.fonts.load('700 40px "Chakra Petch"').catch(() => undefined)
+// The car models, before the first race is built. If they are slow or fail,
+// the game goes on with the drawn cars rather than waiting for ever.
+$('loading').textContent = 'Loading the cars'
+await Promise.race([loadCarAssets(), new Promise((done) => setTimeout(done, 20000))])
 
 const settings = loadSettings()
 let progress: Progress = loadProgress()

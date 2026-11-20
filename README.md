@@ -61,9 +61,9 @@ Events. Races against five rivals. Elimination, where the last car is knocked ou
 
 Cars. Four, each the same physics with different numbers: a balanced coupe, a light hatch with sticky tyres, a muscle car that slides, and an electric car with instant pull and a long-lasting nitro tank. The garage shows each on a turntable with its ratings and lets you buy and paint them.
 
-Each body is lofted from a handful of cross-sections along the car (the default car is shaped as a mid-engined hypercar with a forward canopy and high rear haunches), with the wheel arches cut out of the sides, so the shapes are smooth rather than boxes. The sports cars have a gloss-black lower body, corner intakes and a blade splitter, and the mid-engined ones side scoops; on top go a grille, diffuser, side skirts, mirrors, LED headlights, a full-width tail light, chrome exhaust tips on all but the electric car and, on some cars, a wing. Wheels are ten-spoke rims in low-profile tyres with brake calipers behind them. Paint is a metallic base under a clear coat that reflects the sky. Every tyre and rim on the road is drawn by two instanced meshes, so the wheels of a full grid with traffic and police take two draw calls.
+The four cars you can drive are 3D models made by artists and shared on Sketchfab under CC BY 4.0, listed under Credits: a mid-engined hypercar for the Vanta GT and the Volt E, a light coupe for the Kite RS and a long-nosed GT for the Brute V8. None is modelled on a real make. `npm run cars` turns the downloaded files into the small ones the game loads: it drops the baked ground shadows and the hidden engine bay, converts an old material format, compresses the meshes and shrinks the textures to 1024 px, about 2.7 MB for all three. In the game each model is scaled to size, its wheels are found by name and put on pivots so they spin and steer, and the body is repainted in the colour you pick; on the textured bodies only the texels in the paint's hue change, so trim, grilles and dirt stay as the artist made them. Paint is a metallic base under a clear coat that reflects the sky. Traffic and police cars are still drawn in code: each body is lofted from a handful of cross-sections with the wheel arches cut out, and their wheels are drawn as two instanced meshes for the whole road.
 
-Damage. A hit on a barrier or another car at more than about 9 km/h is stored where it landed on the car. The body is pushed in around that point and the paint goes grey and scuffed, and the lights and grille move with the panel. Enough hits on one side tear off that side's mirror, enough on the back take the wing, and enough on the front puts a headlight out. Damage takes up to 30% of the engine's power and 12% of top speed, a badly damaged car trails smoke and then flames, and if your car is wrecked in a pursuit, you are busted.
+Damage. A hit on a barrier or another car at more than about 9 km/h is stored where it landed on the car, and the body panels are pushed in around that point. On the drawn cars the paint also goes grey and scuffed, the lights and grille move with the panel, enough hits on one side tear off that side's mirror, enough on the back take the wing, and enough on the front puts a headlight out. Damage takes up to 30% of the engine's power and 12% of top speed, a badly damaged car trails smoke and then flames, and if your car is wrecked in a pursuit, you are busted.
 
 Police. Patrol cars run the racing line slightly over the planned speed to close the gap, then aim for where you will be half a second ahead and try to ram. If you slow below about 20 km/h with one within 14 m, a busted meter fills. Every 40 seconds the heat rises and another patrol car joins, up to four.
 
@@ -187,10 +187,11 @@ src/audio.ts    synthesised sound
 src/input.ts    keyboard, gamepad and touch
 tests/          unit tests for the simulation, the career and the README table
 e2e/            browser tests
-scripts/        stats table, diagram, screenshots, GIF and trailer
+scripts/        stats table, diagram, screenshots, GIF, trailer, car models
 pages/          the page GitHub Pages serves, which forwards to Vercel
 api/            account and save endpoints (Vercel functions)
 public/textures/  daytime sky and photo textures from Poly Haven
+public/models/  the compressed car models
 ```
 
 Dependencies are pinned to exact versions in `package.json` and `package-lock.json`.
@@ -198,7 +199,7 @@ Dependencies are pinned to exact versions in `package.json` and `package-lock.js
 ## Limits
 
 - Tracks are flat. There are no hills, jumps or bridges, and every event runs on a closed circuit. The mountains are scenery only.
-- The cars, trees and mountains are generated in code, not modelled by an artist, so up close they look like game models rather than photographs.
+- The trees, the mountains and the traffic and police cars are generated in code, not modelled by an artist, so up close they look like game models rather than photographs. The four driveable cars are artists' models, but their dents do not tear panels or break glass.
 - The physics is arcade physics on a plane: one velocity, one heading and a grip rule. Cars cannot roll or leave the ground, and contact between cars is two circles per car pushing apart.
 - AI rivals never drift, and the police cannot turn round if they overshoot you; they slow down and wait instead.
 - The car bodies are built from a few cross-sections each, not modelled by hand, and have no interiors, so the bonnet camera shows no dashboard.
@@ -209,6 +210,8 @@ Dependencies are pinned to exact versions in `package.json` and `package-lock.js
 - Frame rate depends on the graphics card. The Low graphics setting turns off bloom, the speed blur and the street reflection and renders at normal pixel density, and touch screens start on it.
 
 ## Credits
+
+Car models, all CC BY 4.0, from Sketchfab: [Fictional supercar - V12 Goblin](https://sketchfab.com/3d-models/fictional-supercar-v12-goblin-0a20e49ad5774d778567cb5c3f345786) by ollitei, [Generic Coupe "Azura"](https://sketchfab.com/3d-models/generic-coupe-azura-2e1a3699de7e4f688d328dc005ef1aac) by mk2design and [Generic Sport Coupé Car](https://sketchfab.com/3d-models/generic-sport-coupe-car-820a13c4831c41959ce75e6c2014e882) by MMC Works. They are modified by `scripts/prepare-cars.mjs` as described under Cars, and the game repaints them. The original downloads are not in the repo; put them in `assets-src/cars` to rebuild.
 
 The daytime sky and the road, rock and ground textures are from [Poly Haven](https://polyhaven.com), released under CC0: "Kloofendal 48d Partly Cloudy (Pure Sky)" by Greg Zaal and Jarod Guest, "Asphalt 02", "Aerial Rocks 02" and "Forest Ground 04". They are resized and recompressed in `public/textures`.
 

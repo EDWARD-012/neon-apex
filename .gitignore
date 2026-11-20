@@ -6,3 +6,5 @@ test-results
 playwright-report
 .vercel
 .env*
+assets-src
+scratch-inspect.*

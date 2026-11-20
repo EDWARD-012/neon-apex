@@ -17,6 +17,7 @@
     "test": "vitest run",
     "e2e": "playwright test",
     "stats": "tsx scripts/stats.ts",
+    "cars": "node scripts/prepare-cars.mjs",
     "diagram": "tsx scripts/diagram.ts",
     "shots": "vite build && tsx scripts/shots.ts && python3 scripts/make_gif.py",
     "trailer": "vite build && tsx scripts/trailer.ts"
@@ -28,6 +29,7 @@
     "three": "0.187.0"
   },
   "devDependencies": {
+    "@gltf-transform/cli": "4.5.1",
     "@playwright/test": "1.65.1",
     "@types/node": "26.6.6",
     "@types/three": "0.187.0",

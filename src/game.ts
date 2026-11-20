@@ -978,6 +978,9 @@ export class Game {
     // a driver's eye sees it.
     const inside = mode === 'cockpit' && !(this.mode === 'race' && this.input.holding('lookback'))
     this.cockpit.group.visible = inside && view.racer?.player === true
+    // From the driver's seat, the car's own outside shell (and a model's
+    // own interior) would sit in front of the cockpit; hide it there.
+    for (const part of view.model.body.children) if (part !== this.cockpit.group) part.visible = !this.cockpit.group.visible
     const firstPerson = this.mode === 'race' && (inside || mode === 'hood' || mode === 'bumper')
     $('pedals').classList.toggle('hidden', !firstPerson)
     if (inside) {

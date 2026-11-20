@@ -26,6 +26,7 @@ import {
   Vector2,
 } from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
+import { type AssetCar, contactShadow, makeAssetCar } from './carAssets'
 import type { Shape as CarShape } from '../sim/cars'
 import { type BodySpec, dent, loft, type Station } from './carBody'
 
@@ -332,6 +333,10 @@ export function createCarModel(color: string, spot: Texture, options: ModelOptio
   const shape = options.shape ?? 'vanta'
   const def = DEFS[shape]
   const ghost = options.ghost ?? false
+  // Real 3D models for the cars that have one; the drawn body otherwise
+  // (traffic, police, and the see-through ghost).
+  const asset = ghost ? null : makeAssetCar(shape, color)
+  if (asset) return assetModel(asset, color, spot, options)
   const fade = (m: Material, o = 0.3) => {
     if (ghost) {
       m.transparent = true
@@ -607,5 +612,50 @@ export function createCarModel(color: string, spot: Texture, options: ModelOptio
     },
     half: { width: maxW, front, rear },
     materials: [paint, glass, trim, chrome, tail, ...heads, flameMat],
+  }
+}
+
+// A car built from a 3D model: the model with its own wheels and lights,
+// plus the headlight pool, underglow and contact shadow the drawn cars have.
+function assetModel(asset: AssetCar, color: string, spot: Texture, options: ModelOptions): CarModel {
+  const group = new Group()
+  const body = new Group()
+  group.add(body)
+  body.add(asset.root)
+  const { half } = asset
+  const beam = new Mesh(
+    new PlaneGeometry(7, 16).rotateX(-Math.PI / 2),
+    new MeshBasicMaterial({ map: spot, color: '#9fc4ff', transparent: true, opacity: 0.14, blending: AdditiveBlending, depthWrite: false }),
+  )
+  beam.position.set(0, 0.05, half.front + 8.3)
+  beam.userData.night = true
+  group.add(beam)
+  let glow: Mesh | null = null
+  if (options.glow ?? true) {
+    glow = new Mesh(
+      new PlaneGeometry(half.width * 2.6, half.front - half.rear + 1).rotateX(-Math.PI / 2),
+      new MeshBasicMaterial({ map: spot, color: new Color(color).multiplyScalar(0.5), transparent: true, blending: AdditiveBlending, depthWrite: false }),
+    )
+    glow.position.y = 0.04
+    glow.userData.night = true
+    group.add(glow)
+  }
+  group.add(contactShadow(spot, half))
+  return {
+    group,
+    body,
+    wheels: asset.wheels,
+    frontPivots: asset.frontPivots,
+    tail: asset.tail,
+    heads: asset.heads,
+    flames: asset.flames,
+    glow,
+    siren: null,
+    tailLights: asset.tailLights,
+    exhausts: asset.exhausts,
+    loose: [],
+    hit: asset.hit,
+    half,
+    materials: asset.materials,
   }
 }
