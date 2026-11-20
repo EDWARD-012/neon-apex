@@ -355,6 +355,18 @@ button {
   margin-left: -24px;
 }
 
+/* Next to the pause button: changes camera, like C on a keyboard. */
+#touch .touch-camera {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  width: 48px;
+  height: 48px;
+  margin-left: 34px;
+  display: grid;
+  place-items: center;
+}
+
 /* Menus */
 
 .screen {
@@ -678,6 +690,13 @@ kbd {
     top: 12px;
     left: auto;
     right: 116px;
+    margin-left: 0;
+  }
+
+  #touch .touch-camera {
+    top: 12px;
+    left: auto;
+    right: 172px;
     margin-left: 0;
   }
 
@@ -1439,6 +1458,13 @@ kbd {
 }
 .pedal.brake .track > div {
   background: linear-gradient(to top, #e0313f, #ff8a94);
+}
+/* On a touch screen the on-screen buttons sit where the pedals would and
+   already light up when pressed, so the pedals stay off. */
+@media (pointer: coarse) {
+  .pedals {
+    display: none;
+  }
 }
 #wheel-icon {
   width: 64px;

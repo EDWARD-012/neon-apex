@@ -79,6 +79,11 @@ export class Input {
     return this.held.has(action) || this.touch.has(action)
   }
 
+  // For on-screen buttons that fire a one-shot action, like the camera.
+  press(action: string) {
+    this.pressed.add(action)
+  }
+
   take(action: string): boolean {
     if (this.gamepadPressed(action)) return true
     const had = this.pressed.has(action)

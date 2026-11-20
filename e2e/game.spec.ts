@@ -214,3 +214,17 @@ test('a phone held upright is asked to turn sideways, and the race waits', async
   await page.setViewportSize(size)
   await expect(page.locator('#rotate')).toBeHidden()
 })
+
+test('on a phone the camera button changes the view', async ({ page, isMobile }) => {
+  test.skip(!isMobile, 'phones only')
+  await open(page)
+  await quickRace(page)
+  const camera = () => page.evaluate(() => (window as any).__neon.game.camMode as string)
+  expect(await camera()).toBe('chase')
+  await page.locator('#touch-camera').tap()
+  await expect.poll(camera).toBe('far')
+  await page.locator('#touch-camera').tap()
+  await expect.poll(camera).toBe('cockpit')
+  // The cockpit's pedal bars would sit under the touch buttons.
+  await expect(page.locator('#pedals')).toBeHidden()
+})

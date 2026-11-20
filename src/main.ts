@@ -414,6 +414,7 @@ window.setInterval(() => {
 
 $('resume').addEventListener('click', () => game.resume())
 $('touch-pause').addEventListener('click', () => game.pause())
+$('touch-camera').addEventListener('click', () => game.input.press('camera'))
 $('restart').addEventListener('click', () => current && begin(current))
 $('quit').addEventListener('click', () => {
   game.showMenu()
