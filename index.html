@@ -2,8 +2,8 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <meta name="description" content="Neon Apex is a free online racing game you play in your browser, no download. Race AI rivals on a mountain road by day or a neon city at night, drift, escape the police, crash and dent your car, and drive from the cockpit." />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Neon Apex is a free 3D web racing game you play online in your browser, with no download. Race AI rivals on a mountain road by day or through a neon city at night, drift, escape the police and drive from the cockpit." />
     <meta name="theme-color" content="#05060c" />
     <link rel="canonical" href="https://apex.edward7780.com/" />
     <meta property="og:type" content="website" />
@@ -20,22 +20,58 @@
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
-        "@type": "VideoGame",
+        "@type": ["VideoGame", "SoftwareApplication"],
         "name": "Neon Apex",
         "url": "https://apex.edward7780.com/",
         "image": "https://apex.edward7780.com/og.jpg",
-        "description": "A free 3D racing game for the browser: a career, AI rivals on a computed racing line, police pursuits, drift and elimination events, crash damage, a cockpit camera, and a mountain road by day or a neon city at night.",
+        "description": "A free 3D web racing game you play in the browser: a career, AI rivals on a computed racing line, police pursuits, drift and elimination events, crash damage, a cockpit camera, and a mountain road by day or a neon city at night.",
         "genre": ["Racing", "Driving"],
         "gamePlatform": ["Web browser", "PC", "Mobile"],
-        "applicationCategory": "Game",
+        "applicationCategory": "GameApplication",
         "operatingSystem": "Any modern web browser",
+        "browserRequirements": "Requires WebGL",
         "playMode": "SinglePlayer",
         "inLanguage": "en",
+        "datePublished": "2026-11-18",
         "isAccessibleForFree": true,
         "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "screenshot": [
+          "https://apex.edward7780.com/screens/day.jpg",
+          "https://apex.edward7780.com/screens/cockpit.jpg",
+          "https://apex.edward7780.com/screens/pursuit.jpg",
+          "https://apex.edward7780.com/screens/nitro.jpg",
+          "https://apex.edward7780.com/screens/damage.jpg",
+          "https://apex.edward7780.com/screens/garage.jpg",
+          "https://apex.edward7780.com/screens/drift.jpg",
+          "https://apex.edward7780.com/screens/career.jpg"
+        ],
+        "trailer": {
+          "@type": "VideoObject",
+          "name": "Neon Apex trailer",
+          "description": "Half a minute of Neon Apex: a race in the rain, the fly-in before a race, racing in the pack, a police pursuit at dusk and the garage.",
+          "thumbnailUrl": "https://apex.edward7780.com/og.jpg",
+          "contentUrl": "https://apex.edward7780.com/trailer.webm",
+          "encodingFormat": "video/webm",
+          "uploadDate": "2026-11-20T18:22:06+05:30",
+          "duration": "PT32S",
+          "width": 1280,
+          "height": 720
+        },
         "author": { "@type": "Person", "name": "Ravi Kumar Gupta", "email": "mailto:ravi5258p@gmail.com" }
       }
     </script>
+    <style>
+      /* The menu's subtitle and guide links. Kept here, next to the page's
+         search tags, since they exist for people arriving from a search. */
+      .subtitle { margin: 14px 0 -6px; font-size: 15px; font-weight: 600; letter-spacing: 0.02em; color: #3df5ff; }
+      .guides { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 18px 0 0; font-size: 14px; }
+      .guides a { color: #c7cbe6; text-decoration: none; border-bottom: 1px solid rgba(199, 203, 230, 0.35); }
+      .guides a:hover, .guides a:focus-visible { color: #fff; border-color: #fff; }
+      @media (max-width: 760px), (max-height: 520px) {
+        .subtitle { margin: 8px 0 -4px; font-size: 13px; }
+        .guides { margin: 8px 0 0; gap: 4px 12px; font-size: 13px; }
+      }
+    </style>
   </head>
   <body>
     <canvas id="view"></canvas>
@@ -102,6 +138,7 @@
     <section id="menu" class="screen">
       <div class="menu-card">
         <h1 class="logo"><span>Neon</span> <span>Apex</span></h1>
+        <p class="subtitle">A free web racing game. Play online in your browser, no download.</p>
         <p class="tagline">Mountain roads by day, city streets at night. A career to win, police to lose, and a new circuit every day.</p>
         <nav class="main-menu">
           <button id="go-career" class="primary">Career <small id="career-note">Street tier</small></button>
@@ -109,6 +146,15 @@
           <button id="go-garage">Garage <small id="garage-note">Vanta GT</small></button>
           <button id="go-settings">Settings <small>Graphics, sound, controls</small></button>
           <button id="go-account">Account <small id="account-note">Sign in to save on every device</small></button>
+        </nav>
+        <nav class="guides" aria-label="Guides">
+          <a href="/how-to-play.html">How to play</a>
+          <a href="/cars.html">Cars</a>
+          <a href="/modes.html">Modes</a>
+          <a href="/drift-guide.html">Drifting</a>
+          <a href="/police-chase.html">Police chases</a>
+          <a href="/coins.html">Coins</a>
+          <a href="/updates.html">Updates</a>
         </nav>
         <p class="credit">Built by Ravi Kumar Gupta. <a href="/about.html">About the game</a>. Support, feedback or licensing: <a href="mailto:ravi5258p@gmail.com">ravi5258p@gmail.com</a></p>
       </div>

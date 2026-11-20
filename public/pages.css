@@ -1,0 +1,55 @@
+/* The look of the guide pages around the game: about, how to play, cars and
+   the rest. Plain pages with no build step, so they load fast and read well
+   for people and search engines alike. */
+
+* { box-sizing: border-box; }
+body { margin: 0; background: #07080e; color: #e8eaf6; font: 17px/1.65 system-ui, -apple-system, 'Segoe UI', sans-serif; }
+main { max-width: 900px; margin: 0 auto; padding: 32px 22px 80px; }
+h1 { font-size: clamp(30px, 5vw, 46px); line-height: 1.1; margin: 0 0 14px; }
+h2 { font-size: 24px; margin: 44px 0 10px; }
+h3 { font-size: 19px; margin: 26px 0 6px; }
+/* Links to a heading land below the sticky nav, not under it. */
+h2, h3 { scroll-margin-top: 72px; }
+a { color: #ff8a4c; }
+li { margin: 4px 0; }
+.lead { font-size: 19px; color: #d4d7ea; }
+.note { color: #a9aecb; font-size: 15px; }
+
+.top { position: sticky; top: 0; z-index: 2; background: rgba(7, 8, 14, 0.92); border-bottom: 1px solid rgba(160, 180, 255, 0.14); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+.top nav { max-width: 900px; margin: 0 auto; padding: 10px 22px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; font-size: 15px; }
+.top a { color: #c3c7da; text-decoration: none; }
+.top a:hover, .top a[aria-current='page'] { color: #fff; text-decoration: underline; text-underline-offset: 4px; }
+.top .brand { font-weight: 800; font-style: italic; color: #fff; letter-spacing: -0.01em; margin-right: 6px; }
+.top .brand span { color: #3df5ff; }
+.top .go { margin-left: auto; padding: 6px 14px; border-radius: 10px; background: linear-gradient(100deg, #ff2d6f, #ff8a2e); color: #fff; font-weight: 700; }
+.top .go:hover { text-decoration: none; filter: brightness(1.1); }
+
+.play { display: inline-block; margin: 18px 0 8px; padding: 14px 26px; border-radius: 14px; background: linear-gradient(100deg, #ff2d6f, #ff8a2e); color: #fff; font-weight: 700; text-decoration: none; }
+.shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 12px; margin-top: 18px; }
+.shots img, figure img { width: 100%; height: auto; border-radius: 12px; display: block; }
+figure { margin: 18px 0; }
+figcaption { margin-top: 6px; color: #8e93b4; font-size: 14px; }
+dt { font-weight: 700; margin-top: 14px; }
+dd { margin: 4px 0 0; color: #c3c7da; }
+
+.table { overflow-x: auto; margin: 12px 0; }
+table { width: 100%; border-collapse: collapse; font-size: 16px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid rgba(160, 180, 255, 0.14); vertical-align: top; }
+th { color: #fff; font-weight: 700; }
+td { color: #c3c7da; }
+td.n, th.n { text-align: right; white-space: nowrap; }
+kbd { display: inline-block; min-width: 1.7em; padding: 1px 6px; margin: 0 1px; border: 1px solid rgba(160, 180, 255, 0.3); border-bottom-width: 2px; border-radius: 6px; background: #12142a; color: #fff; font: 600 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; }
+
+.log h2 { font-size: 21px; }
+.log ul { padding-left: 1.2em; }
+
+footer { margin-top: 56px; color: #8e93b4; font-size: 15px; }
+footer a { color: #c3c7da; }
+
+@media (max-width: 600px) {
+  body { font-size: 16px; }
+  .top nav { padding: 8px 16px; gap: 4px 12px; font-size: 14px; }
+  .top .go { margin-left: 0; }
+  h2, h3 { scroll-margin-top: 120px; }
+  .shots { grid-template-columns: 1fr; }
+}
