@@ -12,6 +12,7 @@ import { Particles, Rain, Skids, Trails } from './render/effects'
 import { Garage } from './render/garage'
 import { type Looks, STOCK_LOOKS, styleCar } from './looks'
 import { applyLivery } from './render/livery'
+import { fitParts } from './render/parts'
 import { buzz } from './touch'
 import { type Fitted, tuned } from './upgrades'
 import { createHelicopter, type HelicopterModel } from './render/helicopter'
@@ -49,6 +50,8 @@ export interface EventSpec {
   rivalStage?: number
   leader?: string
   rivalCar?: string
+  // Career: damage the player's car carries in from earlier events.
+  startDamage?: number
 }
 
 export interface Settings {
@@ -335,6 +338,7 @@ export class Game {
       tools: spec.kind === 'pursuit' ? this.settings.tools : spec.kind === 'cop' ? this.settings.copTools : undefined,
     })
     this.race.brakeHelp = this.settings.brakeAssist
+    if (!attract && spec.startDamage) this.race.player.car.damage = spec.startDamage
     this.weather = spec.weather === 'auto' ? weatherFor(spec.seed) : spec.weather
     const day = isDay(this.weather)
     const look = `${spec.seed}/${day ? 'day' : 'night'}`
@@ -410,6 +414,7 @@ export class Game {
         const looks = this.looksFor(car.id)
         styleCar(model, looks, racer.color)
         applyLivery(model, looks, this.plateText(), shape)
+        fitParts(model, looks)
       }
       this.addView(racer.car, model, racer, false)
     })
