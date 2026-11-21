@@ -15,6 +15,7 @@ import { type EventSpec, formatTime, Game, ordinal, REPLAY_CAMERAS, type Setting
 import { COP_TOOL_IDS, type CopToolId, type RacerToolId, TOOL_IDS, type ToolId } from './sim/race'
 import type { Weather } from './render/atmosphere'
 import type { Quality } from './render/world'
+import { MIN_SCALE, type QualityMode } from './autoQuality'
 import { carById, CARS, type Rating, ratings } from './sim/cars'
 import { bindPedals, bindWheel, startTilt, stopTilt } from './touch'
 import { dailySeed, weeklySeed } from './sim/track'
@@ -23,6 +24,8 @@ import { classOf, kmh, type Part, PARTS, partById, priceOf, ratingOf, setTune, S
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement
 const params = new URLSearchParams(location.search)
+// The graphics a device starts on: low on phones and tablets, high elsewhere.
+const deviceQuality: Quality = matchMedia('(pointer: coarse)').matches ? 'low' : 'high'
 // On a game portal the links that leave the game are hidden (see portal.ts).
 if (PORTAL) {
   document.body.classList.add('portal')
@@ -51,13 +54,19 @@ function loadSettings(): Settings {
   } catch {
     saved = {}
   }
-  const coarse = matchMedia('(pointer: coarse)').matches
+  // A quality in the address is a fixed pick for this visit. A save from
+  // before Auto existed keeps a level that differs from the device's
+  // default, since the player must have picked it; otherwise it is Auto.
+  const picked = params.get('quality') as Quality | null
+  const mode: QualityMode = picked ?? (saved.qualityMode === 'auto' || saved.qualityMode === 'high' || saved.qualityMode === 'low' ? saved.qualityMode : saved.quality && saved.quality !== deviceQuality ? saved.quality : 'auto')
   return {
     seed: params.get('seed') ?? dailySeed(),
     laps: Number(params.get('laps')) || saved.laps || 3,
     color: saved.color && COLORS.includes(saved.color) ? saved.color : COLORS[0],
     car: saved.car && CARS.some((c) => c.id === saved.car) ? saved.car : CARS[0].id,
-    quality: (params.get('quality') as Quality) ?? saved.quality ?? (coarse ? 'low' : 'high'),
+    quality: picked ?? (mode === 'auto' ? saved.quality ?? deviceQuality : mode),
+    qualityMode: mode,
+    renderScale: !picked && mode === 'auto' && typeof saved.renderScale === 'number' ? Math.min(1, Math.max(MIN_SCALE, saved.renderScale)) : 1,
     sound: params.has('test') ? false : saved.sound ?? true,
     traffic: saved.traffic ?? true,
     police: saved.police ?? true,
@@ -833,7 +842,23 @@ for (const color of COLORS) {
 
 // Settings
 
-segmented('quality', settings.quality, (v) => game.setQuality(v as Quality))
+segmented('quality', settings.qualityMode, (v) => {
+  game.setQualityMode(v as QualityMode, deviceQuality)
+  qualityNote()
+})
+// Under the graphics buttons, what Auto has picked on this device.
+function qualityNote() {
+  const note = $('quality-note')
+  const auto = settings.qualityMode === 'auto'
+  note.classList.toggle('hidden', !auto)
+  note.textContent = auto ? `Auto has picked ${settings.quality === 'high' ? 'High' : 'Low'}${settings.renderScale < 1 ? `, drawn at ${Math.round(settings.renderScale * 100)}% size` : ''} for this device. It steps down if races run slowly.` : ''
+}
+qualityNote()
+game.autoQuality = !params.has('test') || params.has('autoquality')
+game.onQualityChange = () => {
+  saveSettings(settings)
+  qualityNote()
+}
 segmented('drift-assist', settings.driftAssist ? 'on' : 'off', (v) => (settings.driftAssist = v === 'on'))
 segmented('brake-assist', settings.brakeAssist ? 'on' : 'off', (v) => (settings.brakeAssist = v === 'on'))
 segmented('stability', settings.stability ? 'on' : 'off', (v) => (settings.stability = v === 'on'))

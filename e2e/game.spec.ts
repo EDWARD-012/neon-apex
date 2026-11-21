@@ -211,6 +211,20 @@ test('the race HUD shows the standings with gaps, the time, the map and the spee
   await expect(page.locator('#speed')).toBeVisible()
 })
 
+test('graphics start on Auto, and picking a level keeps it', async ({ page }) => {
+  // No quality in the address, so the game picks as it would for a player.
+  await page.goto('./?test')
+  await page.locator('#go-settings').click()
+  await expect(page.locator('#quality button.on')).toHaveAttribute('data-value', 'auto')
+  await expect(page.locator('#quality-note')).toHaveText(/^Auto has picked (High|Low) for this device\./)
+  await page.locator('#quality button[data-value="low"]').click()
+  await expect(page.locator('#quality-note')).toBeHidden()
+  await page.goto('./?test')
+  await page.locator('#go-settings').click()
+  await expect(page.locator('#quality button.on')).toHaveAttribute('data-value', 'low')
+  expect(await page.evaluate(() => (window as any).__neon.game.settings.quality)).toBe('low')
+})
+
 test('the driving aids in Settings are kept and used in the race', async ({ page }) => {
   await open(page)
   await page.locator('#go-settings').click()

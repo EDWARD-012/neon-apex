@@ -21,6 +21,7 @@ import { disposeStrip, spikeStrip } from './render/spikes'
 import { spot } from './render/textures'
 import { buildTrackMeshes } from './render/trackMesh'
 import { type Quality, World } from './render/world'
+import { FrameSampler, type Level, type QualityMode } from './autoQuality'
 import { type Replay, Recorder } from './replay'
 import { NEAR_MISS_NITRO, type Run, RunRecorder, StartWatch } from './replay-check'
 import { CAR, type CarSpec, type CarState, driftTier, forwardSpeed, PHYSICS_VERSION, speedOf } from './sim/car'
@@ -61,6 +62,9 @@ export interface Settings {
   color: string
   car: string
   quality: Quality
+  // Auto, or the level picked in Settings, and the render scale Auto set.
+  qualityMode: QualityMode
+  renderScale: number
   sound: boolean
   traffic: boolean
   // Patrol cars in quick races and eliminations.
@@ -269,6 +273,7 @@ export class Game {
     this.settings = settings
     this.autopilot = autopilot
     this.world = new World(canvas, settings.quality)
+    if (settings.renderScale < 1) this.world.setScale(settings.renderScale)
     // The cockpit's rear-view mirror shows the road behind on high quality.
     this.world.beforeDraw = () => {
       if (this.world.quality === 'high') this.cockpit.renderMirror(this.world.renderer, this.world.scene)
@@ -318,6 +323,7 @@ export class Game {
   // when the track changes.
   private setup(spec: EventSpec, attract: boolean) {
     this.event = spec
+    this.sampler.reset()
     const car = carById(this.settings.car)
     this.sound.setEngine(ENGINES[car.shape] ?? 'v12')
     const rivalCars = Array.from({ length: spec.rivals }, (_, k) => (spec.rivalCar ? carById(spec.rivalCar) : CARS[(k + 1) % CARS.length]))
@@ -584,6 +590,31 @@ export class Game {
     $('hud').classList.remove('hidden')
   }
 
+  // Automatic quality: off in the browser tests unless asked for, so a slow
+  // test machine does not change what the tests draw.
+  autoQuality = true
+  onQualityChange: (() => void) | null = null
+  private sampler = new FrameSampler()
+
+  // Settings: Auto starts again from the device's default at full size;
+  // High and Low are kept as picked.
+  setQualityMode(mode: QualityMode, deviceDefault: Quality) {
+    this.settings.qualityMode = mode
+    this.settings.renderScale = 1
+    this.world.setScale(1)
+    this.setQuality(mode === 'auto' ? deviceDefault : mode)
+  }
+
+  private autoLevel(next: Level) {
+    if (next.quality !== this.settings.quality) this.setQuality(next.quality)
+    if (next.scale !== this.settings.renderScale) {
+      this.settings.renderScale = next.scale
+      this.world.setScale(next.scale)
+    }
+    popup('Graphics lowered to keep the race smooth', 'cyan')
+    this.onQualityChange?.()
+  }
+
   setQuality(quality: Quality) {
     this.settings.quality = quality
     this.world.setQuality(quality)
@@ -601,8 +632,14 @@ export class Game {
   }
 
   private frame = (now: number) => {
-    const dt = Math.min(0.1, (now - this.last) / 1000)
+    const raw = now - this.last
+    const dt = Math.min(0.1, raw / 1000)
     this.last = now
+    // Automatic quality times the frames of each race once it is moving.
+    if (this.autoQuality && this.settings.qualityMode === 'auto' && this.mode === 'race' && this.race.phase === 'racing' && this.race.clock > 1 && document.visibilityState === 'visible') {
+      const next = this.sampler.add(raw, { quality: this.settings.quality, scale: this.settings.renderScale })
+      if (next) this.autoLevel(next)
+    }
     this.time += dt
     if (this.mode === 'intro') {
       this.introTime += dt
