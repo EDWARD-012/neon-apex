@@ -12,13 +12,13 @@
 </p>
 
 <p align="center">
-  <a href="https://apex.edward7780.com/"><b>Play it in your browser</b></a>
+  <a href="https://skidline.edward7780.com/"><b>Play it in your browser</b></a>
   &nbsp;&nbsp;
-  <a href="https://apex.edward7780.com/trailer.webm"><b>Watch the 31-second trailer</b></a>
+  <a href="https://skidline.edward7780.com/trailer.webm"><b>Watch the 31-second trailer</b></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/EDWARD-012/neon-apex/actions/workflows/ci.yml"><img src="https://github.com/EDWARD-012/neon-apex/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+  <a href="https://github.com/EDWARD-012/skidline/actions/workflows/ci.yml"><img src="https://github.com/EDWARD-012/skidline/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
 </p>
 
 <p align="center">
@@ -68,6 +68,8 @@ Coins and upgrades. Every event pays coins. Career events pay their reward as be
 The five cars you can drive are 3D models made by artists and shared on Sketchfab under CC BY 4.0, listed under Credits: a mid-engined hypercar for the Vanta GT and the Volt E, a light coupe for the Kite RS, a long-nosed GT for the Brute V8, and the traffic pack's sports car for the Kestrel S. The pack cars came painted, so the game finds the commonest strong colour in the Kestrel's body texture and repaints those texels in your colour. None is modelled on a real make. `npm run cars` turns the downloaded files into the small ones the game loads: it drops the baked ground shadows and the hidden engine bay, converts an old material format, compresses the meshes and shrinks the textures to 1024 px, about 2.8 MB for the three and 1.6 MB for the traffic pack. In the game each model is scaled to size, its wheels are found by name and put on pivots so they spin and steer, and the body is repainted in the colour you pick; on the textured bodies only the texels in the paint's hue change, so trim, grilles and dirt stay as the artist made them. Paint is a metallic base under a clear coat that reflects the sky. Traffic is ten everyday cars from one more CC BY pack (a sedan, compact, coupe, hatchback, wagon, sports car, minivan, SUV, off-roader and pickup), shown in the colours they came in; the pack has them all on one stand, so the game lifts each one out with the wheels beside it and turns it nose forward. The police drive the pack's sedan in dark paint with white doors, a light bar and a push bar. The ghost in a time trial is still a car drawn in code, lofted from a handful of cross-sections with the wheel arches cut out.
 
 Damage. A hit on a barrier or another car at more than about 9 km/h is stored where it landed on the car, and the body panels are pushed in around that point. On the drawn cars the paint also goes grey and scuffed, the lights and grille move with the panel, enough hits on one side tear off that side's mirror, enough on the back take the wing, and enough on the front puts a headlight out. Damage takes up to 30% of the engine's power, 12% of top speed and a fifth of the grip, and a badly damaged car trails smoke and then flames. At full damage your car is wrecked: it goes up in a burst of fire and is out of the race, or busted in a pursuit. Rivals take damage too but are never wrecked.
+
+Effects. Chevron signs stand on the outside of every sharp corner, three to a corner, worked out from the track's curvature. In the rain, puddles lie on the road (the same ones for everyone on a track) and throw spray when a car drives through. Brakes glow orange after hard braking at speed and cool over a few seconds, hard hits throw glass and trim along with the sparks, a badly damaged car smokes and a wrecked one burns, and at night a patrol car's light bar washes the road red and blue. Splashes and debris are thinner on Low graphics.
 
 Police. Patrol cars run the racing line slightly over the planned speed to close the gap, then aim for where you will be half a second ahead and try to ram. If you slow below about 20 km/h with one within 14 m, a busted meter fills, and a warning says you are being boxed in. Every 40 seconds the heat rises a level, up to five, and each level brings its own units: a pair of patrol cars at heat 2, one of them a blocker that drives past you and slows in your path; a heavy unit at heat 3, twice the weight of a patrol car and hard to hurt; another blocker at 4, called in ahead of you, and a helicopter whose searchlight slows the escape meter to about a third while it is within 120 m (it flies at about 210 km/h, so a fast car can outrun it); and two interceptors at 5, quicker than any stock car, which lock on from behind within 70 m and after a second and a half fire a pulse that cuts your power to 15% for 1.4 seconds. At most seven police cars chase at once. From heat 3 in a pursuit the police also set up out of sight ahead, every 22 seconds: a roadblock of two heavy units parked across the road with a gap of nearly 6 m on one side, then a spike strip over half the road. From heat 4 the gap can be spiked too. Spikes take about 28% off the top speed and 38% off the grip for the rest of the chase. Before a pursuit you pick two racer tools, and each works twice: a jammer that hides you from the helicopter and the interceptors' lock and stops roadblocks and spikes going up for 8 seconds; a shockwave that throws every car within 18 m away from you, which counts as your hit if a police car then meets a wall; a turbo, a push for 2.5 seconds to a quarter past top speed; and a mine dropped behind you that goes off under the first police car to reach it. Weight counts in every hit: a heavier car is pushed less and takes less of the knock. Races and eliminations have police too: a patrol car waits at the edge of the road, outside the traffic lanes, and gives chase if you pass within 30 m at more than 108 km/h. A crash brings them too: a hard ram into traffic or a wall hit that does real damage sends a patrol car in from about 220 m behind, out of sight, and during a chase each crash brings the next heat level 15 seconds sooner. Busted ends your race. Getting 300 m clear for six seconds loses them, pays 1,000 coins for each heat level, and sends them back to wait further round the lap. Every career race and elimination has police, one to three cars by tier, and quick races have a switch for them.
 
@@ -127,16 +129,18 @@ Lap counting does not trust where a car is on the map. Each car keeps a running 
 
 | Action | Keyboard | Gamepad | Touch |
 | --- | --- | --- | --- |
-| Accelerate, brake and reverse | Up, Down or W, S | Right and left triggers | Gas, Brake |
-| Steer | Left, Right or A, D | Left stick | Arrow buttons |
+| Accelerate, brake and reverse | Up, Down or W, S | Right and left triggers | Gas and Brake pedals |
+| Steer | Left, Right or A, D | Left stick | Drag the wheel (or arrows, or tilt) |
 | Drift | Tap Down while steering, or Space | Tap left trigger while steering, or B / right bumper | Drift |
 | Nitro | Shift | A | Nitro |
-| Reset onto the road | R | Y | |
+| Reset onto the road | R | Y | Pause menu |
 | Change camera | C | X | Camera button |
-| Look back, held | V or B | Left bumper | |
+| Look back, held | V or B | Left bumper | Pause menu |
 | Pursuit tools 1 and 2 | 1 and 2, or Q and E | D-pad left and right | Tool buttons |
 | Pause | Esc or P | Start | Pause button |
-| Restart the event | T | Back / Select | |
+
+On a phone you steer by dragging a half wheel at the bottom left (or with arrow buttons, or by tilting the phone, in Settings). The accelerator and brake are pedal shapes on the right: the accelerator gives part throttle near its bottom and full near its top, and a thumb can slide from one pedal to the other. Nitro shows its tank as a ring and Drift the colour of the boost it is charging. Android phones buzz on hard hits, takedowns and nitro. Look back, putting the car back on the road and restarting are in the pause menu, and Settings has a left-handed layout. In the cockpit view the driver's gloved hands hold the wheel at quarter to three, and the pedal overlay shows two pedals tipping as they are pressed.
+| Restart the event | T | Back / Select | Pause menu |
 
 Any key or tap skips the fly-in before a race.
 
@@ -146,7 +150,7 @@ Settings has three driving aids. Drift assist is the brake-tap drift and is on b
 
 Progress always lives in the browser's local storage. Signing in also keeps it on a server, so it follows you to another device. The first sign-in is with Google; the game then asks you to choose a username and a password, and after that you can sign in with those on a computer where you are not signed in to Google.
 
-The server is a set of Vercel functions in [api/](api) with a Neon Postgres database behind them. A Google sign-in is checked against Google's published keys for this app's client ID, a verified email address is required, and the session is a signed, HTTP-only cookie that lasts 90 days. Passwords are stored as salted scrypt hashes. A save is checked for shape and size before it is stored. When you sign in on a device, the account's save replaces the one on that device; an account with no save yet takes the device's progress. What is stored is listed on the [privacy page](https://apex.edward7780.com/privacy.html).
+The server is a set of Vercel functions in [api/](api) with a Neon Postgres database behind them. A Google sign-in is checked against Google's published keys for this app's client ID, a verified email address is required, and the session is a signed, HTTP-only cookie that lasts 90 days. Passwords are stored as salted scrypt hashes. A save is checked for shape and size before it is stored. When you sign in on a device, the account's save replaces the one on that device; an account with no save yet takes the device's progress. What is stored is listed on the [privacy page](https://skidline.edward7780.com/privacy.html).
 
 The game also sends a few anonymous play events to [api/event.ts](api/event.ts): when it is opened, when a race starts and ends, and a ping for each minute of play, each with a random ID made in the browser and no account, name or email. The server keeps only known fields and drops anything else. `npm run analytics` prints them day by day from the database in `.env.local`: visitors, sessions, minutes a session, races started and finished, and how many of a day's visitors came back the next day. Events are off in the browser tests and on localhost.
 
@@ -155,7 +159,7 @@ The game also sends a few anonymous play events to [api/event.ts](api/event.ts):
 Needs Node 22 or newer.
 
 ```bash
-git clone https://github.com/EDWARD-012/neon-apex.git
+git clone https://github.com/EDWARD-012/skidline.git
 cd neon-apex
 npm ci
 npm run dev
@@ -179,9 +183,9 @@ npx playwright install
 npm run e2e
 ```
 
-The browser tests play the built game through its menus in Playwright's Chromium, Firefox and WebKit, and at a phone-sized landscape viewport with touch controls. They check that the city renders, that the car responds to the keyboard or the touch buttons, that a race with traffic runs to the results table and its replay plays and changes camera, that a time trial saves a ghost and shows it on the next run, that a pursuit puts police on the road with the meters showing, that a patrol car waits by the road in a race and chases a car that flies past, that the race screen shows the standings with gaps, the time, the map and the speed, that the driving aids in Settings are kept and used in the race, that pause freezes the race clock, that a random track's seed goes into the address bar, that a career event pays coins which then buy a car and an engine upgrade in the garage, and that the next race is driven with that engine, and, on the phone, that holding it upright brings up the turn-sideways screen and pauses the race. Any console error fails a test.
+The browser tests play the built game through its menus in Playwright's Chromium, Firefox and WebKit, and at a phone-sized landscape viewport with touch controls. They check that the city renders, that the car responds to the keyboard or the touch buttons, that a race with traffic runs to the results table and its replay plays and changes camera, that a time trial saves a ghost and shows it on the next run, that a pursuit puts police on the road with the meters showing, that a patrol car waits by the road in a race and chases a car that flies past, that the race screen shows the standings with gaps, the time, the map and the speed, that saves carried over from the old address are kept without overwriting newer ones, that the driving aids in Settings are kept and used in the race, that pause freezes the race clock, that a random track's seed goes into the address bar, that a career event pays coins which then buy a car and an engine upgrade in the garage, and that the next race is driven with that engine, and, on the phone, that holding it upright brings up the turn-sideways screen and pauses the race. Any console error fails a test.
 
-The game is hosted on Vercel at apex.edward7780.com, and Vercel builds and publishes every push to `main`. CI runs the unit tests and the browser tests on the same push, against the same commit. The old GitHub Pages address now forwards to Vercel, keeping any track seed in the link. CI runs every browser test except the Firefox ones: GitHub's machines have no graphics card, and headless Firefox finds no way to start WebGL there, so Firefox runs on a local machine only.
+The game is hosted on Vercel at skidline.edward7780.com, and Vercel builds and publishes every push to `main`. The old address, apex.edward7780.com, forwards there; a small script in `index.html` hands the old address's saves over in the link first, because browsers keep saves per address. CI runs the unit tests and the browser tests on the same push, against the same commit. The old GitHub Pages address now forwards to Vercel, keeping any track seed in the link. CI runs every browser test except the Firefox ones: GitHub's machines have no graphics card, and headless Firefox finds no way to start WebGL there, so Firefox runs on a local machine only.
 
 `npm run shots` retakes the screenshots and the GIF in this README by playing the game in a headless browser, `npm run trailer` records the trailer the same way, and `npm run diagram` redraws the racing line picture. The GIF step needs Python with Pillow, and the trailer needs a machine with a graphics card to record at full frame rate.
 

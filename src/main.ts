@@ -13,6 +13,7 @@ import { COP_TOOL_IDS, type CopToolId, type RacerToolId, TOOL_IDS, type ToolId }
 import type { Weather } from './render/atmosphere'
 import type { Quality } from './render/world'
 import { carById, CARS, type Rating, ratings } from './sim/cars'
+import { bindPedals, bindWheel, startTilt, stopTilt } from './touch'
 import { dailySeed, weeklySeed } from './sim/track'
 import { FINISHES, type Finish, type Glow, GLOWS, isFree, lookKey, type Looks, priceOfLook, STOCK_LOOKS } from './looks'
 import { classOf, kmh, type Part, PARTS, partById, priceOf, ratingOf, STAGES, stageOf, tuned } from './upgrades'
@@ -54,6 +55,8 @@ function loadSettings(): Settings {
     driftAssist: saved.driftAssist ?? true,
     brakeAssist: saved.brakeAssist ?? false,
     stability: saved.stability ?? true,
+    touchSteer: saved.touchSteer === 'arrows' || saved.touchSteer === 'tilt' ? saved.touchSteer : 'wheel',
+    leftHanded: saved.leftHanded === true,
     tools: Array.isArray(saved.tools) && saved.tools.length === 2 && saved.tools.every((t) => TOOL_IDS.includes(t)) ? saved.tools : ['shockwave', 'turbo'],
     copTools: Array.isArray(saved.copTools) && saved.copTools.length === 2 && saved.copTools.every((t) => COP_TOOL_IDS.includes(t)) ? saved.copTools : ['spikes', 'pulse'],
     // 'auto' was the old default; it now means the mountain road by day.
@@ -103,6 +106,18 @@ try {
   throw new Error('WebGL is not available')
 }
 game.input.bindTouch($('touch'))
+bindWheel($('touch-wheel'), game.input)
+bindPedals($('touch-pedals'), game.input)
+// Phone steering and layout from Settings. Tilt needs a tap before an
+// iPhone will ask for permission, so a saved tilt choice starts on the
+// first tap of the visit.
+function touchLayout() {
+  const touch = $('touch')
+  for (const mode of ['wheel', 'arrows', 'tilt']) touch.classList.toggle(`steer-${mode}`, settings.touchSteer === mode)
+  touch.classList.toggle('left-handed', settings.leftHanded)
+}
+touchLayout()
+if (settings.touchSteer === 'tilt') window.addEventListener('pointerdown', () => void startTilt(game.input), { once: true })
 game.tune = specFor
 game.looksFor = (carId) => progress.looks[carId] ?? STOCK_LOOKS
 
@@ -613,6 +628,24 @@ segmented('quality', settings.quality, (v) => game.setQuality(v as Quality))
 segmented('drift-assist', settings.driftAssist ? 'on' : 'off', (v) => (settings.driftAssist = v === 'on'))
 segmented('brake-assist', settings.brakeAssist ? 'on' : 'off', (v) => (settings.brakeAssist = v === 'on'))
 segmented('stability', settings.stability ? 'on' : 'off', (v) => (settings.stability = v === 'on'))
+segmented('touch-steer', settings.touchSteer, (v) => {
+  settings.touchSteer = v as Settings['touchSteer']
+  if (v === 'tilt')
+    void startTilt(game.input).then((ok) => {
+      // No tilt sensor, or permission refused: back to the wheel.
+      if (ok) return
+      settings.touchSteer = 'wheel'
+      saveSettings(settings)
+      document.querySelectorAll<HTMLButtonElement>('#touch-steer button').forEach((b) => b.classList.toggle('on', b.dataset.value === 'wheel'))
+      touchLayout()
+    })
+  else stopTilt(game.input)
+  touchLayout()
+})
+segmented('hand', settings.leftHanded ? 'left' : 'right', (v) => {
+  settings.leftHanded = v === 'left'
+  touchLayout()
+})
 segmented('sound', settings.sound ? 'on' : 'off', (v) => {
   settings.sound = v === 'on'
   game.sound.setEnabled(settings.sound)
@@ -732,6 +765,15 @@ window.setInterval(() => {
 }, 100)
 
 $('resume').addEventListener('click', () => game.resume())
+// The phone's pause menu has what a keyboard has keys for.
+$('pause-look').addEventListener('click', () => {
+  game.resume()
+  game.input.lookUntil = performance.now() + 2500
+})
+$('pause-reset').addEventListener('click', () => {
+  game.resume()
+  game.input.press('reset')
+})
 $('touch-pause').addEventListener('click', () => game.pause())
 $('touch-camera').addEventListener('click', () => game.input.press('camera'))
 $('touch-tool-1').addEventListener('click', () => game.input.press('tool1'))

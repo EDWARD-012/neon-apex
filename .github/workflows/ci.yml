@@ -10,6 +10,13 @@ on:
 permissions:
   contents: read
 
+# A new push to a branch or pull request cancels the run still going for
+# its older commit, so stale runs don't hold up the queue. Each commit on
+# main gets a group of its own, so none of those is ever cancelled.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || (github.ref == 'refs/heads/main' && github.sha) || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -30,10 +37,15 @@ jobs:
         with:
           path: pages
 
-  # Plays the game in Chromium and WebKit, and at phone size. Firefox runs
-  # locally only; see playwright.config.ts.
+  # Plays the game in Chromium and WebKit, and at phone size, each on its
+  # own machine at the same time. Firefox runs locally only; see
+  # playwright.config.ts.
   e2e:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [chromium, webkit, phone]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -41,19 +53,36 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium webkit
-      - run: npm run e2e
+      # The browsers are cached by Playwright version; the system libraries
+      # they need are installed every time, which is quick.
+      - id: pw
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ steps.pw.outputs.version }}-${{ matrix.project == 'chromium' && 'chromium' || 'webkit' }}
+      - run: npx playwright install --with-deps ${{ matrix.project == 'chromium' && 'chromium' || 'webkit' }}
+      - run: npm run e2e -- --project=${{ matrix.project }}
       # Screenshots and traces of anything that failed, for a look later.
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-results
+          name: e2e-results-${{ matrix.project }}
           path: test-results
           retention-days: 7
 
+  # One check that is green only when every browser passed, so pull
+  # requests have a single e2e result to wait for.
+  e2e-all:
+    if: always()
+    needs: e2e
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.e2e.result }}" = success
+
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [test, e2e]
+    needs: [test, e2e-all]
     runs-on: ubuntu-latest
     permissions:
       pages: write

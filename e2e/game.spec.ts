@@ -91,11 +91,12 @@ test('the title screen draws the city', async ({ page }) => {
 test('the car moves under the player’s control', async ({ page, isMobile }) => {
   await open(page)
   await quickRace(page)
-  const throttleSeen = () => expect.poll(() => page.evaluate(() => (window as any).__neon.game.race.playerInput.throttle), { timeout: 15000 }).toBe(1)
+  const throttleSeen = () => expect.poll(() => page.evaluate(() => (window as any).__neon.game.race.playerInput.throttle), { timeout: 15000 }).toBeGreaterThan(0.9)
   if (isMobile) {
     await expect(page.locator('#touch')).toBeVisible()
-    const box = (await page.locator('[data-touch="gas"]').boundingBox())!
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    // Near the top of the gas pedal is full throttle.
+    const box = (await page.locator('[data-pedal="gas"]').boundingBox())!
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height * 0.08)
     await page.mouse.down()
     await throttleSeen()
     await forward(page, 1.5)
@@ -265,6 +266,21 @@ test('a new random track goes into the address bar', async ({ page }) => {
   await expect(page.locator('#challenge-note')).toContainText("Today's challenge")
 })
 
+test('saves carried over from the old address are kept, and the link is tidied', async ({ page }) => {
+  // The old address hands its saves over in the link (see the script at the
+  // top of index.html). The new one keeps them when it has none of its own.
+  const career = JSON.stringify({ cash: 4321, owned: ['vanta', 'kite'], won: {} })
+  const carry = encodeURIComponent(JSON.stringify({ 'neon-apex/career': career, 'other/key': 'ignored' }))
+  await open(page, `#carry=${carry}`)
+  await expect.poll(() => page.evaluate(() => (window as any).__neon?.progress().cash), { timeout: 60_000 }).toBe(4321)
+  expect(await page.evaluate(() => location.hash)).toBe('')
+  expect(await page.evaluate(() => localStorage.getItem('other/key'))).toBeNull()
+  // A second carry does not overwrite saves the new address already has.
+  const newer = encodeURIComponent(JSON.stringify({ 'neon-apex/career': JSON.stringify({ cash: 5, owned: ['vanta'], won: {} }) }))
+  await open(page, `#carry=${newer}`)
+  await expect.poll(() => page.evaluate(() => (window as any).__neon?.progress().cash), { timeout: 60_000 }).toBe(4321)
+})
+
 test('the career pays coins, which buy a car and its upgrades in the garage', async ({ page }) => {
   await open(page, '&autopilot')
   await page.locator('#go-career').click()
@@ -330,6 +346,29 @@ test('a phone held upright is asked to turn sideways, and the race waits', async
   expect((await state(page)).mode).toBe('paused')
   await page.setViewportSize(size)
   await expect(page.locator('#rotate')).toBeHidden()
+})
+
+test('on a phone the wheel steers, the brake pedal brakes, and pause has look back and reset', async ({ page, isMobile }) => {
+  test.skip(!isMobile, 'phones only')
+  await open(page)
+  await quickRace(page)
+  const input = (name: string) => page.evaluate((n) => (window as any).__neon.game.input[n], name)
+  const wheel = (await page.locator('#touch-wheel').boundingBox())!
+  await page.mouse.move(wheel.x + wheel.width * 0.5, wheel.y + wheel.height * 0.6)
+  await page.mouse.down()
+  await page.mouse.move(wheel.x + wheel.width * 0.95, wheel.y + wheel.height * 0.6, { steps: 6 })
+  await expect.poll(() => input('analogSteer')).toBeGreaterThan(0.5)
+  await page.mouse.up()
+  await expect.poll(() => input('analogSteer')).toBe(null)
+  const brake = (await page.locator('[data-pedal="brake"]').boundingBox())!
+  await page.mouse.move(brake.x + brake.width / 2, brake.y + brake.height / 2)
+  await page.mouse.down()
+  await expect.poll(() => input('analogBrake')).toBeGreaterThan(0.3)
+  await page.mouse.up()
+  await page.locator('#touch-pause').click()
+  await expect(page.locator('#pause-look')).toBeVisible()
+  await page.locator('#pause-reset').click()
+  await expect(page.locator('#pause')).toBeHidden()
 })
 
 test('on a phone the camera button changes the view', async ({ page, isMobile }) => {
