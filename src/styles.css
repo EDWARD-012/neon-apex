@@ -2324,6 +2324,7 @@ kbd {
   width: 38px;
   margin-left: -4px;
   border-top: 3px solid rgba(224, 49, 63, calc(0.3 + var(--press, 0) * 0.7));
+}
 
 /* Garage: room between the rows, a marker that slides to the active tab,
    and a little motion. Entering a tab staggers its options in; buying
