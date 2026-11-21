@@ -395,6 +395,11 @@ test('the career pays coins, which buy a car and its upgrades in the garage', as
   await page.locator('#looks button[data-number="1"]').click()
   await expect(page.locator('#looks .number-row b')).toHaveText('8')
   await expect(page.locator('#car-action')).toHaveText('Race number needs 3,000 coins')
+  // The wrap painter: add a layer, make it text, and a text box appears.
+  await page.locator('#looks .wrap-add').click()
+  await expect(page.locator('#looks .wrap-layer')).toHaveCount(1)
+  await page.locator('#looks .wrap-layer select[data-key="kind"]').selectOption('text')
+  await expect(page.locator('#looks .wrap-text')).toBeVisible()
   // The next race is driven with the upgraded engine.
   const top = await page.evaluate(() => {
     const neon = (window as any).__neon

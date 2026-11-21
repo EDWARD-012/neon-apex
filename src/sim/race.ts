@@ -76,8 +76,16 @@ export interface RaceOptions {
   patrols?: number
 }
 
+// Slipstream: close behind a rival, nearly in line with it, both above
+// SLIP_SPEED. It fills the player's nitro while it lasts.
+export const SLIP_RANGE = 18
+export const SLIP_WIDTH = 1.6
+export const SLIP_SPEED = 20
+export const SLIP_NITRO = 0.06
+
 export type RaceEvent =
   | { type: 'nearMiss' }
+  | { type: 'slipstream' }
   | { type: 'cleanLap' }
   | { type: 'contact'; strength: number }
   | { type: 'driftBank'; points: number }
@@ -580,6 +588,7 @@ export class Race {
     }
     if (playerCar.wallHit >= CRASH_WALL) this.reportCrash()
     this.nearMisses()
+    this.slipstream(dt)
     this.scoreDrift(dt)
     this.takedownCheck()
     // Too much damage wrecks the player's car and puts it out of the race.
@@ -1130,6 +1139,32 @@ export class Race {
   // Ids knocked out, in order.
   readonly eliminated: number[] = []
   private lapsLed = 0
+
+  // Whether the player is in a rival's slipstream.
+  slipping = false
+  private slipstream(dt: number) {
+    const me = this.player.car
+    let found = false
+    if (this.phase === 'racing' && this.player.finishTime === null && !this.player.out && speedOf(me) > SLIP_SPEED) {
+      for (const racer of this.racers) {
+        const c = racer.car
+        if (racer.player || racer.out || speedOf(c) < SLIP_SPEED) continue
+        const fx = Math.sin(c.heading)
+        const fz = Math.cos(c.heading)
+        const dx = me.x - c.x
+        const dz = me.z - c.z
+        const behind = -(dx * fx + dz * fz)
+        const side = Math.abs(dx * fz - dz * fx)
+        if (behind > 3 && behind < SLIP_RANGE && side < SLIP_WIDTH) {
+          found = true
+          break
+        }
+      }
+    }
+    if (found) me.nitro = Math.min(1, me.nitro + SLIP_NITRO * dt)
+    if (found && !this.slipping) this.events.push({ type: 'slipstream' })
+    this.slipping = found
+  }
 
   // A near miss: the player goes from behind a traffic car to ahead of it,
   // close alongside, clearly faster, and without having touched it.

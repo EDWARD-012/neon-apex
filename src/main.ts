@@ -21,7 +21,8 @@ import { MIN_SCALE, type QualityMode } from './autoQuality'
 import { carById, CARS, type Rating, ratings } from './sim/cars'
 import { bindPedals, bindWheel, startTilt, stopTilt } from './touch'
 import { dailySeed, weeklySeed } from './sim/track'
-import { FINISHES, fullLooks, GLOWS, isFree, LIVERIES, type LookKind, lookKey, lookName, type Looks, priceOfLook, RIDES, RIMS, SPOILERS, TINTS, TRIMS, type Trim } from './looks'
+import { drawWrap } from './wrap'
+import { FINISHES, fullLooks, GLOWS, isFree, LIVERIES, type LookKind, lookKey, lookName, type Looks, priceOfLook, RIDES, RIMS, SPOILERS, TINTS, setWrap, TRIMS, type Trim } from './looks'
 import { classOf, kmh, type Part, PARTS, partById, priceOf, ratingOf, setTune, STAGES, stageOf, STOCK_TUNE, type Tune, tuned, TUNES, tuneOpen } from './upgrades'
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement
@@ -580,8 +581,23 @@ function drawLooks(carId: string, owned: boolean, action: HTMLButtonElement) {
     shown.livery === 'number'
       ? `<span class="label">Race number</span><div class="look-row number-row"><button data-number="-1" ${owned ? '' : 'disabled'} aria-label="Lower number">−</button><b>${shown.number}</b><button data-number="1" ${owned ? '' : 'disabled'} aria-label="Higher number">+</button></div>`
       : ''
-  $('looks').innerHTML = `<span class="label">Finish</span><div class="look-row">${row('finish', FINISHES)}</div><span class="label">Underglow, seen at night</span><div class="look-row">${row('glow', GLOWS)}</div><span class="label">Livery, with your name on the plates</span><div class="look-row">${row('livery', LIVERIES)}</div>${trims}${number}<span class="label">Wheels</span><div class="look-row">${row('rims', RIMS)}</div><span class="label">Ride height</span><div class="look-row">${row('ride', RIDES)}</div><span class="label">Window tint</span><div class="look-row">${row('tint', TINTS)}</div><span class="label">Spoiler</span><div class="look-row">${row('spoiler', SPOILERS)}</div>`
+  $('looks').innerHTML = `<span class="label">Finish</span><div class="look-row">${row('finish', FINISHES)}</div><span class="label">Underglow, seen at night</span><div class="look-row">${row('glow', GLOWS)}</div><span class="label">Livery, with your name on the plates</span><div class="look-row">${row('livery', LIVERIES)}</div>${trims}${number}<span class="label">Wheels</span><div class="look-row">${row('rims', RIMS)}</div><span class="label">Ride height</span><div class="look-row">${row('ride', RIDES)}</div><span class="label">Window tint</span><div class="look-row">${row('tint', TINTS)}</div><span class="label">Spoiler</span><div class="look-row">${row('spoiler', SPOILERS)}</div><div id="wrap-box" class="wrap"></div>`
   const preview = () => (trying ? { ...fullLooks(progress.looks[carId]), [trying.kind]: trying.id } : undefined)
+  // The wrap painter, on a car the player owns.
+  drawWrap(
+    $('wrap-box'),
+    shown.wrap,
+    owned,
+    (wrap) => game.restyleGarage({ ...shown, wrap }),
+    (wrap) => {
+      const next = setWrap(progress, carId, wrap)
+      if (!next) return
+      progress = next
+      keep()
+      game.refreshGarage(carId, preview())
+      drawGarage()
+    },
+  )
   $('looks')
     .querySelectorAll<HTMLButtonElement>('button[data-kind]')
     .forEach((b) =>
