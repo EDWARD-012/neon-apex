@@ -18,6 +18,7 @@ import { buzz } from './touch'
 import { type Fitted, type Tune, tuned } from './upgrades'
 import { createHelicopter, type HelicopterModel } from './render/helicopter'
 import { buildArrows, buildPuddles, buildSigns, Crowd, type Puddle } from './render/roadside'
+import { type Lamps, Nightfall } from './render/nightfall'
 import { disposeStrip, spikeStrip } from './render/spikes'
 import { spot } from './render/textures'
 import { buildTrackMeshes } from './render/trackMesh'
@@ -243,6 +244,8 @@ export class Game {
   // The crowd at the start line, and how excited it is.
   private crowd: Crowd | null = null
   private crowdMood = 0
+  // A dusk race falling to night, with its street lights and headlights.
+  private nightfall: Nightfall | null = null
   private readonly trails = new Trails(64)
   private readonly rain = new Rain()
   private raining = false
@@ -399,10 +402,18 @@ export class Game {
     this.raining = applyWeather(this.world, this.weather, m.road, m.city?.facade ?? null, m.city?.dome ?? null, m.ground, mirror)
     this.rain.lines.visible = this.raining
     if (this.puddleGroup) this.puddleGroup.visible = this.raining
+    // A dusk race in the city falls to night as it goes; every other night
+    // race has all its street lights on from the start.
+    this.nightfall = null
+    const lamps = (this.scenery[0]?.userData.lamps ?? null) as Lamps | null
+    if (lamps) Nightfall.allLit(lamps)
     if (m.city) {
+      const sky = { sun: m.city.sun, moon: m.city.moon, beams: m.city.beams }
+      Nightfall.restore(sky)
       m.city.moon.visible = this.weather === 'clear'
       m.city.sun.visible = this.weather === 'dusk'
       for (const beam of m.city.beams) beam.visible = this.weather !== 'dusk'
+      if (this.weather === 'dusk') this.nightfall = new Nightfall(lamps, sky, spec.seed)
     }
     this.headlight.visible = !day
     this.trails.mesh.visible = !day
@@ -468,6 +479,20 @@ export class Game {
     this.headlight.position.set(0, 0.8, 2.0)
     this.headlight.target.position.set(0, 0, 30)
     playerModel.add(this.headlight, this.headlight.target)
+    // Falling to night, every car's lights (and the player's real
+    // headlight, and the light trails) come on as it gets dark.
+    if (this.nightfall) {
+      for (const v of this.views) {
+        const parts: Object3D[] = []
+        v.model.group.traverse((o) => {
+          if (o.userData.night) parts.push(o)
+        })
+        if (v.racer?.player) parts.push(this.headlight)
+        this.nightfall.addCar(parts)
+      }
+      this.nightfall.addCar([this.trails.mesh])
+      if (m.city) this.nightfall.update(this.race.clock, this.world, m.road, m.city.facade, m.city.dome)
+    }
 
     this.skids.clear()
     this.scrapes.clear()
@@ -1240,6 +1265,7 @@ export class Game {
     this.nitroPulse *= Math.exp(-dt * 2.6)
     const city = this.materials?.city
     if (this.world.day) this.world.followSun(this.player.car.x, this.player.car.z)
+    if (city && this.nightfall && this.materials) this.nightfall.update(this.mode === 'replay' ? this.replayTime : this.race.clock, this.world, this.materials.road, city.facade, city.dome)
     if (city) {
       city.beacons.opacity = Math.sin(this.time * 3) > 0.6 ? 1 : 0.15
       for (const t of city.tickers) t.offset.x = (t.offset.x + dt * 0.06) % 1

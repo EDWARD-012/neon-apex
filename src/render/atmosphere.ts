@@ -1,4 +1,4 @@
-import type { MeshBasicMaterial, MeshStandardMaterial } from 'three'
+import { Color, type MeshBasicMaterial, type MeshStandardMaterial } from 'three'
 import { hashSeed } from '../sim/rng'
 import { sky } from './textures'
 import type { World } from './world'
@@ -61,9 +61,35 @@ export function applyWeather(world: World, weather: Weather, road: MeshStandardM
   if (dome && !isDay(weather)) {
     dome.map?.dispose()
     dome.map = sky(weather as 'clear' | 'rain' | 'dusk')
+    // Untinted, in case the last race was a dusk one that fell to night.
+    dome.color.set('#ffffff')
     dome.needsUpdate = true
   }
   return p.rain
+}
+
+// A dusk race gets darker as it goes: over this many seconds the light
+// moves from the dusk preset to the clear night's.
+export const NIGHTFALL = 150
+
+const from = new Color()
+const to = new Color()
+const hex = (a: string, b: string, t: number) => `#${from.set(a).lerp(to.set(b), t).getHexString()}`
+
+// The light part of the way, t from 0 to 1, from dusk to clear night: the
+// fog, the sky and ground light, the moon, the exposure, the road's sheen,
+// the lit windows, and the painted sky dimming towards night blue.
+export function nightfall(world: World, t: number, road: MeshStandardMaterial, facade: MeshStandardMaterial | null, dome: MeshBasicMaterial | null) {
+  const p = PRESETS.dusk
+  const q = PRESETS.clear
+  const mix = (a: number, b: number) => a + (b - a) * t
+  world.setFog(hex(p.fog, q.fog, t), mix(p.density, q.density), true)
+  world.setLight(hex(p.sky, q.sky, t), hex(p.ground, q.ground, t), mix(p.ambient, q.ambient), mix(p.moon, q.moon))
+  world.renderer.toneMappingExposure = mix(p.exposure, q.exposure)
+  road.roughness = mix(p.roadRoughness, q.roadRoughness)
+  road.envMapIntensity = mix(p.roadReflection, q.roadReflection)
+  if (facade) facade.emissiveIntensity = mix(p.windows, q.windows)
+  if (dome) dome.color.set(hex('#ffffff', '#3c4678', t))
 }
 
 // The weather for a track when the player leaves it on automatic: the same
