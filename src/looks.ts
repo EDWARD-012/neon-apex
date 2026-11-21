@@ -23,7 +23,7 @@ export const FINISHES: { id: Finish; name: string; price: number }[] = [
 ]
 
 export const GLOWS: { id: Glow; name: string; color: string | null; price: number }[] = [
-  { id: 'paint', name: 'Paint colour', color: null, price: 0 },
+  { id: 'paint', name: 'Match paint', color: null, price: 0 },
   { id: 'off', name: 'Off', color: null, price: 0 },
   { id: 'cyan', name: 'Cyan', color: '#3df5ff', price: 1500 },
   { id: 'pink', name: 'Pink', color: '#ff2d95', price: 1500 },

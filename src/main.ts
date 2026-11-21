@@ -325,7 +325,83 @@ function garage() {
   game.showGarage()
   setScreen('garage')
   viewing = settings.car
+  entering = true
   drawGarage()
+}
+
+// Motion in the garage (see the end of styles.css): a marker that slides to
+// the active tab, options that stagger in when a tab opens, a pulse on
+// whatever was just bought, and coins that count to their new value.
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)')
+let entering = true
+let enterTimer = 0
+const tabBar = $('garage-tab')
+const tabMarker = document.createElement('span')
+tabMarker.className = 'marker'
+tabMarker.setAttribute('aria-hidden', 'true')
+tabBar.prepend(tabMarker)
+
+function placeTabMarker() {
+  const on = tabBar.querySelector<HTMLButtonElement>('button.on')
+  if (!on || on.offsetWidth === 0) return
+  const first = !tabBar.classList.contains('ready')
+  // The first time it appears it is put in place, not slid there.
+  if (first) tabMarker.style.transition = 'none'
+  tabMarker.style.transform = `translateX(${on.offsetLeft}px) scaleX(${on.offsetWidth / 100})`
+  if (first) {
+    void tabMarker.offsetWidth
+    tabMarker.style.transition = ''
+    tabBar.classList.add('ready')
+  }
+}
+
+let coinTween = 0
+function showCoins(el: HTMLElement, to: number) {
+  const from = Number(el.dataset.value ?? to)
+  el.dataset.value = String(to)
+  cancelAnimationFrame(coinTween)
+  if (from === to || reduceMotion.matches || el.offsetParent === null) {
+    el.textContent = coins(to)
+    return
+  }
+  const start = performance.now()
+  const step = (now: number) => {
+    const t = Math.min(1, (now - start) / 450)
+    el.textContent = coins(Math.round(from + (to - from) * (1 - (1 - t) ** 3)))
+    if (t < 1) coinTween = requestAnimationFrame(step)
+  }
+  coinTween = requestAnimationFrame(step)
+}
+
+function flashBought(selector: string, newPip = false) {
+  const el = document.querySelector<HTMLElement>(selector)
+  if (!el) return
+  el.classList.add('bought')
+  el.addEventListener('animationend', () => el.classList.remove('bought'), { once: true })
+  if (newPip) [...el.querySelectorAll('.pips i.on')].at(-1)?.classList.add('new')
+}
+
+// After each redraw: the tab marker, and the entrance when a tab has just
+// opened. Redraws for a click inside a tab don't replay the entrance.
+function afterGarageDraw() {
+  placeTabMarker()
+  const animated = document.querySelectorAll('#garage .enter, #garage .enter-text')
+  animated.forEach((e) => e.classList.remove('enter', 'enter-text'))
+  if (!entering) return
+  entering = false
+  for (const id of ['car-list', 'parts', 'looks', 'car-stats']) {
+    const el = $(id)
+    if (el.classList.contains('hidden')) continue
+    ;[...el.children].forEach((c, k) => (c as HTMLElement).style.setProperty('--i', String(Math.min(k, 10))))
+    void el.offsetWidth
+    el.classList.add('enter')
+  }
+  for (const id of ['car-blurb', 'car-speed']) {
+    void $(id).offsetWidth
+    $(id).classList.add('enter-text')
+  }
+  window.clearTimeout(enterTimer)
+  enterTimer = window.setTimeout(() => document.querySelectorAll('#garage .enter, #garage .enter-text').forEach((e) => e.classList.remove('enter', 'enter-text')), 700)
 }
 
 const STAT_NAMES: Record<Rating, string> = { speed: 'Top speed', acceleration: 'Acceleration', grip: 'Grip', drift: 'Drift', braking: 'Braking', nitro: 'Nitro', toughness: 'Toughness' }
@@ -340,7 +416,9 @@ function drawLooks(carId: string, owned: boolean, action: HTMLButtonElement) {
     items
       .map((l) => {
         const have = l.price === 0 || progress.ownedLooks.includes(lookKey(kind, l.id))
-        return `<button data-kind="${kind}" data-look="${l.id}" class="${shown[kind] === l.id ? 'on' : ''}">${l.name}<small>${have ? (current[kind] === l.id ? 'On' : l.price === 0 ? 'Free' : 'Owned') : `${coins(l.price)} coins`}</small></button>`
+        const tryingThis = trying?.kind === kind && trying.id === l.id
+        const status = have ? (current[kind] === l.id ? 'On' : l.price === 0 ? 'Free' : 'Owned') : tryingThis ? 'Trying on' : `${coins(l.price)} coins`
+        return `<button data-kind="${kind}" data-look="${l.id}" class="${shown[kind] === l.id ? 'on' : ''}">${l.name}<small>${status}</small></button>`
       })
       .join('')
   $('looks').innerHTML = `<span class="label">Finish</span><div class="look-row">${row('finish', FINISHES)}</div><span class="label">Underglow, seen at night</span><div class="look-row">${row('glow', GLOWS)}</div>`
@@ -388,7 +466,12 @@ function drawStats(now: ReturnType<typeof ratings>, next?: ReturnType<typeof rat
 }
 
 function drawGarage() {
-  $('garage-cash').textContent = coins(progress.cash)
+  drawGarageBody()
+  afterGarageDraw()
+}
+
+function drawGarageBody() {
+  showCoins($('garage-cash'), progress.cash)
   document.querySelectorAll<HTMLButtonElement>('#garage-tab button').forEach((b) => b.classList.toggle('on', b.dataset.value === tab))
   const upgrading = tab === 'upgrades'
   const styling = tab === 'looks'
@@ -478,8 +561,10 @@ function drawGarage() {
 
 document.querySelectorAll<HTMLButtonElement>('#garage-tab button').forEach((b) =>
   b.addEventListener('click', () => {
+    if (tab === b.dataset.value) return
     tab = b.dataset.value as typeof tab
     trying = null
+    entering = true
     game.refreshGarage(viewing)
     drawGarage()
   }),
@@ -491,11 +576,13 @@ $('car-action').addEventListener('click', () => {
     if (!trying) return
     const next = fitLook(progress, car.id, trying.kind, trying.id)
     if (!next) return
+    const { kind, id } = trying
     progress = next
     trying = null
     keep()
     game.refreshGarage(car.id)
     drawGarage()
+    flashBought(`#looks button[data-kind="${kind}"][data-look="${id}"]`)
     return
   }
   if (tab === 'upgrades') {
@@ -504,9 +591,11 @@ $('car-action').addEventListener('click', () => {
     progress = fitted
     keep()
     drawGarage()
+    flashBought(`#parts .part[data-part="${picked}"]`, true)
     return
   }
-  if (!progress.owned.includes(car.id)) {
+  const buying = !progress.owned.includes(car.id)
+  if (buying) {
     const bought = buy(progress, car.id)
     if (!bought) return
     progress = bought
@@ -515,6 +604,7 @@ $('car-action').addEventListener('click', () => {
   settings.car = car.id
   saveSettings(settings)
   drawGarage()
+  if (buying) flashBought(`#car-list button[data-car="${car.id}"]`)
 })
 
 const swatches = $('colors')
