@@ -476,3 +476,20 @@ test('on a phone the camera button changes the view', async ({ page, isMobile })
   await page.locator('#touch-camera').tap()
   await expect(page.locator('#hud')).not.toHaveClass(/cockpit-view/)
 })
+
+test('free roam on the test map opens from ?roam and drives', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(String(e)))
+  await open(page, '&roam')
+  await page.waitForFunction(() => (window as any).__roam, null, { timeout: 60000 })
+  // No menu and no race panels, but the speedo and the map.
+  await expect(page.locator('#menu')).toBeHidden()
+  await expect(page.locator('.hud-right')).toBeHidden()
+  await expect(page.locator('#minimap')).toBeVisible()
+  await expect(page.locator('#area')).toHaveText('Low Road')
+  await page.keyboard.down('ArrowUp')
+  await expect.poll(() => page.evaluate(() => Math.hypot((window as any).__roam.roamer.car.vx, (window as any).__roam.roamer.car.vz)), { timeout: 30000 }).toBeGreaterThan(5)
+  await page.keyboard.up('ArrowUp')
+  await expect.poll(async () => Number(await page.locator('#speed').textContent()), { timeout: 15000 }).toBeGreaterThan(0)
+  expect(errors).toEqual([])
+})

@@ -126,7 +126,7 @@ interface Debris {
 }
 
 // Which engine each of the player's cars has.
-const ENGINES: Partial<Record<Shape, EngineKind>> = { vanta: 'v12', kite: 'turbo4', brute: 'v8', volt: 'electric', kestrel: 'turbo4', finch: 'turbo4', marten: 'turbo4', granite: 'v8', moraine: 'v8' }
+export const ENGINES: Partial<Record<Shape, EngineKind>> = { vanta: 'v12', kite: 'turbo4', brute: 'v8', volt: 'electric', kestrel: 'turbo4', finch: 'turbo4', marten: 'turbo4', granite: 'v8', moraine: 'v8' }
 
 export type CameraMode = 'chase' | 'far' | 'cockpit' | 'hood' | 'bumper' | 'drone'
 export const CAMERA_MODES: CameraMode[] = ['chase', 'far', 'cockpit', 'hood', 'bumper', 'drone']
@@ -693,6 +693,10 @@ export class Game {
     $('hud').classList.remove('hidden')
   }
 
+  // A prototype that runs each frame in place of the races: free roam on
+  // the open map's test map, opened only with ?roam. Null in the game.
+  takeover: ((dt: number) => void) | null = null
+
   // Automatic quality: off in the browser tests unless asked for, so a slow
   // test machine does not change what the tests draw.
   autoQuality = true
@@ -745,6 +749,11 @@ export class Game {
       if (next) this.autoLevel(next)
     }
     this.time += dt
+    if (this.takeover) {
+      this.takeover(dt)
+      requestAnimationFrame(this.frame)
+      return
+    }
     if (this.mode === 'intro') {
       this.introTime += dt
       if (this.introTime >= INTRO_SECONDS || this.input.take('any')) this.skipIntro()
