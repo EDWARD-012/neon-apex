@@ -5,6 +5,7 @@ import '@fontsource/chakra-petch/600-italic.css'
 import '@fontsource/chakra-petch/500-italic.css'
 import './styles.css'
 import { report, startClock } from './analytics'
+import { boardsEnabled, drawBoard, fetchBoard, sendRun } from './leaderboard'
 import { PORTAL } from './portal'
 import { carAssetsPending, loadCarAssets } from './render/carAssets'
 import { fetchBytes, onLoadProgress, report as loadReport, setStep } from './loader'
@@ -193,6 +194,7 @@ function menu() {
   const tier = [...TIERS.keys()].filter((k) => tierOpen(progress, k)).pop() ?? 0
   $('career-note').textContent = `${TIERS[tier].name} tier, ${coins(progress.cash)} coins`
   $('garage-note').textContent = carById(settings.car).name
+  menuBoard()
 }
 
 $('go-career').addEventListener('click', () => career())
@@ -785,6 +787,53 @@ $('sign-out').addEventListener('click', () => {
 $('go-account').classList.toggle('hidden', !cloudEnabled)
 void currentAccount().then((account) => account && adopt(account))
 
+// Leaderboards: the fastest checked time-trial laps on today's and this
+// week's track on the menu, and on the results screen after a trial, where
+// a signed-in player's finished run is sent to be checked first.
+
+let boardPick = 'daily'
+const boardName = () => signedIn?.username ?? null
+const signInNote = 'Sign in on the Account screen to put your time-trial laps on the board.'
+
+function menuBoard() {
+  if (!boardsEnabled) return
+  $('menu-boards').classList.remove('hidden')
+  const daily = boardPick === 'daily'
+  $('board-track').textContent = daily ? "today's track" : "this week's track"
+  const el = $('menu-board')
+  el.innerHTML = '<p class="board-note">Loading the board</p>'
+  void fetchBoard(daily ? dailySeed() : weeklySeed()).then((board) => drawBoard(el, board, formatTime, boardName(), boardName() ? '' : signInNote))
+}
+segmented('board-pick', boardPick, (v) => {
+  boardPick = v
+  menuBoard()
+})
+
+function lapBoard(spec: EventSpec) {
+  const el = $('lap-board')
+  const show = boardsEnabled && spec.kind === 'trial'
+  el.classList.toggle('hidden', !show)
+  if (!show) return
+  el.innerHTML = '<h3>Fastest laps on this track</h3><div class="board"></div>'
+  const box = el.querySelector('.board') as HTMLElement
+  const name = boardName()
+  const run = name ? game.lapRun(settings.car, progress.upgrades[settings.car]) : null
+  if (!run) {
+    void fetchBoard(spec.seed).then((board) => drawBoard(box, board, formatTime, name, name ? '' : signInNote))
+    return
+  }
+  box.innerHTML = '<p class="board-note">Checking your lap</p>'
+  void sendRun(run).then((sent) => {
+    if (!sent.ok) {
+      void fetchBoard(spec.seed).then((board) => drawBoard(box, board, formatTime, name, sent.error))
+      return
+    }
+    const me = sent.board.me
+    const note = me && me.time < sent.time ? `Checked: ${formatTime(sent.time)}. Your best here is still ${formatTime(me.time)}, ${ordinal(me.place)} of ${sent.board.count}.` : me ? `Checked: ${formatTime(sent.time)}, ${ordinal(me.place)} of ${sent.board.count}.` : `Checked: ${formatTime(sent.time)}.`
+    drawBoard(box, sent.board, formatTime, name, note)
+  })
+}
+
 // Running an event
 
 let current: EventSpec | null = null
@@ -939,6 +988,7 @@ function results(outcome: Outcome) {
   const lines = paid.lines.map((l) => `<li><span>${l.label}</span><b>+${coins(l.coins)}</b></li>`).join('')
   $('reward').innerHTML = `${head}<ul class="pay-lines">${lines}</ul><p class="pay-total">+${coins(paid.total)} coins</p>`
   $('reward').classList.remove('hidden')
+  lapBoard(spec)
   // Beating a crew leader the first time: pick one of the reward cards.
   const tierOf = TIERS.findIndex((t) => t.leader.id === def?.id)
   if (def && tierOf >= 0 && paid.result?.won && !progress.claimed.includes(def.id)) showCards(tierOf, def.id)
