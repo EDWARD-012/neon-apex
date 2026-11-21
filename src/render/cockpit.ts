@@ -1,4 +1,5 @@
 import {
+  CapsuleGeometry,
   BoxGeometry,
   CanvasTexture,
   CylinderGeometry,
@@ -77,6 +78,22 @@ export class Cockpit {
       return spoke
     })
     this.wheel.add(rim, marker, hub, ...spokes)
+    // The driver's gloved hands at quarter to three. They hold the rim, so
+    // they turn with it.
+    const glove = new MeshStandardMaterial({ color: '#2a2c31', roughness: 0.85, metalness: 0 })
+    for (const side of [-1, 1]) {
+      const hand = new Group()
+      hand.position.set(side * 0.165, 0, 0)
+      const palm = new Mesh(new CapsuleGeometry(0.026, 0.055, 4, 10), glove)
+      palm.scale.set(1.15, 1, 0.9)
+      const knuckles = new Mesh(new CapsuleGeometry(0.014, 0.05, 4, 8), glove)
+      knuckles.position.set(-side * 0.02, 0.005, 0.022)
+      const thumb = new Mesh(new CapsuleGeometry(0.011, 0.03, 4, 8), glove)
+      thumb.position.set(-side * 0.03, 0.03, -0.012)
+      thumb.rotation.z = side * 0.9
+      hand.add(palm, knuckles, thumb)
+      this.wheel.add(hand)
+    }
     // Mounted on a column, tilted back towards the driver. It sits low, so
     // the top of the rim is in the lower third of the view and the road
     // stays clear above it, and just behind the edge of the dash, so the

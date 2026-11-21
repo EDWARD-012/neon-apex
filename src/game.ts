@@ -1,4 +1,4 @@
-import { AdditiveBlending, Color, CylinderGeometry, DoubleSide, type Group, Group as GroupObject, type Material, MathUtils, type Mesh, Mesh as MeshObject, MeshBasicMaterial, MeshStandardMaterial, Object3D, RingGeometry, SphereGeometry, SpotLight, Vector3 } from 'three'
+import { AdditiveBlending, Color, CylinderGeometry, PlaneGeometry, Sprite, SpriteMaterial, DoubleSide, type Group, Group as GroupObject, type Material, MathUtils, type Mesh, Mesh as MeshObject, MeshBasicMaterial, MeshStandardMaterial, Object3D, RingGeometry, SphereGeometry, SpotLight, Vector3 } from 'three'
 import { type EngineKind, Sound } from './audio'
 import { BUST_PAY, type EventKind, ESCAPE_PAY, type Outcome, TAKEDOWN_PAY } from './career'
 import { bumper, finishOrbit, heli, INTRO_SECONDS, intro, tv, tvCameras } from './cinema'
@@ -11,8 +11,10 @@ import { Cockpit, DRIVER } from './render/cockpit'
 import { Particles, Rain, Skids, Trails } from './render/effects'
 import { Garage } from './render/garage'
 import { type Looks, STOCK_LOOKS, styleCar } from './looks'
+import { buzz } from './touch'
 import { tuned } from './upgrades'
 import { createHelicopter, type HelicopterModel } from './render/helicopter'
+import { buildPuddles, buildSigns, type Puddle } from './render/roadside'
 import { disposeStrip, spikeStrip } from './render/spikes'
 import { spot } from './render/textures'
 import { buildTrackMeshes } from './render/trackMesh'
@@ -62,6 +64,9 @@ export interface Settings {
   driftAssist: boolean
   brakeAssist: boolean
   stability: boolean
+  // Phones: how to steer, and which side the steering goes.
+  touchSteer: 'wheel' | 'arrows' | 'tilt'
+  leftHanded: boolean
   // The two racer tools taken into a pursuit, and the two police tools
   // for playing the cop.
   tools: RacerToolId[]
@@ -73,6 +78,11 @@ export interface Settings {
 interface View {
   car: CarState
   model: CarModel
+  // How hot the brakes are, 0 to 1, and the glow at each wheel that shows
+  // it; and for a patrol car, its light bar's glow on the road at night.
+  brakeHeat: number
+  brakeGlow: Sprite[]
+  barPool: Mesh | null
   prev: { x: number; z: number; heading: number }
   racer: Racer | null
   police: boolean
@@ -145,6 +155,8 @@ export class Game {
   timeScale = 1
   onResults: ((outcome: Outcome) => void) | null = null
   onRestart: (() => void) | null = null
+  // Whether the phone controls are on screen, so the HUD can update them.
+  private readonly touchShown = matchMedia('(pointer: coarse)').matches
   // The player's car with its upgrades. Set by the menus, which know the
   // save; until then a car drives as it left the factory.
   tune: (carId: string) => CarSpec = (carId) => carById(carId).spec
@@ -206,6 +218,12 @@ export class Game {
   private readonly trails = new Trails(64)
   private readonly rain = new Rain()
   private raining = false
+  // Puddles on this track, splashed through in the rain.
+  private puddles: Puddle[] = []
+  private puddleGroup: Group | null = null
+  // Glass and bodywork shards from hard hits, and the brake glow sprite.
+  private readonly shards: Particles
+  private readonly brakeGlowMaterial: SpriteMaterial
   private readonly headlight: SpotLight
   private readonly cockpit = new Cockpit()
   private cameras: Vector3[] = []
@@ -243,13 +261,15 @@ export class Game {
     this.smoke = new Particles(900, this.spotTexture, '#c9cad6', { grow: 3.2 })
     this.spray = new Particles(900, this.spotTexture, '#aab4d0', { grow: 2.4 })
     this.sparks = new Particles(400, this.spotTexture, '#ffb347', { additive: true, gravity: 14, brightness: 3 })
+    this.shards = new Particles(300, this.spotTexture, '#cfd5df', { gravity: 16 })
+    this.brakeGlowMaterial = new SpriteMaterial({ map: this.spotTexture, color: new Color('#ff6a1a').multiplyScalar(2.2), transparent: true, opacity: 0.85, blending: AdditiveBlending, depthWrite: false, toneMapped: false })
     this.fire = new Particles(300, this.spotTexture, '#ff7a2a', { additive: true, brightness: 3 })
     this.darkSmoke = new Particles(500, this.spotTexture, '#2c2c33', { grow: 2.4 })
     this.driftSparks = [
       new Particles(300, this.spotTexture, '#3fb8ff', { additive: true, gravity: 9, brightness: 3.5 }),
       new Particles(300, this.spotTexture, '#ff4fd8', { additive: true, gravity: 9, brightness: 3.5 }),
     ]
-    this.world.scene.add(this.smoke.points, this.spray.points, this.darkSmoke.points, this.sparks.points, this.fire.points, this.driftSparks[0].points, this.driftSparks[1].points, this.skids.mesh, this.trails.mesh, this.rain.lines, this.wheelBank.tyres, this.wheelBank.rims)
+    this.world.scene.add(this.shards.points, this.smoke.points, this.spray.points, this.darkSmoke.points, this.sparks.points, this.fire.points, this.driftSparks[0].points, this.driftSparks[1].points, this.skids.mesh, this.trails.mesh, this.rain.lines, this.wheelBank.tyres, this.wheelBank.rims)
     this.headlight = new SpotLight('#dfe9ff', 70, 90, 0.4, 0.6, 1)
     this.headlight.target = new Object3D()
     window.addEventListener('resize', () => this.world.resize())
@@ -302,6 +322,11 @@ export class Game {
         this.scenery = [track, city.group]
         this.materials = { city, road: track.userData.road, ground: city.ground }
       }
+      // Chevrons at the sharp corners, and the puddles shown when it rains.
+      const roadside = buildPuddles(this.race.track, spec.seed)
+      this.puddles = roadside.puddles
+      this.puddleGroup = roadside.group
+      this.scenery.push(buildSigns(this.race.track), roadside.group)
       this.world.scene.add(...this.scenery)
       this.cameras = tvCameras(this.race.track)
       this.builtSeed = look
@@ -313,6 +338,7 @@ export class Game {
     else if (this.world.reflector) this.world.scene.remove(this.world.reflector)
     this.raining = applyWeather(this.world, this.weather, m.road, m.city?.facade ?? null, m.city?.dome ?? null, m.ground, mirror)
     this.rain.lines.visible = this.raining
+    if (this.puddleGroup) this.puddleGroup.visible = this.raining
     if (m.city) {
       m.city.moon.visible = this.weather === 'clear'
       m.city.sun.visible = this.weather === 'dusk'
@@ -404,7 +430,24 @@ export class Game {
 
   private addView(car: CarState, model: CarModel, racer: Racer | null, police: boolean) {
     this.world.scene.add(model.group)
-    this.views.push({ car, model, prev: { x: car.x, z: car.z, heading: car.heading }, racer, police, dmg: { left: 0, right: 0, front: 0, rear: 0 }, wasBraking: false })
+    // A soft orange glow at each wheel, for brakes worked hard.
+    const brakeGlow = model.wheels.map((slot) => {
+      const s = new Sprite(this.brakeGlowMaterial)
+      s.scale.setScalar(0.55)
+      s.visible = false
+      slot.add(s)
+      return s
+    })
+    // A patrol car's light bar washing the road red and blue at night.
+    let barPool: Mesh | null = null
+    if (model.siren) {
+      barPool = new MeshObject(new PlaneGeometry(9, 9).rotateX(-Math.PI / 2), new MeshBasicMaterial({ map: this.spotTexture, color: '#000000', transparent: true, blending: AdditiveBlending, depthWrite: false }))
+      barPool.position.y = 0.06
+      barPool.userData.night = true
+      barPool.visible = !isDay(this.weather)
+      model.group.add(barPool)
+    }
+    this.views.push({ car, model, prev: { x: car.x, z: car.z, heading: car.heading }, racer, police, dmg: { left: 0, right: 0, front: 0, rear: 0 }, wasBraking: false, brakeHeat: 0, brakeGlow, barPool })
   }
 
   // Racers, then traffic, then police: the same order the views use.
@@ -590,6 +633,7 @@ export class Game {
       this.nitroPulse = 1
       this.shake = Math.min(1, this.shake + 0.3)
       this.sound.ignite()
+      buzz(20)
     }
     this.nitroWas = player.car.nitroOn
 
@@ -660,6 +704,7 @@ export class Game {
         flash('Lost them')
         popup(`Lost the police +${(ESCAPE_PAY * e.heat).toLocaleString('en')}`, 'gold')
       } else if (e.type === 'takedown') {
+        buzz([40, 30, 60])
         const car = e.cop ?? race.racers[e.id ?? 0].car
         this.wreckBurst(car)
         flash('Takedown')
@@ -894,6 +939,29 @@ export class Game {
     })
   }
 
+  // Per car each frame: brakes that glow after hard braking at speed and
+  // cool slowly, and a splash through standing water in the rain.
+  private extras(v: View, dt: number) {
+    const car = v.car
+    const speed = speedOf(car)
+    v.brakeHeat = Math.max(0, Math.min(1, v.brakeHeat + dt * (car.braking && speed > 12 ? 0.9 : -0.3)))
+    for (const s of v.brakeGlow) {
+      s.visible = v.brakeHeat > 0.05
+      if (s.visible) s.scale.setScalar(0.3 + 0.55 * v.brakeHeat)
+    }
+    if (!this.raining || speed < 10 || this.puddles.length === 0) return
+    for (const p of this.puddles) {
+      if (Math.abs(p.x - car.x) > 2.2 || Math.abs(p.z - car.z) > 2.2) continue
+      const n = Math.round(Math.min(24, speed * 0.5) * (this.world.quality === 'low' ? 0.5 : 1))
+      for (let k = 0; k < n; k++) {
+        if (Math.random() > 0.35) continue
+        const a = Math.random() * Math.PI * 2
+        this.spray.emit(car.x, 0.2, car.z, car.vx * 0.35 + Math.cos(a) * 3, 2 + Math.random() * 3, car.vz * 0.35 + Math.sin(a) * 3, 0.6, 1.1)
+      }
+      break
+    }
+  }
+
   private draw(dt: number) {
     this.syncStrips()
     this.drawCopter(dt)
@@ -955,6 +1023,8 @@ export class Game {
         const on = this.race.wreckedCops.has(car) ? 0 : this.race.parked.has(car) ? 0.25 : 1
         v.model.siren.red.color.copy(RED).multiplyScalar((phase ? 5 : 0.4) * on)
         v.model.siren.blue.color.copy(BLUE).multiplyScalar((phase ? 0.4 : 5) * on)
+        // The light bar's colour on the road around the car.
+        if (v.barPool) (v.barPool.material as MeshBasicMaterial).color.copy(phase ? RED : BLUE).multiplyScalar(0.55 * on)
       }
       // Tail light streaks once a car is properly moving.
       const c = Math.cos(g.rotation.y)
@@ -962,7 +1032,10 @@ export class Game {
       for (const [lx, ly, lz] of v.model.tailLights) {
         this.trails.push(trail++, g.position.x + lx * c + lz * s, ly, g.position.z - lx * s + lz * c, speed > 24 || car.nitroOn, car.nitroOn)
       }
-      if (dt > 0) this.tyres(v, dt)
+      if (dt > 0) {
+        this.tyres(v, dt)
+        this.extras(v, dt)
+      }
     }
     this.wheelBank.update()
     if (dt > 0) {
@@ -970,6 +1043,7 @@ export class Game {
       this.spray.update(dt)
       this.darkSmoke.update(dt)
       this.sparks.update(dt)
+      this.shards.update(dt)
       for (const p of this.driftSparks) p.update(dt)
       this.fire.update(dt)
       this.updateDebris(dt)
@@ -1194,9 +1268,15 @@ export class Game {
       for (let k = 0; k < n; k++) {
         this.sparks.emit(car.x, 0.6, car.z, (Math.random() - 0.5) * 16, 2 + Math.random() * 5, (Math.random() - 0.5) * 16, 0.4 + Math.random() * 0.3, 0.35)
       }
+      // A hard hit throws bits of glass and trim, fewer on low graphics.
+      if (car.impact > 6) {
+        const bits = Math.round(Math.min(30, car.impact * 2) * (this.world.quality === 'low' ? 0.4 : 1))
+        for (let k = 0; k < bits; k++) this.shards.emit(car.x, 0.7, car.z, car.vx * 0.3 + (Math.random() - 0.5) * 10, 2 + Math.random() * 4, car.vz * 0.3 + (Math.random() - 0.5) * 10, 0.9 + Math.random() * 0.6, 0.12)
+      }
       if (v.racer?.player && this.mode === 'race') {
         this.sound.hit(car.impact)
         this.shake = Math.min(1, this.shake + car.impact * 0.06)
+        if (car.impact > 6) buzz(Math.min(80, Math.round(car.impact * 4)))
       }
     }
     car.impact = 0
@@ -1386,10 +1466,17 @@ export class Game {
     $('gear').textContent = String(gearOf(speed, car.spec).gear)
     $('gauge-fill').style.strokeDashoffset = String(1 - Math.min(1, speed / (car.spec.topSpeed * car.spec.nitroTop)))
     $('nitro-fill').style.transform = `scaleX(${car.nitro})`
+    // The phone's Nitro ring, Drift tier colour and the gas pedal's glow.
+    if (this.touchShown) {
+      $('touch-nitro').style.setProperty('--tank', car.nitro.toFixed(2))
+      const tier = car.driftDir !== 0 || car.drifting ? driftTier(car.driftCharge) : 0
+      $('touch-drift').dataset.tier = String(tier)
+      $('touch-pedals').style.setProperty('--revs', gearOf(Math.abs(forwardSpeed(car)), car.spec).rpm.toFixed(2))
+    }
     // Driver inputs, shown in the first-person views.
     const input = this.race.playerInput
-    $('pedal-gas').style.transform = `scaleY(${input.throttle})`
-    $('pedal-brake').style.transform = `scaleY(${Math.max(input.brake, input.handbrake ? 0.6 : 0)})`
+    $('pedal-gas').style.setProperty('--press', input.throttle.toFixed(2))
+    $('pedal-brake').style.setProperty('--press', Math.max(input.brake, input.handbrake ? 0.6 : 0).toFixed(2))
     $('wheel-icon').style.transform = `rotate(${(car.steer * 6 * 180) / Math.PI}deg)`
     $('nitro-row').classList.toggle('full', car.nitro > 0.98)
     const damage = $('damage-fill')
