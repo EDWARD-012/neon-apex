@@ -2063,3 +2063,265 @@ kbd {
 .cards .card:hover {
   background: rgba(255, 210, 61, 0.18);
 }
+
+/* ------------------------------------------------------------------ */
+/* Phone driving controls: a half steering wheel to drag on the left,
+   pedals on the right, and Nitro and Drift above the pedals. */
+
+#touch .touch-left {
+  position: relative;
+}
+
+.touch-wheel {
+  position: relative;
+  width: 200px;
+  height: 108px;
+  overflow: hidden;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.touch-wheel svg {
+  position: absolute;
+  left: 0;
+  bottom: -100px;
+  width: 200px;
+  height: 200px;
+  transform: rotate(var(--turn, 0deg));
+  transition: transform 60ms linear;
+}
+
+.touch-wheel .rim {
+  fill: rgba(20, 24, 44, 0.45);
+  stroke: rgba(232, 236, 255, 0.78);
+  stroke-width: 12;
+}
+
+.touch-wheel .spoke {
+  stroke: rgba(232, 236, 255, 0.6);
+  stroke-width: 9;
+  stroke-linecap: round;
+  fill: none;
+}
+
+.touch-wheel .hub {
+  fill: rgba(20, 24, 44, 0.8);
+  stroke: rgba(232, 236, 255, 0.5);
+  stroke-width: 3;
+}
+
+.touch-wheel .mark {
+  stroke: #ff3d5a;
+  stroke-width: 10;
+  stroke-linecap: round;
+}
+
+.touch-arrows {
+  display: flex;
+  gap: 14px;
+}
+
+.tilt-note {
+  margin: 0 0 18px;
+  font-size: 14px;
+  font-style: italic;
+  color: rgba(232, 236, 255, 0.7);
+  pointer-events: none;
+}
+
+/* Which way to steer, from Settings. */
+#touch:not(.steer-arrows) .touch-arrows,
+#touch:not(.steer-wheel) .touch-wheel,
+#touch:not(.steer-tilt) .tilt-note {
+  display: none;
+}
+
+#touch .touch-right {
+  align-items: flex-end;
+  gap: 12px;
+}
+
+/* Nitro over Drift, left of the pedals, clear of the lap times above. */
+.touch-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Nitro shows its tank as a ring, Drift the colour of the boost tier it
+   is charging. */
+#touch #touch-nitro {
+  background:
+    radial-gradient(circle, rgba(20, 24, 44, 0.85) 60%, transparent 61%),
+    conic-gradient(var(--cyan) calc(var(--tank, 0) * 360deg), rgba(255, 255, 255, 0.12) 0);
+}
+
+#touch #touch-drift[data-tier='1'] {
+  border-color: #4fb4ff;
+  box-shadow: 0 0 14px rgba(79, 180, 255, 0.7);
+}
+
+#touch #touch-drift[data-tier='2'] {
+  border-color: #ff4fb8;
+  box-shadow: 0 0 14px rgba(255, 79, 184, 0.75);
+}
+
+.touch-pedals {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.pedal-touch {
+  position: relative;
+  display: grid;
+  place-items: end center;
+  padding-bottom: 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px 14px 10px 10px;
+  background:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.08) 0 3px, transparent 3px 11px),
+    rgba(20, 24, 44, 0.6);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  transform-origin: bottom;
+  transition: transform 80ms ease-out, background-color 120ms;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.pedal-touch.brake {
+  width: 96px;
+  height: 84px;
+}
+
+.pedal-touch.gas {
+  width: 70px;
+  height: 128px;
+  /* Glows as the revs climb. */
+  box-shadow: 0 0 calc(var(--revs, 0) * 22px) rgba(61, 245, 255, calc(var(--revs, 0) * 0.6));
+}
+
+.pedal-touch.down {
+  transform: perspective(240px) rotateX(14deg) scale(0.97);
+  background-color: rgba(61, 245, 255, 0.25);
+}
+
+.pedal-touch.brake.down {
+  background-color: rgba(255, 61, 90, 0.3);
+}
+
+/* Left-handed: steering on the right, pedals on the left. */
+#touch.left-handed {
+  flex-direction: row-reverse;
+}
+
+#touch.left-handed .touch-right,
+#touch.left-handed .touch-pedals {
+  flex-direction: row-reverse;
+}
+
+#touch.left-handed .touch-tools {
+  left: auto;
+  right: 18px;
+}
+
+@media (max-height: 420px) {
+  .touch-wheel {
+    width: 170px;
+    height: 92px;
+  }
+  .touch-wheel svg {
+    width: 170px;
+    height: 170px;
+    bottom: -85px;
+  }
+  .pedal-touch.gas {
+    height: 108px;
+  }
+  .pedal-touch.brake {
+    height: 72px;
+  }
+}
+
+/* Pause menu buttons that are only for phones. */
+.touch-only {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  .touch-only {
+    display: block;
+  }
+}
+
+/* The controls chart on the Settings screen. */
+.chart-title {
+  margin: 18px 0 6px;
+  font-size: 18px;
+}
+
+.chart-wrap {
+  overflow-x: auto;
+  margin-bottom: 8px;
+}
+
+.controls-chart {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.controls-chart th,
+.controls-chart td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.controls-chart thead th {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.controls-chart tbody th {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* The first-person views' pedals: two pedal plates seen from above that
+   tip forward as they are pressed, in place of the old bars. */
+.pedals .pedal .track {
+  width: 30px;
+  height: 58px;
+  overflow: visible;
+  background: none;
+  perspective: 150px;
+}
+
+.pedals .pedal .track > div,
+.pedals .pedal.gas .track > div,
+.pedals .pedal.brake .track > div {
+  border-radius: 6px 6px 4px 4px;
+  background:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.2) 0 3px, transparent 3px 9px),
+    linear-gradient(#3a3e48, #22252c);
+  box-shadow: 0 6px 10px rgba(0, 0, 0, 0.45);
+  transform-origin: bottom;
+  transform: rotateX(calc(var(--press, 0) * 34deg));
+  transition: transform 60ms linear;
+}
+
+.pedals .pedal.gas .track > div {
+  border-top: 3px solid rgba(47, 212, 122, calc(0.3 + var(--press, 0) * 0.7));
+}
+
+.pedals .pedal.brake .track > div {
+  width: 38px;
+  margin-left: -4px;
+  border-top: 3px solid rgba(224, 49, 63, calc(0.3 + var(--press, 0) * 0.7));
+}

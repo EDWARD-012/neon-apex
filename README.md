@@ -129,16 +129,18 @@ Lap counting does not trust where a car is on the map. Each car keeps a running 
 
 | Action | Keyboard | Gamepad | Touch |
 | --- | --- | --- | --- |
-| Accelerate, brake and reverse | Up, Down or W, S | Right and left triggers | Gas, Brake |
-| Steer | Left, Right or A, D | Left stick | Arrow buttons |
+| Accelerate, brake and reverse | Up, Down or W, S | Right and left triggers | Gas and Brake pedals |
+| Steer | Left, Right or A, D | Left stick | Drag the wheel (or arrows, or tilt) |
 | Drift | Tap Down while steering, or Space | Tap left trigger while steering, or B / right bumper | Drift |
 | Nitro | Shift | A | Nitro |
-| Reset onto the road | R | Y | |
+| Reset onto the road | R | Y | Pause menu |
 | Change camera | C | X | Camera button |
-| Look back, held | V or B | Left bumper | |
+| Look back, held | V or B | Left bumper | Pause menu |
 | Pursuit tools 1 and 2 | 1 and 2, or Q and E | D-pad left and right | Tool buttons |
 | Pause | Esc or P | Start | Pause button |
-| Restart the event | T | Back / Select | |
+
+On a phone you steer by dragging a half wheel at the bottom left (or with arrow buttons, or by tilting the phone, in Settings). The accelerator and brake are pedal shapes on the right: the accelerator gives part throttle near its bottom and full near its top, and a thumb can slide from one pedal to the other. Nitro shows its tank as a ring and Drift the colour of the boost it is charging. Android phones buzz on hard hits, takedowns and nitro. Look back, putting the car back on the road and restarting are in the pause menu, and Settings has a left-handed layout. In the cockpit view the driver's gloved hands hold the wheel at quarter to three, and the pedal overlay shows two pedals tipping as they are pressed.
+| Restart the event | T | Back / Select | Pause menu |
 
 Any key or tap skips the fly-in before a race.
 

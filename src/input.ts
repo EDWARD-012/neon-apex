@@ -27,6 +27,14 @@ export class Input {
   private steer = 0
   // One-shot actions: reset, camera, pause.
   private pressed = new Set<string>()
+  // Analogue touch controls: the drag wheel or the phone's tilt for
+  // steering (-1 to 1), and how far up each pedal is pressed (0 to 1). Null
+  // when not in use.
+  analogSteer: number | null = null
+  analogThrottle: number | null = null
+  analogBrake: number | null = null
+  // Look back held for a moment from the phone's pause menu, until then.
+  lookUntil = 0
 
   constructor() {
     window.addEventListener('pointerdown', () => this.pressed.add('any'))
@@ -79,6 +87,7 @@ export class Input {
   holding(action: string): boolean {
     const pad = navigator.getGamepads?.().find((p) => p)
     if (action === 'lookback' && pad?.buttons[4]?.pressed) return true
+    if (action === 'lookback' && performance.now() < this.lookUntil) return true
     return this.held.has(action) || this.touch.has(action)
   }
 
@@ -109,12 +118,14 @@ export class Input {
 
   read(dt: number): CarInput {
     const on = (a: string) => this.held.has(a) || this.touch.has(a)
-    const want = (on('right') ? 1 : 0) - (on('left') ? 1 : 0)
-    const rate = want === 0 ? 7 : Math.sign(want) !== Math.sign(this.steer) ? 9 : 5
+    // The drag wheel and tilt follow the thumb closely; keys ramp.
+    const analog = this.analogSteer
+    const want = analog ?? (on('right') ? 1 : 0) - (on('left') ? 1 : 0)
+    const rate = analog !== null ? 14 : want === 0 ? 7 : Math.sign(want) !== Math.sign(this.steer) ? 9 : 5
     this.steer += Math.max(-rate * dt, Math.min(rate * dt, want - this.steer))
     const input: CarInput = {
-      throttle: on('gas') ? 1 : 0,
-      brake: on('brake') ? 1 : 0,
+      throttle: this.analogThrottle ?? (on('gas') ? 1 : 0),
+      brake: this.analogBrake ?? (on('brake') ? 1 : 0),
       steer: this.steer,
       handbrake: on('drift'),
       nitro: on('nitro'),
