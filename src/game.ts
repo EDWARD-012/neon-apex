@@ -92,7 +92,7 @@ interface Debris {
 }
 
 // Which engine each of the player's cars has.
-const ENGINES: Partial<Record<Shape, EngineKind>> = { vanta: 'v12', kite: 'turbo4', brute: 'v8', volt: 'electric' }
+const ENGINES: Partial<Record<Shape, EngineKind>> = { vanta: 'v12', kite: 'turbo4', brute: 'v8', volt: 'electric', kestrel: 'turbo4' }
 
 export type CameraMode = 'chase' | 'far' | 'cockpit' | 'hood' | 'bumper' | 'drone'
 export const CAMERA_MODES: CameraMode[] = ['chase', 'far', 'cockpit', 'hood', 'bumper', 'drone']
