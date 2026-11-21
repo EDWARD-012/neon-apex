@@ -62,4 +62,20 @@ describe('looks', () => {
     expect(fullLooks({ finish: 'gold', livery: 'flames', trim: 'mauve', number: 0 } as never)).toEqual(STOCK_LOOKS)
     expect(fullLooks(undefined)).toEqual(STOCK_LOOKS)
   })
+
+  it('wheels, ride height, tint and spoilers are bought like the other looks', () => {
+    const rich: Progress = { ...fresh(), cash: 10000, owned: ['vanta'] }
+    let p = fitLook(rich, 'vanta', 'rims', 'deep')!
+    p = fitLook(p, 'vanta', 'ride', 'slammed')!
+    p = fitLook(p, 'vanta', 'tint', 'limo')!
+    p = fitLook(p, 'vanta', 'spoiler', 'wing')!
+    expect(p.cash).toBe(10000 - 3000 - 2000 - 1500 - 3500)
+    expect(p.looks.vanta).toMatchObject({ rims: 'deep', ride: 'slammed', tint: 'limo', spoiler: 'wing' })
+    // Back to stock costs nothing, and the parts stay owned.
+    p = fitLook(p, 'vanta', 'rims', 'stock')!
+    expect(p.cash).toBe(0)
+    expect(p.ownedLooks).toContain('rims:deep')
+    // Parts that don't exist are refused.
+    expect(fitLook(p, 'vanta', 'spoiler', 'rocket')).toBeNull()
+  })
 })
