@@ -1,4 +1,4 @@
-// Records public/trailer.webm: about half a minute of the game, shot by a
+// Records public/trailer.webm: about 36 seconds of the game, shot by a
 // script inside the page. The game's own canvas is copied onto a second
 // canvas every frame with the title cards drawn on top, and that canvas is
 // recorded with the browser's MediaRecorder. Run with: npm run trailer
@@ -15,7 +15,7 @@ const browser = await chromium.launch({
   args: process.platform === 'darwin' ? ['--use-angle=metal', '--enable-gpu'] : [],
 })
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
-await page.goto('http://localhost:4177/?test&autopilot&seed=trailer-night&weather=rain')
+await page.goto('http://localhost:4177/?test&autopilot&seed=trailer-day&weather=day')
 await page.waitForFunction(() => (window as unknown as { __neon?: unknown }).__neon)
 await page.waitForTimeout(1500)
 // Hide every menu and HUD element: the trailer is the 3D view plus cards.

@@ -12,12 +12,13 @@ async () => {
 
   // A card is shown from `at` for `for` seconds, fading in and out.
   const cards = [
-    { at: 0.4, for: 3.4, big: 'SKIDLINE', small: 'Night street racing in the browser', align: 'centre' },
-    { at: 5.2, for: 3, big: 'Rain', small: 'Wet roads that mirror the neon' },
+    { at: 0.4, for: 3.6, big: 'SKIDLINE', small: 'Free racing in your browser', align: 'centre' },
+    { at: 5.0, for: 3, big: 'Mountain roads', small: 'Day, night, rain and dusk' },
     { at: 10.4, for: 3, big: 'Five rivals', small: 'AI that drives a computed racing line' },
-    { at: 16.2, for: 3, big: 'Lose the police', small: 'Pursuits with rising heat' },
-    { at: 22.2, for: 3, big: 'Four cars', small: 'A career with twelve events' },
-    { at: 27, for: 4, big: 'Play it free', small: 'skidline.edward7780.com', align: 'centre' },
+    { at: 16.4, for: 3.4, big: 'Lose the police', small: 'Five heat levels, roadblocks and a helicopter' },
+    { at: 22.6, for: 3, big: 'Behind the wheel', small: 'Six cameras, crash damage and nitro' },
+    { at: 27.6, for: 3, big: 'Five cars', small: 'Upgrades, looks and a career of crews' },
+    { at: 32.6, for: 4, big: 'Play it free', small: 'skidline.edward7780.com', align: 'centre' },
   ]
   const draw = (t) => {
     g.drawImage(view, 0, 0, comp.width, comp.height)
@@ -60,11 +61,11 @@ async () => {
   recorder.start()
   loop()
 
-  // 0 to 4.6 s: the attract race on the menu, in the rain.
+  // 0 to 4.6 s: the attract race on the menu, on the mountain road by day.
   await wait(4.6)
 
   // 4.6 to 10.2 s: the fly-in before a race.
-  neon.begin(neon.quickSpec('race'))
+  neon.begin({ ...neon.quickSpec('race'), weather: 'day' })
   game.race.laps = 3
   await wait(5.6)
   game.skipIntro()
@@ -72,10 +73,15 @@ async () => {
   // 10.2 to 16 s: in the pack behind the rivals.
   await wait(5.8)
 
-  // 16 to 22 s: a pursuit at dusk, filmed from just behind the closest
-  // patrol car, its light bar in the foreground and the player ahead.
-  neon.begin({ ...neon.quickSpec('pursuit'), weather: 'dusk', police: 3 })
+  // 16 to 22.4 s: a pursuit in the rain at night, pushed up to heat 4 so the
+  // helicopter is overhead, filmed from just behind the closest patrol car,
+  // its light bar in the foreground and the player ahead.
+  neon.begin({ ...neon.quickSpec('pursuit'), weather: 'rain', police: 3 })
   game.fastForward(14)
+  for (let k = 0; k < 3; k++) {
+    game.race.pursuit.sinceJoin = 999
+    await wait(0.12)
+  }
   game.cameraOverride = (cam) => {
     const p = game.race.player.car
     let cop = game.race.police[0]
@@ -83,23 +89,31 @@ async () => {
     const fx = Math.sin(cop.heading)
     const fz = Math.cos(cop.heading)
     cam.position.set(cop.x - fx * 7 + fz * 1.5, 2.4, cop.z - fz * 7 - fx * 1.5)
-    cam.lookAt((cop.x + p.x) / 2, 1, (cop.z + p.z) / 2)
-    cam.fov = 55
+    cam.lookAt((cop.x + p.x) / 2, 1.6, (cop.z + p.z) / 2)
+    cam.fov = 58
     cam.updateProjectionMatrix()
   }
   await wait(6)
   game.cameraOverride = null
 
-  // 22 to 27 s: the garage, going through the cars.
+  // 22.4 to 27.4 s: the cockpit at dusk, a few seconds into a race.
+  neon.begin({ ...neon.quickSpec('race'), weather: 'dusk' })
+  game.skipIntro()
+  game.fastForward(9)
+  game.camMode = 'cockpit'
+  await wait(5)
+  game.camMode = 'chase'
+
+  // 27.4 to 32.4 s: the garage, going through the five cars.
   game.showGarage()
-  for (const id of ['vanta', 'kite', 'brute', 'volt', 'vanta']) {
+  for (const id of ['vanta', 'kite', 'brute', 'volt', 'kestrel']) {
     game.refreshGarage(id)
     await wait(1)
   }
 
-  // 27 to 31 s: back to the city for the last card.
-  game.showMenu()
-  await wait(4)
+  // 32.4 to 36.8 s: the last card over the garage. Switching back to the
+  // road here would land mid-card: building the scene takes a moment.
+  await wait(4.4)
 
   running = false
   recorder.stop()
