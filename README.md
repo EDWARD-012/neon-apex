@@ -4,7 +4,7 @@
 
 <h1 align="center">Skidline</h1>
 
-<p align="center"><sub>Called Neon Apex until 21 November 2026. The repository keeps that name, so old links still work.</sub></p>
+<p align="center"><sub>Called Neon Apex until 21 November 2026. Old links to the game and to this repository still work.</sub></p>
 
 <p align="center">
   A street racing game that runs in the browser, on a mountain road by day or in a neon city at night.<br>
@@ -14,7 +14,11 @@
 <p align="center">
   <a href="https://skidline.edward7780.com/"><b>Play it in your browser</b></a>
   &nbsp;&nbsp;
-  <a href="https://skidline.edward7780.com/trailer.webm"><b>Watch the 31-second trailer</b></a>
+  <a href="https://skidline.edward7780.com/trailer.webm"><b>Watch the 38-second trailer</b></a>
+</p>
+
+<p align="center">
+  <a href="https://skidline.edward7780.com/trailer.webm"><img src="docs/trailer.jpg" width="520" alt="The trailer's opening: the Skidline title over a red car on the mountain road by day. Opens the 38-second trailer"></a>
 </p>
 
 <p align="center">
