@@ -18,6 +18,8 @@ import { cleanTune, type Fitted, PARTS, STAGES, type Tune, tuned, TUNES } from '
 
 export const RUN_FORMAT = 1
 export { PHYSICS_VERSION }
+// The server's ghost clean-up tells old daily and weekly tracks by these.
+export { dailySeed, weeklySeed } from './sim/track'
 
 // The longest run the server replays: 20 minutes of driving.
 export const MAX_STEPS = Math.round((20 * 60) / STEP)
@@ -51,7 +53,9 @@ export interface Run {
   best: number
 }
 
-const round = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(v * 1000)))
+// Adding 0 turns -0 into 0: JSON writes -0 as 0, and the browser must drive
+// the same number the server reads back.
+const round = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(v * 1000))) + 0
 
 function decode(throttle: number, brake: number, steer: number, flags: number): CarInput {
   return {
@@ -155,8 +159,9 @@ export interface Replayed {
 }
 
 // Drives the run again from the grid, as the game set it up for a time
-// trial: no rivals, no traffic, no police.
-export function replay(run: Run): Replayed {
+// trial: no rivals, no traffic, no police. onStep, if given, sees the race
+// after every step.
+export function replay(run: Run, onStep?: (race: Race) => void): Replayed {
   const race = new Race({ seed: run.seed, laps: run.laps, rivals: 0, traffic: 0, mode: 'circuit', playerSpec: tuned(carById(run.car), run.fitted, run.tune) })
   const start = new StartWatch()
   const player = race.player
@@ -179,6 +184,7 @@ export function replay(run: Run): Replayed {
       start.after(race, before)
       for (const e of race.events) if (e.type === 'nearMiss') player.car.nitro = Math.min(1, player.car.nitro + NEAR_MISS_NITRO)
       race.events = []
+      onStep?.(race)
       step++
     }
   }
@@ -248,4 +254,34 @@ export function checkRun(raw: unknown): Checked {
     return { ok: false, error: `The replay timed this lap at ${time.toFixed(2)} s, not ${run.best.toFixed(2)} s, so it was not counted.` }
   }
   return { ok: true, run, time }
+}
+
+export interface GhostLap {
+  // The lap time, in seconds.
+  time: number
+  // t, x, z, heading, repeated, 30 times a second through the lap, the
+  // same as the ghosts the game records in a time trial.
+  samples: number[]
+}
+
+// The best lap of a run, as a ghost to race. The run is replayed here in
+// the browser, the same replay the server checked it with, and the car's
+// place is sampled every fourth step through each lap.
+export function ghostOf(run: Run): GhostLap | null {
+  let best: GhostLap | null = null
+  let lap: number[] = []
+  let laps = 0
+  replay(run, (race) => {
+    const player = race.player
+    if (player.lapTimes.length > laps) {
+      laps = player.lapTimes.length
+      const time = player.lapTimes[laps - 1]
+      if (lap.length >= 8 && (!best || time < best.time)) best = { time, samples: lap }
+      lap = []
+    }
+    if (player.checkpoints >= 1 && player.finishTime === null && Math.round(race.clock / STEP) % 4 === 0) {
+      lap.push(+(race.clock - player.lapStart).toFixed(3), +player.car.x.toFixed(2), +player.car.z.toFixed(2), +player.car.heading.toFixed(3))
+    }
+  })
+  return best
 }
