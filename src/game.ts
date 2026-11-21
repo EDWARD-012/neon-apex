@@ -14,7 +14,7 @@ import { type Looks, STOCK_LOOKS, styleCar } from './looks'
 import { applyLivery } from './render/livery'
 import { fitParts } from './render/parts'
 import { buzz } from './touch'
-import { type Fitted, tuned } from './upgrades'
+import { type Fitted, type Tune, tuned } from './upgrades'
 import { createHelicopter, type HelicopterModel } from './render/helicopter'
 import { buildPuddles, buildSigns, type Puddle } from './render/roadside'
 import { disposeStrip, spikeStrip } from './render/spikes'
@@ -300,8 +300,8 @@ export class Game {
   // The finished time trial's inputs for the leaderboard, or null if this
   // event wasn't a finished trial. The car's id and upgrades come from the
   // caller, which chose them.
-  lapRun(car: string, fitted: Fitted = {}): Run | null {
-    return this.run?.finish(this.race, car, fitted) ?? null
+  lapRun(car: string, fitted: Fitted = {}, tune?: Tune): Run | null {
+    return this.run?.finish(this.race, car, fitted, tune) ?? null
   }
 
   // Compiles the shaders of what is on screen before the loading screen

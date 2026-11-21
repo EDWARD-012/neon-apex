@@ -364,6 +364,10 @@ test('the career pays coins, which buy a car and its upgrades in the garage', as
   await expect(page.locator('#parts .part[data-part="engine"] .pips i.on')).toHaveCount(1)
   await expect(page.locator('#car-action')).toHaveText('Stage 2 needs 1,800 coins')
   await expect(page.locator('#car-action')).toBeDisabled()
+  // Tuning: steering lock moves from the start, gearing waits for a gearbox
+  // stage.
+  await expect(page.locator('#tuning input[data-tune="steering"]')).toBeEnabled()
+  await expect(page.locator('#tuning input[data-tune="gearing"]')).toBeDisabled()
   // The Looks tab: four finishes, seven underglow choices, six liveries,
   // five wheels, three ride heights, three tints and three spoilers, the
   // free ones already usable. Trying a livery on shows its colours, and the

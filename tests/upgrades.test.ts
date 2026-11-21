@@ -4,7 +4,7 @@ import { createCar, idle, speedOf, stepCar } from '../src/sim/car'
 import { carById, CARS, ratings } from '../src/sim/cars'
 import { Race, STEP } from '../src/sim/race'
 import { buildTrack, pointAt } from '../src/sim/track'
-import { classOf, kmh, PARTS, priceOf, ratingOf, STAGES, STARTER_VALUE, tuned } from '../src/upgrades'
+import { classOf, cleanTune, kmh, PARTS, priceOf, ratingOf, setTune, STAGES, STARTER_VALUE, STOCK_TUNE, tuned } from '../src/upgrades'
 
 const track = buildTrack('upgrades')
 const open = { ...track, width: 1e6 }
@@ -204,5 +204,49 @@ describe('classes and rating', () => {
       expect(ratingOf(tuned(car, { engine: 1 }))).toBeGreaterThan(stock)
       expect(full).toBeGreaterThan(stock)
     }
+  })
+})
+
+describe('tuning', () => {
+  const vanta = carById('vanta')
+  it('keeps every slider in range, on a step of 0.1, and fills in missing ones', () => {
+    expect(cleanTune({ gearing: 3, brakes: -0.04, camber: -1, steering: 'x' })).toEqual({ gearing: 1, brakes: 0, camber: 0, steering: 0 })
+    expect(cleanTune(undefined)).toEqual(STOCK_TUNE)
+    expect(cleanTune({ camber: 0.66 }).camber).toBe(0.7)
+  })
+
+  it('trades pull for top speed, and does nothing until the part is fitted', () => {
+    const stock = tuned(vanta, {})
+    expect(tuned(vanta, {}, { gearing: 1 })).toEqual(stock)
+    const long = tuned(vanta, { gearbox: 1 }, { gearing: 1 })
+    const short = tuned(vanta, { gearbox: 1 }, { gearing: -1 })
+    const plain = tuned(vanta, { gearbox: 1 })
+    expect(long.topSpeed).toBeGreaterThan(plain.topSpeed)
+    expect(long.engine).toBeLessThan(plain.engine)
+    expect(short.engine).toBeGreaterThan(plain.engine)
+    expect(short.topSpeed).toBeLessThan(plain.topSpeed)
+    // Within limits: never more than 4% on top speed or 8% on pull.
+    expect(long.topSpeed / plain.topSpeed).toBeCloseTo(1.04, 5)
+    expect(short.engine / plain.engine).toBeCloseTo(1.08, 5)
+  })
+
+  it('rear brake bias slides more easily, camber corners harder, steering lock turns tighter', () => {
+    const rear = tuned(vanta, { brakes: 1 }, { brakes: 1 })
+    const front = tuned(vanta, { brakes: 1 }, { brakes: -1 })
+    expect(rear.driftGrip).toBeLessThan(front.driftGrip)
+    expect(rear.brake).toBeLessThan(front.brake)
+    const cambered = tuned(vanta, { suspension: 1 }, { camber: 1 })
+    const flat = tuned(vanta, { suspension: 1 })
+    expect(cambered.lateralLimit).toBeGreaterThan(flat.lateralLimit)
+    expect(cambered.brake).toBeLessThan(flat.brake)
+    // Steering lock needs no part.
+    expect(tuned(vanta, {}, { steering: 1 }).maxSteer).toBeCloseTo(vanta.spec.maxSteer * 1.1, 5)
+  })
+
+  it('is saved on a car the player owns, with the car', () => {
+    const p = { ...fresh(), owned: ['vanta'] }
+    const next = setTune(p, 'vanta', { steering: -0.5 })!
+    expect(next.looks.vanta.tune).toMatchObject({ steering: -0.5, gearing: 0 })
+    expect(setTune(p, 'kite', { steering: 1 })).toBeNull()
   })
 })
