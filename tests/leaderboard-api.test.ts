@@ -64,8 +64,15 @@ describe('the leaderboard endpoint', () => {
     expect(body.time).toBe(run.best)
     const insert = db.queries.find((q) => q.text.startsWith('insert into laps'))
     expect(insert?.values.slice(0, 6)).toEqual(['api-test', run.physics, '7', run.best, 'kite', '{}'])
-    // The run itself is kept, gzipped, for ghosts.
+    // The run itself is kept, gzipped, for ghosts, and ghosts outside the
+    // top 10 and on old daily and weekly tracks are cleared.
     expect(JSON.parse(gunzipSync(Buffer.from(String(insert?.values[6]), 'base64')).toString('utf8'))).toEqual(run)
+    const prunes = db.queries.filter((q) => q.text.startsWith('update laps set ghost = null'))
+    expect(prunes).toHaveLength(2)
+    expect(prunes[0].text).toContain('limit 10')
+    expect(prunes[0].values[0]).toBe('api-test')
+    expect(prunes[1].values[1]).toMatch(/^night-\d{4}-\d{2}-\d{2}$/)
+    expect(prunes[1].values[2]).toMatch(/^week-\d{4}-W\d{2}$/)
     expect(body.board.seed).toBe('api-test')
   })
 

@@ -18,6 +18,8 @@ import { type Fitted, PARTS, STAGES, tuned } from './upgrades'
 
 export const RUN_FORMAT = 1
 export { PHYSICS_VERSION }
+// The server's ghost clean-up tells old daily and weekly tracks by these.
+export { dailySeed, weeklySeed } from './sim/track'
 
 // The longest run the server replays: 20 minutes of driving.
 export const MAX_STEPS = Math.round((20 * 60) / STEP)

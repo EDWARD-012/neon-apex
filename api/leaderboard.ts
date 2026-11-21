@@ -1,5 +1,5 @@
 import { gunzipSync, gzipSync } from 'node:zlib'
-import { checkRun, PHYSICS_VERSION, SEED } from './_replay.js'
+import { checkRun, dailySeed, PHYSICS_VERSION, SEED, weeklySeed } from './_replay.js'
 import { currentPlayer, json, sql, table as playersTable } from './_lib.js'
 
 // Leaderboards: the best time-trial lap of each signed-in player on each
@@ -34,6 +34,25 @@ function table() {
 const pack = (run: unknown) => gzipSync(JSON.stringify(run)).toString('base64')
 const unpack = (text: string) => JSON.parse(gunzipSync(Buffer.from(text, 'base64')).toString('utf8')) as unknown
 const USERNAME = /^[a-z0-9_]{3,20}$/
+const DAY = 86_400_000
+
+// Ghosts take room, so they are kept only where someone is likely to race
+// them: a lap keeps its ghost while it is in its board's top 10; ghosts on
+// a daily track go once the track is more than 7 days old, on a weekly
+// track once it is more than 5 weeks old, and on any older physics version
+// straight away. The times stay on the boards. Run after every new lap.
+async function pruneGhosts(seed: string) {
+  await sql`update laps set ghost = null
+    where seed = ${seed} and physics = ${PHYSICS_VERSION} and ghost is not null
+      and player_id not in (select l.player_id from laps l join players p on p.id = l.player_id
+        where l.seed = ${seed} and l.physics = ${PHYSICS_VERSION} and p.username is not null
+        order by l.time asc, l.set_at asc limit 10)`
+  const now = Date.now()
+  await sql`update laps set ghost = null
+    where ghost is not null and (physics <> ${PHYSICS_VERSION}
+      or (seed ~ '^night-[0-9]{4}-[0-9]{2}-[0-9]{2}$' and seed collate "C" < ${dailySeed(new Date(now - 7 * DAY))})
+      or (seed ~ '^week-[0-9]{4}-W[0-9]{2}$' and seed collate "C" < ${weeklySeed(new Date(now - 35 * DAY))}))`
+}
 
 // A run of five laps is a few hundred kilobytes of input at most.
 const MAX_BODY = 2_000_000
@@ -102,5 +121,6 @@ export async function POST(request: Request) {
     on conflict (seed, physics, player_id) do update
       set time = excluded.time, car = excluded.car, fitted = excluded.fitted, ghost = excluded.ghost, set_at = now()
       where excluded.time < laps.time`
+  await pruneGhosts(run.seed)
   return json({ ok: true, time, board: await board(run.seed, player.id) })
 }
