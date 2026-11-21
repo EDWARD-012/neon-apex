@@ -958,7 +958,7 @@ function lapBoard(spec: EventSpec) {
   el.innerHTML = '<h3>Fastest laps on this track</h3><div class="board"></div>'
   const box = el.querySelector('.board') as HTMLElement
   const name = boardName()
-  const run = name ? game.lapRun(settings.car, progress.upgrades[settings.car]) : null
+  const run = name ? game.lapRun(settings.car, progress.upgrades[settings.car], tuneFor(settings.car)) : null
   if (!run) {
     void fetchBoard(spec.seed).then((board) => drawBoard(box, board, formatTime, name, name ? '' : signInNote))
     return
