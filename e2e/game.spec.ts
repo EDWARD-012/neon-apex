@@ -295,6 +295,29 @@ test('saves carried over from the old address are kept, and the link is tidied',
   await expect.poll(() => page.evaluate(() => (window as any).__neon?.progress().cash), { timeout: 60_000 }).toBe(4321)
 })
 
+test('the garage photo mode turns the camera, saves a picture and gives the garage back', async ({ page, isMobile }) => {
+  test.skip(isMobile, 'mouse drag and download on desktop')
+  await open(page)
+  await page.locator('#go-garage').click()
+  await page.locator('#photo-mode').click()
+  await expect(page.locator('#photo-bar')).toBeVisible()
+  await expect(page.locator('#garage')).toBeHidden()
+  const yaw = () => page.evaluate(() => (window as any).__neon.game.garage.photo?.yaw as number)
+  const start = await yaw()
+  await page.mouse.move(600, 300)
+  await page.mouse.down()
+  await page.mouse.move(400, 300, { steps: 8 })
+  await page.mouse.up()
+  expect(Math.abs((await yaw()) - start)).toBeGreaterThan(0.5)
+  const download = page.waitForEvent('download')
+  await page.locator('#photo-save').click()
+  expect((await download).suggestedFilename()).toMatch(/^skidline-[a-z]+\.png$/)
+  await page.keyboard.press('Escape')
+  await expect(page.locator('#garage')).toBeVisible()
+  await expect(page.locator('#photo-bar')).toBeHidden()
+  expect(await yaw()).toBeUndefined()
+})
+
 test('career damage stays on the car until it is repaired', async ({ page }) => {
   // A save with a badly damaged car, put in before each load of the page.
   await page.addInitScript(() => localStorage.setItem('neon-apex/career', JSON.stringify({ cash: 3000, owned: ['vanta'], won: {}, wear: { vanta: 0.8 } })))
