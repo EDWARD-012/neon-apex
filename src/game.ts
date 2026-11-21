@@ -19,6 +19,7 @@ import { type Fitted, type Tune, tuned } from './upgrades'
 import { createHelicopter, type HelicopterModel } from './render/helicopter'
 import { buildArrows, buildPuddles, buildSigns, Crowd, type Puddle } from './render/roadside'
 import { type Lamps, Nightfall } from './render/nightfall'
+import { Birds, type CarLike } from './render/birds'
 import { disposeStrip, spikeStrip } from './render/spikes'
 import { spot } from './render/textures'
 import { buildTrackMeshes } from './render/trackMesh'
@@ -246,6 +247,9 @@ export class Game {
   private crowdMood = 0
   // A dusk race falling to night, with its street lights and headlights.
   private nightfall: Nightfall | null = null
+  // Flocks by the mountain road, and the cars that can startle them.
+  private birds: Birds | null = null
+  private readonly birdCars: CarLike[] = []
   private readonly trails = new Trails(64)
   private readonly rain = new Rain()
   private raining = false
@@ -268,6 +272,10 @@ export class Game {
   private camLook = new Vector3()
   private fov = 62
   private shake = 0
+  // The flash over the view on a big hit, 0 to 1, and when the last began.
+  private hitFlash = 0
+  private hitFlashAt = -Infinity
+  private hitFlashShown = 0
   private slipShownAt = -Infinity
   // How much of the followed car was on a kerb last frame, 0 to 1.
   private kerbBefore = 0
@@ -388,12 +396,16 @@ export class Game {
       this.puddles = roadside.puddles
       this.puddleGroup = roadside.group
       this.crowd = day ? new Crowd(this.race.track, barrierOffset(this.race.track), spec.seed, this.world.quality !== 'low') : null
+      // Birds by the road there too, fewer on low graphics.
+      this.birds = day ? new Birds(this.race.track, spec.seed, this.world.quality !== 'low') : null
       this.scenery.push(buildSigns(this.race.track), buildArrows(this.race.track), roadside.group)
       if (this.crowd) this.scenery.push(this.crowd.group)
+      if (this.birds) this.scenery.push(this.birds.group)
       this.world.scene.add(...this.scenery)
       this.cameras = tvCameras(this.race.track)
       this.builtSeed = look
     }
+    this.birds?.reset()
     const m = this.materials!
     // The wet-street mirror is a night thing; by day the road is dry.
     const mirror = this.world.quality === 'high' && !day
@@ -769,6 +781,7 @@ export class Game {
     this.replay = this.recorder.finish(-1)
     this.recorder = null
     this.mode = 'replay'
+    this.birds?.reset()
     // Start just before the green light.
     this.replayTime = 0
     this.replayPlaying = true
@@ -1252,6 +1265,12 @@ export class Game {
       this.crowdMood += (mood - this.crowdMood) * Math.min(1, dt * 3)
       this.crowd.update(this.time, this.crowdMood)
     }
+    if (this.birds && dt > 0) {
+      this.birdCars.length = 0
+      for (const r of this.race.racers) this.birdCars.push(r.car)
+      for (const cop of this.race.police) this.birdCars.push(cop)
+      this.birds.update(dt, this.time, this.birdCars, cam.position.x, cam.position.z)
+    }
     if (dt > 0) {
       this.smoke.update(dt)
       this.spray.update(dt)
@@ -1286,6 +1305,12 @@ export class Game {
     }
 
     this.camera(dt)
+    this.hitFlash = this.mode === 'race' ? this.hitFlash * Math.exp(-dt * 9) : 0
+    const shown = this.hitFlash < 0.01 ? 0 : Math.round(this.hitFlash * 100) / 100
+    if (shown !== this.hitFlashShown) {
+      this.hitFlashShown = shown
+      $('hit-flash').style.opacity = String(shown)
+    }
     this.trails.update(cam.position.x, cam.position.y, cam.position.z)
     if (this.raining) {
       this.rain.update(this.time, cam.position.x, cam.position.y, cam.position.z)
@@ -1545,6 +1570,13 @@ export class Game {
         this.sound.hit(car.impact)
         this.shake = Math.min(1, this.shake + car.impact * 0.06)
         if (car.impact > 6) buzz(Math.min(80, Math.round(car.impact * 4)))
+        // A big hit flashes the view, never more than twice a second. On
+        // medium and high graphics the scene's own light jumps with it.
+        if (car.impact > 6 && this.time - this.hitFlashAt > 0.5) {
+          this.hitFlash = Math.max(this.hitFlash, Math.min(1, (car.impact - 4) / 10))
+          this.hitFlashAt = this.time
+          if (this.world.quality !== 'low') this.world.flash = Math.max(this.world.flash, this.hitFlash * 0.06)
+        }
       }
     }
     car.impact = 0
