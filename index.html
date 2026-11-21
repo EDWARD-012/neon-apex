@@ -203,6 +203,7 @@
           <button id="go-garage">Garage <small id="garage-note">Vanta GT</small></button>
           <button id="go-settings">Settings <small>Graphics, sound, controls</small></button>
           <button id="go-account">Account <small id="account-note">Sign in to save on every device</small></button>
+          <button id="go-friends" class="hidden">Friends <small id="friends-note">Challenges and rivals</small></button>
         </nav>
         <nav class="guides" aria-label="Guides">
           <a href="/how-to-play.html">How to play</a>
@@ -217,6 +218,7 @@
         <p class="credit">Built by Ravi Kumar Gupta. <a href="/about.html">About the game</a>. Support, feedback or licensing: <a href="mailto:ravi5258p@gmail.com">ravi5258p@gmail.com</a></p>
       </div>
       <aside id="menu-boards" class="board-card hidden" aria-label="Fastest time-trial laps">
+        <div id="rivals" class="rivals hidden" aria-live="polite"></div>
         <div class="board-head">
           <h2>Fastest laps</h2>
           <div class="segmented" id="board-pick">
@@ -350,6 +352,22 @@
       <button id="photo-save" class="primary">Save picture</button>
       <button id="photo-done">Done</button>
     </div>
+
+    <section id="friends" class="screen hidden">
+      <div class="menu-card">
+        <h2>Friends</h2>
+        <p class="note">Add drivers by their username to see when they beat your time-trial laps, race their ghosts, and send them laps to beat.</p>
+        <form id="friend-form" class="acct-form friend-form">
+          <input id="friend-name" name="friend" autocomplete="off" placeholder="Username" required />
+          <button class="primary" type="submit">Add</button>
+        </form>
+        <p id="friend-error" class="acct-error" role="alert"></p>
+        <div id="social" class="social"></div>
+        <div class="menu-actions">
+          <button class="back">Back</button>
+        </div>
+      </div>
+    </section>
 
     <section id="account" class="screen hidden">
       <div class="menu-card">
@@ -497,6 +515,7 @@
         <p id="result-note" class="note"></p>
         <div id="reward" class="reward hidden"></div>
         <div id="lap-board" class="lap-board hidden" aria-live="polite"></div>
+        <div id="lap-challenge" class="lap-challenge hidden"></div>
         <div class="menu-actions">
           <button id="again" class="primary">Race again</button>
           <button id="watch">Watch replay</button>

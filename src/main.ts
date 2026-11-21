@@ -6,6 +6,7 @@ import '@fontsource/chakra-petch/500-italic.css'
 import './styles.css'
 import { report, startClock } from './analytics'
 import { boardsEnabled, drawBoard, fetchBoard, fetchGhost, sendRun } from './leaderboard'
+import { addFriend, dismiss, drawChallenge, drawFeed, drawSocial, fetchSocial, friendsEnabled, removeFriend, type Social } from './friends'
 import { ghostOf } from './replay-check'
 import { PORTAL } from './portal'
 import { carAssetsPending, loadCarAssets } from './render/carAssets'
@@ -172,8 +173,8 @@ game.looksFor = (carId) => fullLooks(progress.looks[carId])
 // a guest.
 game.plateText = () => (signedIn?.username ?? 'Skidline').toUpperCase()
 
-type Screen = 'menu' | 'quick' | 'career' | 'garage' | 'settings-screen' | 'account' | 'intro' | 'race' | 'results' | 'replay'
-const SCREENS = ['menu', 'quick', 'career', 'garage', 'settings-screen', 'account', 'results', 'pause']
+type Screen = 'menu' | 'quick' | 'career' | 'garage' | 'settings-screen' | 'account' | 'friends' | 'intro' | 'race' | 'results' | 'replay'
+const SCREENS = ['menu', 'quick', 'career', 'garage', 'settings-screen', 'account', 'friends', 'results', 'pause']
 
 function setScreen(screen: Screen) {
   for (const id of SCREENS) $(id).classList.toggle('hidden', id !== screen)
@@ -971,6 +972,7 @@ function menuBoard() {
   const seed = daily ? dailySeed() : weeklySeed()
   el.innerHTML = '<p class="board-note">Loading the board</p>'
   void fetchBoard(seed).then((board) => drawBoard(el, board, formatTime, boardName(), boardName() ? '' : signInNote, (name, button) => raceGhost(seed, name, button)))
+  refreshSocial()
 }
 
 // Races a board entry's ghost. Its run comes from the server and is
@@ -993,6 +995,7 @@ segmented('board-pick', boardPick, (v) => {
 })
 
 function lapBoard(spec: EventSpec) {
+  $('lap-challenge').classList.add('hidden')
   const el = $('lap-board')
   const show = boardsEnabled && spec.kind === 'trial'
   el.classList.toggle('hidden', !show)
@@ -1014,6 +1017,80 @@ function lapBoard(spec: EventSpec) {
     const me = sent.board.me
     const note = me && me.time < sent.time ? `Checked: ${formatTime(sent.time)}. Your best here is still ${formatTime(me.time)}, ${ordinal(me.place)} of ${sent.board.count}.` : me ? `Checked: ${formatTime(sent.time)}, ${ordinal(me.place)} of ${sent.board.count}.` : `Checked: ${formatTime(sent.time)}.`
     drawBoard(box, sent.board, formatTime, name, note, (who, button) => raceGhost(spec.seed, who, button))
+    lapChallenge(spec.seed)
+  })
+}
+
+// Friends, challenges and the rivals feed (see friends.ts), for signed-in
+// players with a username.
+
+let social: Social | null = null
+const raceRival = (seed: string, name: string, ghost: boolean, button: HTMLButtonElement) => {
+  if (ghost) void raceGhost(seed, name, button)
+  else void begin({ ...quickSpec('trial'), seed })
+}
+
+function drawFriendsScreen() {
+  if (!social) return
+  drawSocial(
+    $('social'),
+    social,
+    formatTime,
+    raceRival,
+    (id) => void dismiss(id).then(adoptSocial),
+    (name) => void removeFriend(name).then(adoptSocial),
+  )
+}
+
+function adoptSocial(done: Awaited<ReturnType<typeof fetchSocial>>) {
+  if (!done.ok) {
+    $('friend-error').textContent = done.error
+    return
+  }
+  social = done.social
+  $('friend-error').textContent = ''
+  const open = social.challenges.filter((c) => c.mine === null || c.mine >= c.time).length
+  $('friends-note').textContent = open ? `${open} ${open === 1 ? 'challenge' : 'challenges'} waiting` : `${social.friends.length} ${social.friends.length === 1 ? 'friend' : 'friends'}`
+  drawFeed($('rivals'), social, formatTime, raceRival)
+  if (!$('friends').classList.contains('hidden')) drawFriendsScreen()
+}
+
+function refreshSocial() {
+  const on = friendsEnabled && Boolean(boardName())
+  $('go-friends').classList.toggle('hidden', !on)
+  if (!on) {
+    $('rivals').classList.add('hidden')
+    return
+  }
+  void fetchSocial().then(adoptSocial)
+}
+
+$('go-friends').addEventListener('click', () => {
+  setScreen('friends')
+  $('social').innerHTML = social ? '' : '<p class="board-note">Loading</p>'
+  drawFriendsScreen()
+  refreshSocial()
+})
+$('friend-form').addEventListener('submit', (e) => {
+  e.preventDefault()
+  const input = $('friend-name') as HTMLInputElement
+  void addFriend(input.value).then((done) => {
+    if (done.ok) input.value = ''
+    adoptSocial(done)
+  })
+})
+
+// Under a checked time-trial lap: send the track to a friend.
+function lapChallenge(seed: string) {
+  const el = $('lap-challenge')
+  const on = friendsEnabled && Boolean(boardName())
+  el.classList.toggle('hidden', !on)
+  if (!on) return
+  const draw = () => social && drawChallenge(el, social.friends, seed)
+  if (social) draw()
+  else void fetchSocial().then((done) => {
+    if (done.ok) social = done.social
+    draw()
   })
 }
 
