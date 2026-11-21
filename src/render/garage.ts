@@ -25,6 +25,9 @@ export class Garage {
   readonly scene = new Scene()
   private readonly turntable = new Group()
   private model: CarModel | null = null
+  // Photo mode: the turntable stops and the camera orbits where the player
+  // drags it, round the car, at a distance they zoom.
+  photo: { yaw: number; pitch: number; dist: number } | null = null
   private readonly spot: Texture
   private readonly ring: MeshBasicMaterial
   private readonly bank = new WheelBank(8)
@@ -81,6 +84,16 @@ export class Garage {
   }
 
   update(time: number, camera: import('three').PerspectiveCamera, wide: boolean) {
+    const photo = this.photo
+    if (photo) {
+      this.bank.update()
+      const c = Math.cos(photo.pitch)
+      camera.position.set(Math.sin(photo.yaw) * c * photo.dist, 0.65 + Math.sin(photo.pitch) * photo.dist, Math.cos(photo.yaw) * c * photo.dist)
+      camera.lookAt(0, 0.6, 0)
+      camera.fov = 38
+      camera.updateProjectionMatrix()
+      return
+    }
     this.turntable.rotation.y = time * 0.35
     this.bank.update()
     // On a wide screen the car sits right of centre, clear of the menu.

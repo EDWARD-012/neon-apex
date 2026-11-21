@@ -494,6 +494,55 @@ export class Game {
     this.refreshGarage()
   }
 
+  // Photo mode in the garage: the camera starts where the show camera was,
+  // then turns and zooms with the player's drags.
+  enterPhoto() {
+    const cam = this.world.camera.position
+    this.garage.photo = { yaw: Math.atan2(cam.x, cam.z), pitch: 0.22, dist: 7.4 }
+  }
+
+  leavePhoto() {
+    this.garage.photo = null
+  }
+
+  orbit(dx: number, dy: number) {
+    const p = this.garage.photo
+    if (!p) return
+    p.yaw -= dx * 0.006
+    p.pitch = MathUtils.clamp(p.pitch + dy * 0.004, 0.02, 1.2)
+  }
+
+  zoom(factor: number) {
+    const p = this.garage.photo
+    if (p) p.dist = MathUtils.clamp(p.dist * factor, 4.2, 12)
+  }
+
+  // A picture of the frame as it is drawn now, with the game's name and the
+  // car's in a corner. It is drawn and copied in one go, so the picture is
+  // there even though the canvas doesn't keep its frames.
+  snapshot(caption: string): Promise<Blob | null> {
+    this.garage.update(this.time, this.world.camera, false)
+    this.world.render()
+    const view = this.world.renderer.domElement
+    const out = document.createElement('canvas')
+    out.width = view.width
+    out.height = view.height
+    const g = out.getContext('2d') as CanvasRenderingContext2D
+    g.drawImage(view, 0, 0)
+    const size = Math.round(out.height * 0.035)
+    g.font = `italic 700 ${size}px "Chakra Petch", sans-serif`
+    g.textAlign = 'right'
+    g.textBaseline = 'bottom'
+    g.shadowColor = 'rgba(0,0,0,0.6)'
+    g.shadowBlur = size * 0.4
+    g.fillStyle = 'rgba(255,255,255,0.92)'
+    g.fillText('SKIDLINE', out.width - size, out.height - size)
+    g.font = `600 ${Math.round(size * 0.55)}px "Chakra Petch", sans-serif`
+    g.fillStyle = 'rgba(255,255,255,0.75)'
+    g.fillText(caption, out.width - size, out.height - size * 2.15)
+    return new Promise((done) => out.toBlob((b) => done(b), 'image/png'))
+  }
+
   refreshGarage(carId = this.settings.car, looks = this.looksFor(carId)) {
     this.garage.show(carById(carId).shape, this.settings.color, looks, this.plateText())
   }
