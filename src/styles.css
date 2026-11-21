@@ -1280,6 +1280,66 @@ kbd {
   color: var(--gold);
 }
 
+/* The wrap painter in the Looks tab: a card per layer with its shape and
+   place, colours, sliders and, for text, a text box. */
+.wrap {
+  display: grid;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.wrap .label {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.wrap-layer {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--glass);
+}
+
+.wrap-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.wrap-head select,
+.wrap-text {
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+}
+
+.wrap-head .wrap-remove {
+  margin-left: auto;
+}
+
+.wrap-text {
+  text-transform: uppercase;
+}
+
+.look-row.swatches.wrap-colours {
+  grid-template-columns: repeat(9, 32px);
+}
+
+.wrap-colours button {
+  height: 30px;
+}
+
+.wrap-add {
+  justify-self: start;
+}
+
 /* Tuning sliders under the parts: the name, the two ends of the range
    either side of the slider, and what it does or which part it needs. */
 .tuning {
