@@ -77,6 +77,7 @@ function loadSettings(): Settings {
     traffic: saved.traffic ?? true,
     police: saved.police ?? true,
     driftAssist: saved.driftAssist ?? true,
+    driftSteer: saved.driftSteer === 'guided' ? 'guided' : 'classic',
     brakeAssist: saved.brakeAssist ?? false,
     stability: saved.stability ?? true,
     touchSteer: saved.touchSteer === 'arrows' || saved.touchSteer === 'tilt' ? saved.touchSteer : 'wheel',
@@ -884,6 +885,7 @@ game.onQualityChange = () => {
   qualityNote()
 }
 segmented('drift-assist', settings.driftAssist ? 'on' : 'off', (v) => (settings.driftAssist = v === 'on'))
+segmented('drift-steer', settings.driftSteer, (v) => (settings.driftSteer = v as Settings['driftSteer']))
 segmented('brake-assist', settings.brakeAssist ? 'on' : 'off', (v) => (settings.brakeAssist = v === 'on'))
 segmented('stability', settings.stability ? 'on' : 'off', (v) => (settings.stability = v === 'on'))
 segmented('touch-steer', settings.touchSteer, (v) => {

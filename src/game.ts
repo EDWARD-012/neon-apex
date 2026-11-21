@@ -81,6 +81,8 @@ export interface Settings {
   // Driving aids: the brake-tap drift, braking for corners, and stability
   // control (off means the raw tyre model).
   driftAssist: boolean
+  // Drift steering: classic, or guided within a band (see guided in car.ts).
+  driftSteer: 'classic' | 'guided'
   brakeAssist: boolean
   stability: boolean
   // Phones: how to steer, and which side the steering goes.
@@ -758,7 +760,7 @@ export class Game {
     }
     if (this.mode === 'race') this.keys()
     if (this.mode === 'race' || this.mode === 'results' || this.mode === 'menu') {
-      if (this.mode === 'race') this.race.playerInput = { ...this.input.read(dt), assist: this.settings.driftAssist, raw: !this.settings.stability }
+      if (this.mode === 'race') this.race.playerInput = { ...this.input.read(dt), assist: this.settings.driftAssist, raw: !this.settings.stability, band: this.settings.driftSteer === 'guided' }
       if (this.slowUntil > 0 && now > this.slowUntil) {
         this.slowUntil = 0
         this.timeScale = 1

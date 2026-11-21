@@ -239,10 +239,12 @@ test('the driving aids in Settings are kept and used in the race', async ({ page
   await page.locator('#go-settings').click()
   await page.locator('#brake-assist button[data-value="on"]').click()
   await page.locator('#stability button[data-value="off"]').click()
+  await page.locator('#drift-steer button[data-value="guided"]').click()
   await open(page)
   await page.locator('#go-settings').click()
   await expect(page.locator('#brake-assist button.on')).toHaveAttribute('data-value', 'on')
   await expect(page.locator('#stability button.on')).toHaveAttribute('data-value', 'off')
+  await expect(page.locator('#drift-steer button.on')).toHaveAttribute('data-value', 'guided')
   await page.locator('#settings-screen .back').click()
   await quickRace(page, 'race', false)
   await forward(page, 1)
@@ -253,11 +255,11 @@ test('the driving aids in Settings are kept and used in the race', async ({ page
       () =>
         page.evaluate(() => {
           const race = (window as any).__neon.game.race
-          return { brake: race.brakeHelp, raw: race.playerInput.raw, drift: race.playerInput.assist }
+          return { brake: race.brakeHelp, raw: race.playerInput.raw, drift: race.playerInput.assist, band: race.playerInput.band }
         }),
       { timeout: 60_000, intervals: [500, 1000, 2000] },
     )
-    .toEqual({ brake: true, raw: true, drift: true })
+    .toEqual({ brake: true, raw: true, drift: true, band: true })
 })
 
 test('pause stops the race and resume carries on', async ({ page, isMobile }) => {

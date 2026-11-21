@@ -68,6 +68,10 @@ export interface CarInput {
   // the input gets here; see brakingAid in ai.ts.)
   assist?: boolean
   raw?: boolean
+  // Guided drift steering (Settings, off by default): inside a drift the
+  // stick moves the line within a band on the drift's own side, from wide
+  // to tight, so the car can't be flicked into a spin. See guided().
+  band?: boolean
 }
 
 // Handling version. Ghosts and times are stored with it, so a change to the
@@ -360,6 +364,18 @@ export function stepCar(car: CarState, input: CarInput, dt: number, track: Track
   collideWithBarriers(car, track)
 }
 
+// Guided drift steering, after SuperTuxKart's skid steering: the stick's
+// range maps onto 20% to 80% of the way into the corner, so a released
+// stick holds a middle line instead of straightening up. A countersteer
+// harder than BAND_EXIT is past the band and ends the drift as it always
+// has.
+export const BAND: [number, number] = [0.2, 0.8]
+export const BAND_EXIT = -0.6
+export function guided(into: number): number {
+  if (into < BAND_EXIT) return into
+  return BAND[0] + ((BAND[1] - BAND[0]) * (into + 1)) / 2
+}
+
 // One step of an arcade drift (see stepCar). The car's travel turns with
 // the steering, a little tighter than grip driving would, and the body is
 // held at an angle to it that the steering sets.
@@ -369,7 +385,7 @@ function arcadeDrift(car: CarState, input: CarInput, dt: number, top: number, po
   let speed = Math.hypot(car.vx, car.vz)
   let travel = Math.atan2(car.vx, car.vz)
   // Into the corner is positive, countersteer negative.
-  const into = input.steer * dir
+  const into = input.band ? guided(input.steer * dir) : input.steer * dir
   const lock = S.maxSteer * (1 - 0.6 * Math.min(1, speed / S.topSpeed))
   car.steer += (input.steer * lock * 0.6 - car.steer) * Math.min(1, 12 * dt)
   // Angle: about 20 degrees on its own, up to 40 steering in, down to a few
