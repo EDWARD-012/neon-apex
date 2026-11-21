@@ -15,6 +15,15 @@ export interface Pbr {
 
 const cache = new Map<string, Pbr>()
 
+// Low quality, which phones start on, loads half-size colour and normal
+// maps from textures/small (made by scripts/small-textures.mjs): about
+// 360 KB for the three materials instead of about 5 MB. It applies to
+// textures loaded after it is set; ones already loaded stay as they are.
+let small = false
+export function useSmallTextures(on: boolean) {
+  small = on
+}
+
 // A material's colour, normal and roughness maps, tiled `repeat` times.
 // The textures are returned at once and fill in when they arrive.
 export function pbr(name: 'road' | 'rock' | 'ground', repeatU: number, repeatV = repeatU): Pbr {
@@ -22,7 +31,7 @@ export function pbr(name: 'road' | 'rock' | 'ground', repeatU: number, repeatV =
   const hit = cache.get(key)
   if (hit) return hit
   const one = (suffix: string, color: boolean) => {
-    const t = loader.load(`${base}${name}-${suffix}.jpg`)
+    const t = loader.load(`${base}${small && suffix !== 'rough' ? 'small/' : ''}${name}-${suffix}.jpg`)
     t.wrapS = RepeatWrapping
     t.wrapT = RepeatWrapping
     t.repeat.set(repeatU, repeatV)
