@@ -19,6 +19,14 @@ const TOP = 6.75
 const HALF = 4.5
 // How far each embankment runs out from its abutment.
 const RAMP = 45
+// The grass and the side road share the valley floor's and the race
+// road's photo textures, and their tiling, so no second copy is loaded:
+// the floor tiles its texture 1500 times over 9000 m, the road 3 times
+// per 12 m of UV.
+const GRASS_REPEAT = 1500
+const GRASS_UV = 9000
+const ROAD_REPEAT = 3
+const ROAD_UV = 12
 
 export interface BridgePlace {
   i: number
@@ -199,7 +207,7 @@ function embankment(from: number, side: number): { grass: BufferGeometry; road: 
       const tb = [b.u, b.h, s * HALF]
       const ga = [a.u, -0.03, s * a.spread]
       const gb = [b.u, -0.03, s * b.spread]
-      push(grass, guv, [ta, tb, gb, ta, gb, ga], 6)
+      push(grass, guv, [ta, tb, gb, ta, gb, ga], GRASS_UV)
     }
     // Verges of the top either side of the side road.
     for (const s of [-1, 1]) {
@@ -207,13 +215,13 @@ function embankment(from: number, side: number): { grass: BufferGeometry; road: 
       const pb = [b.u, b.h, s * HALF]
       const qa = [a.u, a.h + 0.02, s * 3.6]
       const qb = [b.u, b.h + 0.02, s * 3.6]
-      push(grass, guv, [qa, qb, pb, qa, pb, pa], 6)
+      push(grass, guv, [qa, qb, pb, qa, pb, pa], GRASS_UV)
     }
     const la = [a.u, a.h + 0.03, -3.6]
     const ra = [a.u, a.h + 0.03, 3.6]
     const lb = [b.u, b.h + 0.03, -3.6]
     const rb = [b.u, b.h + 0.03, 3.6]
-    push(road, ruv, [la, ra, rb, la, rb, lb], 8)
+    push(road, ruv, [la, ra, rb, la, rb, lb], ROAD_UV)
   }
   const make = (p: number[], uvs: number[]) => {
     const geo = new BufferGeometry()
@@ -259,7 +267,7 @@ export function buildBridge(track: Track, place: BridgePlace, shadows: boolean):
     road.push(e.road)
   }
   // The side road across the deck itself.
-  road.push(box(-outer, outer, -3.6, 3.6, TOP, TOP + 0.03, 8))
+  road.push(box(-outer, outer, -3.6, 3.6, TOP, TOP + 0.03, ROAD_UV))
 
   // Into the race road's frame: u along the normal, v along the road.
   const frame = new Matrix4().makeRotationY(Math.atan2(track.tx[i], track.tz[i])).setPosition(track.x[i], 0, track.z[i])
@@ -274,8 +282,8 @@ export function buildBridge(track: Track, place: BridgePlace, shadows: boolean):
   }
   // Two-sided, so the winding of the hand-built faces doesn't matter.
   mesh(concrete, new MeshStandardMaterial({ map: concreteTexture(), roughness: 0.92, envMapIntensity: 0.4, side: DoubleSide }), true)
-  mesh(grass, new MeshStandardMaterial({ ...pbr('ground', 1), color: '#8fa56a', roughness: 1, envMapIntensity: 0.35, side: DoubleSide }), false)
-  mesh(road, new MeshStandardMaterial({ ...pbr('road', 1), roughness: 0.95, envMapIntensity: 0.4, side: DoubleSide }), false)
+  mesh(grass, new MeshStandardMaterial({ ...pbr('ground', GRASS_REPEAT), color: '#8fa56a', roughness: 1, envMapIntensity: 0.35, side: DoubleSide }), false)
+  mesh(road, new MeshStandardMaterial({ ...pbr('road', ROAD_REPEAT, ROAD_REPEAT), roughness: 0.95, envMapIntensity: 0.4, side: DoubleSide }), false)
   mesh(steel, new MeshStandardMaterial({ color: '#7f868c', roughness: 0.45, metalness: 0.7 }), true)
 
   // Trees keep off the abutments and embankments.

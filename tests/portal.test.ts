@@ -15,7 +15,8 @@ async function load(mode: string) {
   const cloud = await import('../src/cloud')
   const analytics = await import('../src/analytics')
   const boards = await import('../src/leaderboard')
-  return { portal, cloud, analytics, boards, beacon, fetch }
+  const friends = await import('../src/friends')
+  return { portal, cloud, analytics, boards, friends, beacon, fetch }
 }
 
 describe('the portal build', () => {
@@ -25,22 +26,25 @@ describe('the portal build', () => {
   })
 
   it('turns accounts, play events and the leaderboards off', async () => {
-    const { portal, cloud, analytics, boards, beacon, fetch } = await load('portal')
+    const { portal, cloud, analytics, boards, friends, beacon, fetch } = await load('portal')
     expect(portal.PORTAL).toBe(true)
     expect(cloud.cloudEnabled).toBe(false)
     expect(await cloud.currentAccount()).toBeNull()
     analytics.report('visit')
     expect(boards.boardsEnabled).toBe(false)
     expect(await boards.fetchBoard('night-2026-11-21')).toBeNull()
+    expect(friends.friendsEnabled).toBe(false)
+    expect((await friends.fetchSocial()).ok).toBe(false)
     expect(beacon).not.toHaveBeenCalled()
     expect(fetch).not.toHaveBeenCalled()
   })
 
   it('leaves them on in the website build', async () => {
-    const { portal, cloud, analytics, boards, beacon } = await load('production')
+    const { portal, cloud, analytics, boards, friends, beacon } = await load('production')
     expect(portal.PORTAL).toBe(false)
     expect(cloud.cloudEnabled).toBe(true)
     expect(boards.boardsEnabled).toBe(true)
+    expect(friends.friendsEnabled).toBe(true)
     analytics.report('visit')
     expect(beacon).toHaveBeenCalledOnce()
   })
