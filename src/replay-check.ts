@@ -1,7 +1,7 @@
 import { type CarInput, PHYSICS_VERSION } from './sim/car'
 import { carById, CARS } from './sim/cars'
 import { Race, STEP } from './sim/race'
-import { type Fitted, PARTS, STAGES, tuned } from './upgrades'
+import { cleanTune, type Fitted, PARTS, STAGES, type Tune, tuned, TUNES } from './upgrades'
 
 // Checked laps for the leaderboards. In a time trial the game records the
 // player's input for every physics step, and the server replays those
@@ -38,6 +38,9 @@ export interface Run {
   laps: number
   car: string
   fitted: Fitted
+  // The car's tuning sliders. A run without them was driven with them all
+  // in the middle.
+  tune?: Tune
   // Damage the car started with (a career event carries it in), 0 to 1.
   damage: number
   // Run-length encoded inputs, five numbers for each stretch of steps with
@@ -130,7 +133,7 @@ export class RunRecorder {
   }
 
   // The finished run, ready to send, or null if the laps weren't finished.
-  finish(race: Race, car: string, fitted: Fitted = {}): Run | null {
+  finish(race: Race, car: string, fitted: Fitted = {}, tune?: Tune): Run | null {
     const laps = race.player.lapTimes
     if (race.player.finishTime === null || laps.length === 0) return null
     return {
@@ -140,6 +143,7 @@ export class RunRecorder {
       laps: this.laps,
       car,
       fitted: { ...fitted },
+      ...(tune ? { tune: cleanTune(tune) } : {}),
       damage: this.damage,
       inputs: [...this.inputs],
       resets: [...this.resets],
@@ -158,7 +162,7 @@ export interface Replayed {
 // trial: no rivals, no traffic, no police. onStep, if given, sees the race
 // after every step.
 export function replay(run: Run, onStep?: (race: Race) => void): Replayed {
-  const race = new Race({ seed: run.seed, laps: run.laps, rivals: 0, traffic: 0, mode: 'circuit', playerSpec: tuned(carById(run.car), run.fitted) })
+  const race = new Race({ seed: run.seed, laps: run.laps, rivals: 0, traffic: 0, mode: 'circuit', playerSpec: tuned(carById(run.car), run.fitted, run.tune) })
   const start = new StartWatch()
   const player = race.player
   player.car.damage = run.damage
@@ -205,6 +209,12 @@ function problem(r: Record<string, unknown>): string | null {
   if (!fitted || typeof fitted !== 'object' || Array.isArray(fitted)) return 'Unknown upgrades.'
   for (const [part, stage] of Object.entries(fitted)) {
     if (!PARTS.some((p) => p.id === part) || !isInt(stage, 0, STAGES)) return 'Unknown upgrades.'
+  }
+  if (r.tune !== undefined) {
+    const tune = r.tune as Record<string, unknown>
+    if (!tune || typeof tune !== 'object' || Array.isArray(tune)) return 'Unknown tuning.'
+    const clean = cleanTune(tune)
+    if (Object.keys(tune).some((k) => !TUNES.some((t) => t.id === k)) || TUNES.some((t) => tune[t.id] !== clean[t.id])) return 'Unknown tuning.'
   }
   if (typeof r.damage !== 'number' || !Number.isFinite(r.damage) || r.damage < 0 || r.damage >= 1) return 'Unknown damage.'
   if (typeof r.best !== 'number' || !Number.isFinite(r.best) || r.best <= 0) return 'No lap time.'

@@ -1280,6 +1280,63 @@ kbd {
   color: var(--gold);
 }
 
+/* Tuning sliders under the parts: the name, the two ends of the range
+   either side of the slider, and what it does or which part it needs. */
+.tuning {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.tuning .label {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.tune {
+  display: grid;
+  gap: 2px;
+}
+
+.tune-name {
+  font-weight: 600;
+}
+
+.tune-ends {
+  display: grid;
+  grid-template-columns: 70px 1fr 74px;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.tune-ends i {
+  font-style: normal;
+}
+
+.tune-ends i:last-child {
+  text-align: right;
+}
+
+.tune input[type='range'] {
+  width: 100%;
+  accent-color: var(--cyan);
+}
+
+.tune input[type='range']:disabled {
+  opacity: 0.4;
+}
+
+.tune small {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.tune-reset {
+  justify-self: start;
+}
+
 .parts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
