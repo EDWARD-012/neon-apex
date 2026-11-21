@@ -36,6 +36,8 @@ export interface Run {
   laps: number
   car: string
   fitted: Fitted
+  // Damage the car started with (a career event carries it in), 0 to 1.
+  damage: number
   // Run-length encoded inputs, five numbers for each stretch of steps with
   // the same input: steps, throttle (0 to 1000), brake (0 to 1000), steer
   // (-1000 to 1000) and the flags above.
@@ -90,6 +92,7 @@ export class RunRecorder {
   private resets: number[] = []
   private steps = 0
   private stopped = false
+  private damage = 0
 
   constructor(
     readonly seed: string,
@@ -105,6 +108,7 @@ export class RunRecorder {
       this.stopped = true
       return input
     }
+    if (this.steps === 0) this.damage = race.player.car.damage
     const t = round(input.throttle, 0, 1000)
     const b = round(input.brake, 0, 1000)
     const s = round(input.steer, -1000, 1000)
@@ -132,6 +136,7 @@ export class RunRecorder {
       laps: this.laps,
       car,
       fitted: { ...fitted },
+      damage: this.damage,
       inputs: [...this.inputs],
       resets: [...this.resets],
       best: Math.min(...laps),
@@ -151,6 +156,7 @@ export function replay(run: Run): Replayed {
   const race = new Race({ seed: run.seed, laps: run.laps, rivals: 0, traffic: 0, mode: 'circuit', playerSpec: tuned(carById(run.car), run.fitted) })
   const start = new StartWatch()
   const player = race.player
+  player.car.damage = run.damage
   let step = 0
   let r = 0
   for (let i = 0; i < run.inputs.length; i += 5) {
@@ -194,6 +200,7 @@ function problem(r: Record<string, unknown>): string | null {
   for (const [part, stage] of Object.entries(fitted)) {
     if (!PARTS.some((p) => p.id === part) || !isInt(stage, 0, STAGES)) return 'Unknown upgrades.'
   }
+  if (typeof r.damage !== 'number' || !Number.isFinite(r.damage) || r.damage < 0 || r.damage >= 1) return 'Unknown damage.'
   if (typeof r.best !== 'number' || !Number.isFinite(r.best) || r.best <= 0) return 'No lap time.'
   const inputs = r.inputs
   if (!Array.isArray(inputs) || inputs.length === 0 || inputs.length % 5 !== 0) return 'The inputs are missing or broken.'

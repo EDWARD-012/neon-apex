@@ -8,12 +8,14 @@ import { tuned } from '../src/upgrades'
 // Drives a time trial the way the game does, with the AI standing in for
 // the player's hands: the recorder rounds each step's input before the
 // race uses it, and the perfect-start rule runs after each step.
-function driveTrial(options: { seed?: string; laps?: number; car?: string; fitted?: Record<string, number>; resetAt?: number; startAt?: number } = {}) {
+function driveTrial(options: { seed?: string; laps?: number; car?: string; fitted?: Record<string, number>; resetAt?: number; startAt?: number; damage?: number } = {}) {
   const seed = options.seed ?? 'board-test'
   const laps = options.laps ?? 1
   const car = options.car ?? 'vanta'
   const fitted = options.fitted ?? {}
   const race = new Race({ seed, laps, rivals: 0, traffic: 0, mode: 'circuit', playerSpec: tuned(carById(car), fitted) })
+  // A career event can start the car damaged, as the game does in setup.
+  race.player.car.damage = options.damage ?? 0
   const recorder = new RunRecorder(seed, laps)
   const start = new StartWatch()
   const driver = createDriver(1)
@@ -86,6 +88,14 @@ describe('checked leaderboard laps', () => {
     expect(tunedRun.run.resets).toEqual([2000])
     const checked = checkRun(JSON.parse(JSON.stringify(tunedRun.run)))
     expect(checked.ok && checked.time).toBe(tunedRun.run.best)
+  })
+
+  it('starts the replay with the damage the car carried in', () => {
+    const battered = driveTrial({ seed: 'board-test-4', damage: 0.5 })
+    expect(battered.run.damage).toBe(0.5)
+    expect(checkRun(JSON.parse(JSON.stringify(battered.run))).ok).toBe(true)
+    expect(checkRun({ ...battered.run, damage: 0 }).ok).toBe(false)
+    expect(checkRun({ ...battered.run, damage: 1 }).ok).toBe(false)
   })
 
   it('gives the perfect start in the replay too', () => {
