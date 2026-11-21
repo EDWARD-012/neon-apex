@@ -103,8 +103,9 @@ function mountains(cx: number, cz: number, inner: number, rng: () => number) {
   return mesh
 }
 
-// Conifers and boulders on the valley floor, kept clear of the road.
-function forest(track: Track, cx: number, cz: number, radius: number, rng: () => number) {
+// Conifers and boulders on the valley floor, kept clear of the road and
+// of the circles in `clear`.
+function forest(track: Track, cx: number, cz: number, radius: number, rng: () => number, clear: readonly { x: number; z: number; r: number }[]) {
   const near = distanceField(track)
   const wall = barrierOffset(track)
   const spots: { x: number; z: number; s: number }[] = []
@@ -120,6 +121,7 @@ function forest(track: Track, cx: number, cz: number, radius: number, rng: () =>
     if (d < wall + 7) continue
     if (d < 90 && rng() > 0.85) continue
     if (d >= 90 && rng() > 0.35) continue
+    if (clear.some((c) => Math.hypot(x - c.x, z - c.z) < c.r)) continue
     spots.push({ x, z, s: 0.7 + rng() * 0.9 })
   }
   // Five tiers of branches, each a cone, narrowing to the tip.
@@ -156,6 +158,7 @@ function forest(track: Track, cx: number, cz: number, radius: number, rng: () =>
     const z = cz + Math.sin(a) * r
     const d = near(x, z, 60)
     if (d < wall + 4 || d > 60) continue
+    if (clear.some((c) => Math.hypot(x - c.x, z - c.z) < c.r + 2.8)) continue
     rocks.push({ x, z, s: 0.6 + rng() * 2.2 })
   }
   const stones = new InstancedMesh(new DodecahedronGeometry(1, 1), misty(new MeshStandardMaterial({ ...pbr('rock', 0.5), color: '#b8b2aa', roughness: 1 })), rocks.length)
@@ -173,7 +176,7 @@ function forest(track: Track, cx: number, cz: number, radius: number, rng: () =>
   return [leaves, bark, stones]
 }
 
-export function buildLandscape(track: Track): Landscape {
+export function buildLandscape(track: Track, clear: readonly { x: number; z: number; r: number }[] = []): Landscape {
   const rng = createRng(`landscape/${track.seed}`)
   const group = new Group()
   let cx = 0
@@ -196,6 +199,6 @@ export function buildLandscape(track: Track): Landscape {
   floor.receiveShadow = true
   group.add(floor)
   group.add(mountains(cx, cz, radius + 360, rng))
-  group.add(...forest(track, cx, cz, radius, rng))
+  group.add(...forest(track, cx, cz, radius, rng, clear))
   return { group, ground }
 }
