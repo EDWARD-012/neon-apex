@@ -5,6 +5,7 @@ import type { Track } from '../sim/track'
 import { TV_EVERY } from '../cinema'
 import { pbr } from './assets'
 import { distanceField } from './city'
+import { misty } from './mist'
 
 // A concrete overpass across the mountain road: a deck on two abutments
 // just beyond the barriers, carrying a side road that runs down grass
@@ -275,7 +276,8 @@ export function buildBridge(track: Track, place: BridgePlace, shadows: boolean):
   const mesh = (parts: BufferGeometry[], material: MeshStandardMaterial, cast: boolean) => {
     const geo = mergeGeometries(parts)
     geo.applyMatrix4(frame)
-    const m = new Mesh(geo, material)
+    // In the valley's mist like everything round it.
+    const m = new Mesh(geo, misty(material))
     m.castShadow = cast && shadows
     m.receiveShadow = true
     group.add(m)
