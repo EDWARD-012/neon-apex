@@ -14,7 +14,7 @@ import { type Looks, STOCK_LOOKS, styleCar } from './looks'
 import { applyLivery } from './render/livery'
 import { fitParts } from './render/parts'
 import { buzz } from './touch'
-import { tuned } from './upgrades'
+import { type Fitted, tuned } from './upgrades'
 import { createHelicopter, type HelicopterModel } from './render/helicopter'
 import { buildPuddles, buildSigns, type Puddle } from './render/roadside'
 import { disposeStrip, spikeStrip } from './render/spikes'
@@ -22,10 +22,12 @@ import { spot } from './render/textures'
 import { buildTrackMeshes } from './render/trackMesh'
 import { type Quality, World } from './render/world'
 import { type Replay, Recorder } from './replay'
+import { NEAR_MISS_NITRO, type Run, RunRecorder, StartWatch } from './replay-check'
 import { CAR, type CarSpec, type CarState, driftTier, forwardSpeed, PHYSICS_VERSION, speedOf } from './sim/car'
 import { carById, CARS, INTERCEPTOR_SPEC, type Shape } from './sim/cars'
 import { type CopToolId, type Mine, Race, type Racer, type RacerToolId, SHOCK_RANGE, type SpikeStrip, STEP, type ToolId } from './sim/race'
-import { pointAt } from './sim/track'
+import { onKerb } from './sim/kerbs'
+import { locate, pointAt } from './sim/track'
 
 export type Mode = 'menu' | 'garage' | 'intro' | 'race' | 'paused' | 'results' | 'replay'
 
@@ -201,7 +203,10 @@ export class Game {
   private boostWas = 0
   private nitroPulse = 0
   private bulletUntil = 0
-  private throttleAt: number | null = null
+  // The perfect start, and the inputs of a time trial for the leaderboard
+  // (see replay-check.ts).
+  private startWatch = new StartWatch()
+  private run: RunRecorder | null = null
   private lastThrottle = 0
   private gearWas = 0
   // Where each other car was along the player's heading last frame, for
@@ -243,6 +248,8 @@ export class Game {
   private camLook = new Vector3()
   private fov = 62
   private shake = 0
+  // How much of the followed car was on a kerb last frame, 0 to 1.
+  private kerbBefore = 0
   private follow = 0
   private introTime = 0
   private lastCount = 0
@@ -288,6 +295,13 @@ export class Game {
 
   get player(): Racer {
     return this.race.player
+  }
+
+  // The finished time trial's inputs for the leaderboard, or null if this
+  // event wasn't a finished trial. The car's id and upgrades come from the
+  // caller, which chose them.
+  lapRun(car: string, fitted: Fitted = {}): Run | null {
+    return this.run?.finish(this.race, car, fitted) ?? null
   }
 
   // Compiles the shaders of what is on screen before the loading screen
@@ -389,7 +403,8 @@ export class Game {
     this.gearWas = 0
     this.passing.clear()
     this.nitroPulse = 0
-    this.throttleAt = null
+    this.startWatch = new StartWatch()
+    this.run = spec.kind === 'trial' && !attract && !this.autopilot ? new RunRecorder(spec.seed, spec.laps) : null
     const cop = spec.kind === 'cop'
     this.race.racers.forEach((racer, k) => {
       if (racer.player && cop) {
@@ -499,6 +514,55 @@ export class Game {
     this.refreshGarage()
   }
 
+  // Photo mode in the garage: the camera starts where the show camera was,
+  // then turns and zooms with the player's drags.
+  enterPhoto() {
+    const cam = this.world.camera.position
+    this.garage.photo = { yaw: Math.atan2(cam.x, cam.z), pitch: 0.22, dist: 7.4 }
+  }
+
+  leavePhoto() {
+    this.garage.photo = null
+  }
+
+  orbit(dx: number, dy: number) {
+    const p = this.garage.photo
+    if (!p) return
+    p.yaw -= dx * 0.006
+    p.pitch = MathUtils.clamp(p.pitch + dy * 0.004, 0.02, 1.2)
+  }
+
+  zoom(factor: number) {
+    const p = this.garage.photo
+    if (p) p.dist = MathUtils.clamp(p.dist * factor, 4.2, 12)
+  }
+
+  // A picture of the frame as it is drawn now, with the game's name and the
+  // car's in a corner. It is drawn and copied in one go, so the picture is
+  // there even though the canvas doesn't keep its frames.
+  snapshot(caption: string): Promise<Blob | null> {
+    this.garage.update(this.time, this.world.camera, false)
+    this.world.render()
+    const view = this.world.renderer.domElement
+    const out = document.createElement('canvas')
+    out.width = view.width
+    out.height = view.height
+    const g = out.getContext('2d') as CanvasRenderingContext2D
+    g.drawImage(view, 0, 0)
+    const size = Math.round(out.height * 0.035)
+    g.font = `italic 700 ${size}px "Chakra Petch", sans-serif`
+    g.textAlign = 'right'
+    g.textBaseline = 'bottom'
+    g.shadowColor = 'rgba(0,0,0,0.6)'
+    g.shadowBlur = size * 0.4
+    g.fillStyle = 'rgba(255,255,255,0.92)'
+    g.fillText('SKIDLINE', out.width - size, out.height - size)
+    g.font = `600 ${Math.round(size * 0.55)}px "Chakra Petch", sans-serif`
+    g.fillStyle = 'rgba(255,255,255,0.75)'
+    g.fillText(caption, out.width - size, out.height - size * 2.15)
+    return new Promise((done) => out.toBlob((b) => done(b), 'image/png'))
+  }
+
   refreshGarage(carId = this.settings.car, looks = this.looksFor(carId)) {
     this.garage.show(carById(carId).shape, this.settings.color, looks, this.plateText())
   }
@@ -580,7 +644,10 @@ export class Game {
       this.camPos.set(0, 0, 0)
       popup(`Camera: ${CAMERA_NAMES[this.camMode]}`, 'cyan')
     }
-    if (this.input.take('reset') && this.race.phase === 'racing') this.race.reset(this.player)
+    if (this.input.take('reset') && this.race.phase === 'racing') {
+      this.race.reset(this.player)
+      this.run?.reset()
+    }
     // Quick restart: one key, the event starts again from the grid.
     if (this.input.take('restart')) this.onRestart?.()
     if (this.input.take('tool1')) this.race.useTool(0)
@@ -619,6 +686,7 @@ export class Game {
     for (const v of this.views) v.prev = { x: v.car.x, z: v.car.z, heading: v.car.heading }
     const before = this.race.phase
     const copsBefore = this.race.police.length
+    if (this.run && this.mode !== 'menu') this.race.playerInput = this.run.step(this.race)
     this.race.step()
     // Patrol cars that joined the chase need a model.
     for (let k = copsBefore; k < this.race.police.length; k++) {
@@ -635,9 +703,9 @@ export class Game {
     const now = performance.now()
 
     // Perfect start: the throttle goes down in the last moment before the
-    // green light, not early.
-    if (race.phase === 'countdown' && race.playerInput.throttle > 0 && this.throttleAt === null) this.throttleAt = race.clock
-    if (race.phase === 'countdown' && race.playerInput.throttle === 0) this.throttleAt = null
+    // green light, not early. The rule is in StartWatch, which the
+    // leaderboard's replay runs too.
+    const perfect = this.startWatch.after(race, before)
     if (race.phase === 'countdown') {
       const count = Math.ceil(-race.clock)
       if (count !== this.lastCount && count <= 3) {
@@ -649,8 +717,7 @@ export class Game {
     if (before === 'countdown' && race.phase === 'racing') {
       flash('Go')
       this.sound.beep(true)
-      if (this.throttleAt !== null && this.throttleAt > -0.45) {
-        player.car.nitro = Math.min(1, player.car.nitro + 0.3)
+      if (perfect) {
         popup('Perfect start', 'gold')
         this.nitroPulse = 0.6
       }
@@ -706,7 +773,7 @@ export class Game {
 
     for (const e of race.events) {
       if (e.type === 'nearMiss') {
-        player.car.nitro = Math.min(1, player.car.nitro + 0.15)
+        player.car.nitro = Math.min(1, player.car.nitro + NEAR_MISS_NITRO)
         popup('Near miss +50', 'cyan')
         this.sound.whoosh()
         // A beat of slow motion as the car slips past.
@@ -1125,7 +1192,21 @@ export class Game {
     // Playing the cop, the player's own siren is on.
     const own = active && this.event.kind === 'cop' && this.mode !== 'replay' ? 0.4 : 0
     this.sound.siren(Math.max(own, active && nearest < Infinity ? Math.max(0, 1 - nearest / 260) : 0), own > 0 ? 1 : MathUtils.clamp(1 + (closing / 343) * 3, 0.75, 1.35))
-    this.sound.wind(speedOf(followed), active && this.race.phase !== 'countdown' && this.replayPlaying)
+    const moving = active && this.race.phase !== 'countdown' && this.replayPlaying
+    this.sound.wind(speedOf(followed), moving)
+    // Kerbs rumble under the tyres, chopped faster the faster the car goes,
+    // with a slight shake and, on a phone, a tap as the car gets on one.
+    const speed = speedOf(followed)
+    const where = locate(this.race.track, followed.x, followed.z, followed.hint)
+    const kerb = moving ? onKerb(this.race.track, where.i, where.d) * MathUtils.clamp(speed / 20, 0, 1) : 0
+    this.sound.rumble(kerb, speed / (2 * this.race.track.spacing))
+    if (this.mode === 'race') {
+      this.shake = Math.max(this.shake, kerb * 0.1)
+      if (kerb > 0.3 && this.kerbBefore <= 0.3) buzz(12)
+    }
+    this.kerbBefore = kerb
+    // Tyres hiss on a wet road.
+    this.sound.spray(moving && this.raining ? Math.min(1, speed / 60) : 0)
     const heli = this.race.heli
     this.sound.rotor(active && heli && this.mode !== 'replay' ? Math.max(0, 1 - Math.hypot(heli.x - followed.x, heli.z - followed.z) / 400) : 0)
     const boost = followed.nitroOn ? 0.85 : MathUtils.clamp((speedOf(followed) - 55) / 30, 0, 0.35)
