@@ -216,6 +216,17 @@
         <p id="load-note" class="note small hidden"></p>
         <p class="credit">Built by Ravi Kumar Gupta. <a href="/about.html">About the game</a>. Support, feedback or licensing: <a href="mailto:ravi5258p@gmail.com">ravi5258p@gmail.com</a></p>
       </div>
+      <aside id="menu-boards" class="board-card hidden" aria-label="Fastest time-trial laps">
+        <div class="board-head">
+          <h2>Fastest laps</h2>
+          <div class="segmented" id="board-pick">
+            <button data-value="daily">Today</button>
+            <button data-value="weekly">This week</button>
+          </div>
+        </div>
+        <p class="board-sub">Time trial on <span id="board-track">today's track</span>, checked by the server</p>
+        <div id="menu-board" class="board"></div>
+      </aside>
     </section>
 
     <section id="quick" class="screen hidden">
@@ -328,10 +339,17 @@
         </div>
         <div class="menu-actions">
           <button id="car-action" class="primary">Selected</button>
+          <button id="photo-mode">Photo</button>
           <button class="back">Back</button>
         </div>
       </div>
     </section>
+
+    <div id="photo-bar" class="photo-bar menu-actions hidden">
+      <span class="note small">Drag to turn, scroll or pinch to zoom</span>
+      <button id="photo-save" class="primary">Save picture</button>
+      <button id="photo-done">Done</button>
+    </div>
 
     <section id="account" class="screen hidden">
       <div class="menu-card">
@@ -476,6 +494,7 @@
         <table class="standings" id="standings"></table>
         <p id="result-note" class="note"></p>
         <div id="reward" class="reward hidden"></div>
+        <div id="lap-board" class="lap-board hidden" aria-live="polite"></div>
         <div class="menu-actions">
           <button id="again" class="primary">Race again</button>
           <button id="watch">Watch replay</button>
