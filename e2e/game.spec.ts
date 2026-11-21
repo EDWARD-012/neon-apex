@@ -282,7 +282,9 @@ test('the career pays coins, which buy a car and its upgrades in the garage', as
   // Then the first engine stage, which is 15% of the car's price.
   await page.locator('#garage-tab button[data-value="upgrades"]').click()
   await expect(page.locator('#parts .part')).toHaveCount(8)
-  await expect(page.locator('#car-speed')).toHaveText('Top speed 238 km/h, 247 km/h with stage 1')
+  // The Kite is class C stock; the first engine stage takes it to 247 km/h
+  // and class B.
+  await expect(page.locator('#car-speed')).toHaveText(/^Class C \d+ \(B \d+ with stage 1\), top speed 238 km\/h, 247 km\/h with stage 1$/)
   await expect(page.locator('#car-action')).toHaveText('Fit stage 1 for 900')
   await page.locator('#car-action').click()
   await expect(page.locator('#garage-cash')).toHaveText('100')
