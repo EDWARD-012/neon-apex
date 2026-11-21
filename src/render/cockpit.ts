@@ -83,6 +83,10 @@ export const COCKPITS: Partial<Record<Shape, CockpitStyle>> = {
   brute: { side: 1, eye: 1.09, leather: '#4a2f1c', pad: '#2a1d14', top: 'leather', stitch: '#d8b46a', trim: 'alloy', face: 'light' },
   volt: { side: -1, eye: 1.06, leather: '#a9adb5', pad: '#1e2025', top: 'suede', stitch: '#38d8f0', trim: 'alloy', face: 'dark' },
   kestrel: { side: 1, eye: 1.05, leather: '#18191c', pad: '#18191c', top: 'suede', stitch: '#ff7a1a', trim: 'carbon', face: 'dark' },
+  finch: { side: 1, eye: 1.07, leather: '#1c1d22', pad: '#1c1d22', top: 'leather', stitch: '#e02a2a', trim: 'alloy', face: 'dark' },
+  marten: { side: 1, eye: 1.07, leather: '#202226', pad: '#16171a', top: 'suede', stitch: '#f2c230', trim: 'carbon', face: 'light' },
+  granite: { side: 1, eye: 1.1, leather: '#3b3530', pad: '#22201d', top: 'leather', stitch: '#c9a27a', trim: 'alloy', face: 'light' },
+  moraine: { side: 1, eye: 1.1, leather: '#2a2b30', pad: '#1d1e22', top: 'leather', stitch: '#8fa3b8', trim: 'alloy', face: 'dark' },
 }
 // Police cars and anything else.
 const DEFAULT_STYLE: CockpitStyle = { side: 1, eye: 1.07, leather: '#191a1e', pad: '#191a1e', top: 'leather', stitch: '#7f8794', trim: 'alloy', face: 'dark' }
