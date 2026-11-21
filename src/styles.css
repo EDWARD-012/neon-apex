@@ -2670,7 +2670,7 @@ kbd {
   position: absolute;
   top: 50%;
   right: 4vw;
-  width: min(340px, 92vw);
+  width: min(380px, 92vw);
   padding: 20px 22px 18px;
   border-radius: 22px;
   border: 1px solid rgba(255, 255, 255, 0.09);
@@ -2725,6 +2725,27 @@ kbd {
 }
 .board-list li.mine {
   background: rgba(61, 245, 255, 0.12);
+}
+.board-list li.with-race {
+  grid-template-columns: 2em minmax(0, 1fr) auto auto 3.6em;
+}
+.board-race {
+  padding: 2px 8px;
+  border: 1px solid rgba(61, 245, 255, 0.45);
+  border-radius: 8px;
+  background: rgba(61, 245, 255, 0.08);
+  color: var(--cyan);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.board-race:hover,
+.board-race:focus-visible {
+  background: rgba(61, 245, 255, 0.22);
+}
+.board-race:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 .board-list li.board-gap {
   display: block;

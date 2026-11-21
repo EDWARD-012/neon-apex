@@ -5,7 +5,8 @@ import '@fontsource/chakra-petch/600-italic.css'
 import '@fontsource/chakra-petch/500-italic.css'
 import './styles.css'
 import { report, startClock } from './analytics'
-import { boardsEnabled, drawBoard, fetchBoard, sendRun } from './leaderboard'
+import { boardsEnabled, drawBoard, fetchBoard, fetchGhost, sendRun } from './leaderboard'
+import { ghostOf } from './replay-check'
 import { PORTAL } from './portal'
 import { carAssetsPending, loadCarAssets } from './render/carAssets'
 import { fetchBytes, onLoadProgress, report as loadReport, setStep } from './loader'
@@ -895,8 +896,24 @@ function menuBoard() {
   const daily = boardPick === 'daily'
   $('board-track').textContent = daily ? "today's track" : "this week's track"
   const el = $('menu-board')
+  const seed = daily ? dailySeed() : weeklySeed()
   el.innerHTML = '<p class="board-note">Loading the board</p>'
-  void fetchBoard(daily ? dailySeed() : weeklySeed()).then((board) => drawBoard(el, board, formatTime, boardName(), boardName() ? '' : signInNote))
+  void fetchBoard(seed).then((board) => drawBoard(el, board, formatTime, boardName(), boardName() ? '' : signInNote, (name, button) => raceGhost(seed, name, button)))
+}
+
+// Races a board entry's ghost. Its run comes from the server and is
+// replayed here, the same replay that checked it, to rebuild the lap; then
+// a time trial starts on that track with the ghost on the road.
+async function raceGhost(seed: string, name: string, button: HTMLButtonElement) {
+  button.disabled = true
+  button.textContent = 'Loading'
+  const got = await fetchGhost(seed, name)
+  const ghost = got ? ghostOf(got.run) : null
+  if (!got || !ghost) {
+    button.textContent = 'Not found'
+    return
+  }
+  void begin({ ...quickSpec('trial'), seed, ghost: { ...ghost, name, car: got.car } })
 }
 segmented('board-pick', boardPick, (v) => {
   boardPick = v
@@ -913,18 +930,18 @@ function lapBoard(spec: EventSpec) {
   const name = boardName()
   const run = name ? game.lapRun(settings.car, progress.upgrades[settings.car]) : null
   if (!run) {
-    void fetchBoard(spec.seed).then((board) => drawBoard(box, board, formatTime, name, name ? '' : signInNote))
+    void fetchBoard(spec.seed).then((board) => drawBoard(box, board, formatTime, name, name ? '' : signInNote, (who, button) => raceGhost(spec.seed, who, button)))
     return
   }
   box.innerHTML = '<p class="board-note">Checking your lap</p>'
   void sendRun(run).then((sent) => {
     if (!sent.ok) {
-      void fetchBoard(spec.seed).then((board) => drawBoard(box, board, formatTime, name, sent.error))
+      void fetchBoard(spec.seed).then((board) => drawBoard(box, board, formatTime, name, sent.error, (who, button) => raceGhost(spec.seed, who, button)))
       return
     }
     const me = sent.board.me
     const note = me && me.time < sent.time ? `Checked: ${formatTime(sent.time)}. Your best here is still ${formatTime(me.time)}, ${ordinal(me.place)} of ${sent.board.count}.` : me ? `Checked: ${formatTime(sent.time)}, ${ordinal(me.place)} of ${sent.board.count}.` : `Checked: ${formatTime(sent.time)}.`
-    drawBoard(box, sent.board, formatTime, name, note)
+    drawBoard(box, sent.board, formatTime, name, note, (who, button) => raceGhost(spec.seed, who, button))
   })
 }
 

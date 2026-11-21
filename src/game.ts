@@ -53,6 +53,9 @@ export interface EventSpec {
   rivalCar?: string
   // Career: damage the player's car carries in from earlier events.
   startDamage?: number
+  // Time trials: another driver's ghost from the leaderboard to race,
+  // shown instead of your own best lap.
+  ghost?: Ghost & { name: string; car: string }
 }
 
 export interface Settings {
@@ -217,6 +220,8 @@ export class Game {
   private views: View[] = []
   private ghostModel: CarModel | null = null
   private ghost: Ghost | null = null
+  // Your own best lap on this track, which a new lap must beat to be saved.
+  private ownBest: number | null = null
   private ghostRecording: number[] = []
   private recorder: Recorder | null = null
   private readonly smoke: Particles
@@ -462,8 +467,10 @@ export class Game {
     this.ghost = null
     this.ghostRecording = []
     if (spec.kind === 'trial') {
-      this.ghost = loadGhost(spec.seed)
-      this.ghostModel = createCarModel('#9fe8ff', this.spotTexture, { shape: car.shape, ghost: true })
+      const own = loadGhost(spec.seed)
+      this.ownBest = own?.time ?? null
+      this.ghost = spec.ghost ?? own
+      this.ghostModel = createCarModel('#9fe8ff', this.spotTexture, { shape: (spec.ghost ? carById(spec.ghost.car) : car).shape, ghost: true })
       this.ghostModel.group.visible = false
       this.world.scene.add(this.ghostModel.group)
     }
@@ -895,9 +902,12 @@ export class Game {
       this.lapsSeen = player.lapTimes.length
       const lap = player.lapTimes[this.lapsSeen - 1]
       const more = this.event.kind === 'elimination' || this.lapsSeen < race.laps
-      if (this.event.kind === 'trial' && (!this.ghost || lap < this.ghost.time)) {
-        this.ghost = { time: lap, samples: this.ghostRecording }
-        saveGhost(this.event.seed, this.ghost)
+      if (this.event.kind === 'trial' && (this.ownBest === null || lap < this.ownBest)) {
+        const mine = { time: lap, samples: this.ghostRecording }
+        saveGhost(this.event.seed, mine)
+        this.ownBest = lap
+        // Racing someone else's ghost, theirs stays on the road.
+        if (!this.event.ghost) this.ghost = mine
         if (more) flash(`New best ${formatTime(lap)}`, 'small')
       } else if (more && this.event.kind !== 'elimination') {
         flash(this.lapsSeen === race.laps - 1 ? 'Final lap' : `Lap ${formatTime(lap)}`, 'small')
@@ -1625,7 +1635,7 @@ export class Game {
     $('lap-time').textContent = formatTime(Math.max(0, current))
     $('best-lap').textContent = player.lapTimes.length ? formatTime(Math.min(...player.lapTimes)) : 'none yet'
     $('ghost-row').classList.toggle('hidden', kind !== 'trial')
-    $('ghost-time').textContent = this.ghost ? formatTime(this.ghost.time) : 'none yet'
+    $('ghost-time').textContent = this.ghost ? `${formatTime(this.ghost.time)}${this.event.ghost ? ` ${this.event.ghost.name}` : ''}` : 'none yet'
     $('speed').textContent = String(Math.round(speed * 3.6))
     $('gear').textContent = String(gearOf(speed, car.spec).gear)
     $('gauge-fill').style.strokeDashoffset = String(1 - Math.min(1, speed / (car.spec.topSpeed * car.spec.nitroTop)))

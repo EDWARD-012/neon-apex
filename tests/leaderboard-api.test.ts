@@ -1,3 +1,4 @@
+import { gunzipSync, gzipSync } from 'node:zlib'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MAX_STEPS, type Run, RunRecorder, StartWatch } from '../src/replay-check'
 import { createDriver, drive } from '../src/sim/ai'
@@ -10,6 +11,7 @@ import { Race, STEP } from '../src/sim/race'
 const db = vi.hoisted(() => ({
   queries: [] as { text: string; values: unknown[] }[],
   player: null as { id: string; username: string | null; progress: unknown } | null,
+  ghostRow: null as Record<string, unknown> | null,
 }))
 
 vi.mock('../api/_lib.js', () => ({
@@ -17,6 +19,7 @@ vi.mock('../api/_lib.js', () => ({
     const text = strings.join('?').replace(/\s+/g, ' ').trim()
     db.queries.push({ text, values })
     if (text.startsWith('select count(*)')) return Promise.resolve([{ n: 0 }])
+    if (text.startsWith('select l.ghost')) return Promise.resolve(db.ghostRow ? [db.ghostRow] : [])
     return Promise.resolve([])
   },
   table: () => Promise.resolve(),
@@ -50,6 +53,7 @@ describe('the leaderboard endpoint', () => {
   beforeEach(() => {
     db.queries = []
     db.player = { id: '7', username: 'ravi', progress: null }
+    db.ghostRow = null
   })
 
   it('replays a run, stores the replay’s own time, and returns the board', async () => {
@@ -59,7 +63,9 @@ describe('the leaderboard endpoint', () => {
     expect(body.ok).toBe(true)
     expect(body.time).toBe(run.best)
     const insert = db.queries.find((q) => q.text.startsWith('insert into laps'))
-    expect(insert?.values).toEqual(['api-test', run.physics, '7', run.best, 'kite', '{}'])
+    expect(insert?.values.slice(0, 6)).toEqual(['api-test', run.physics, '7', run.best, 'kite', '{}'])
+    // The run itself is kept, gzipped, for ghosts.
+    expect(JSON.parse(gunzipSync(Buffer.from(String(insert?.values[6]), 'base64')).toString('utf8'))).toEqual(run)
     expect(body.board.seed).toBe('api-test')
   })
 
@@ -86,5 +92,15 @@ describe('the leaderboard endpoint', () => {
     expect((await ok.json()).top).toEqual([])
     const bad = await GET(new Request('https://skidline.test/api/leaderboard?seed=%27%3B%20drop'))
     expect(bad.status).toBe(400)
+  })
+
+  it('hands out a driver’s best run as a ghost', async () => {
+    db.ghostRow = { ghost: gzipSync(JSON.stringify(run)).toString('base64'), time: run.best, car: 'kite' }
+    const response = await GET(new Request('https://skidline.test/api/leaderboard?seed=api-test&ghost=ravi'))
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ name: 'ravi', time: run.best, car: 'kite', run })
+    db.ghostRow = null
+    expect((await GET(new Request('https://skidline.test/api/leaderboard?seed=api-test&ghost=nobody'))).status).toBe(404)
+    expect((await GET(new Request('https://skidline.test/api/leaderboard?seed=api-test&ghost=%27or%201'))).status).toBe(404)
   })
 })
