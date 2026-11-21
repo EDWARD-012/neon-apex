@@ -49,6 +49,8 @@ export interface EventSpec {
   rivalStage?: number
   leader?: string
   rivalCar?: string
+  // Career: damage the player's car carries in from earlier events.
+  startDamage?: number
 }
 
 export interface Settings {
@@ -325,6 +327,7 @@ export class Game {
       tools: spec.kind === 'pursuit' ? this.settings.tools : spec.kind === 'cop' ? this.settings.copTools : undefined,
     })
     this.race.brakeHelp = this.settings.brakeAssist
+    if (!attract && spec.startDamage) this.race.player.car.damage = spec.startDamage
     this.weather = spec.weather === 'auto' ? weatherFor(spec.seed) : spec.weather
     const day = isDay(this.weather)
     const look = `${spec.seed}/${day ? 'day' : 'night'}`
