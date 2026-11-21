@@ -14,7 +14,7 @@ import { type Looks, STOCK_LOOKS, styleCar } from './looks'
 import { applyLivery } from './render/livery'
 import { fitParts } from './render/parts'
 import { buzz } from './touch'
-import { tuned } from './upgrades'
+import { type Fitted, tuned } from './upgrades'
 import { createHelicopter, type HelicopterModel } from './render/helicopter'
 import { buildPuddles, buildSigns, type Puddle } from './render/roadside'
 import { disposeStrip, spikeStrip } from './render/spikes'
@@ -22,6 +22,7 @@ import { spot } from './render/textures'
 import { buildTrackMeshes } from './render/trackMesh'
 import { type Quality, World } from './render/world'
 import { type Replay, Recorder } from './replay'
+import { NEAR_MISS_NITRO, type Run, RunRecorder, StartWatch } from './replay-check'
 import { CAR, type CarSpec, type CarState, driftTier, forwardSpeed, PHYSICS_VERSION, speedOf } from './sim/car'
 import { carById, CARS, INTERCEPTOR_SPEC, type Shape } from './sim/cars'
 import { type CopToolId, type Mine, Race, type Racer, type RacerToolId, SHOCK_RANGE, type SpikeStrip, STEP, type ToolId } from './sim/race'
@@ -201,7 +202,10 @@ export class Game {
   private boostWas = 0
   private nitroPulse = 0
   private bulletUntil = 0
-  private throttleAt: number | null = null
+  // The perfect start, and the inputs of a time trial for the leaderboard
+  // (see replay-check.ts).
+  private startWatch = new StartWatch()
+  private run: RunRecorder | null = null
   private lastThrottle = 0
   private gearWas = 0
   // Where each other car was along the player's heading last frame, for
@@ -288,6 +292,13 @@ export class Game {
 
   get player(): Racer {
     return this.race.player
+  }
+
+  // The finished time trial's inputs for the leaderboard, or null if this
+  // event wasn't a finished trial. The car's id and upgrades come from the
+  // caller, which chose them.
+  lapRun(car: string, fitted: Fitted = {}): Run | null {
+    return this.run?.finish(this.race, car, fitted) ?? null
   }
 
   // Compiles the shaders of what is on screen before the loading screen
@@ -389,7 +400,8 @@ export class Game {
     this.gearWas = 0
     this.passing.clear()
     this.nitroPulse = 0
-    this.throttleAt = null
+    this.startWatch = new StartWatch()
+    this.run = spec.kind === 'trial' && !attract && !this.autopilot ? new RunRecorder(spec.seed, spec.laps) : null
     const cop = spec.kind === 'cop'
     this.race.racers.forEach((racer, k) => {
       if (racer.player && cop) {
@@ -580,7 +592,10 @@ export class Game {
       this.camPos.set(0, 0, 0)
       popup(`Camera: ${CAMERA_NAMES[this.camMode]}`, 'cyan')
     }
-    if (this.input.take('reset') && this.race.phase === 'racing') this.race.reset(this.player)
+    if (this.input.take('reset') && this.race.phase === 'racing') {
+      this.race.reset(this.player)
+      this.run?.reset()
+    }
     // Quick restart: one key, the event starts again from the grid.
     if (this.input.take('restart')) this.onRestart?.()
     if (this.input.take('tool1')) this.race.useTool(0)
@@ -619,6 +634,7 @@ export class Game {
     for (const v of this.views) v.prev = { x: v.car.x, z: v.car.z, heading: v.car.heading }
     const before = this.race.phase
     const copsBefore = this.race.police.length
+    if (this.run && this.mode !== 'menu') this.race.playerInput = this.run.step(this.race)
     this.race.step()
     // Patrol cars that joined the chase need a model.
     for (let k = copsBefore; k < this.race.police.length; k++) {
@@ -635,9 +651,9 @@ export class Game {
     const now = performance.now()
 
     // Perfect start: the throttle goes down in the last moment before the
-    // green light, not early.
-    if (race.phase === 'countdown' && race.playerInput.throttle > 0 && this.throttleAt === null) this.throttleAt = race.clock
-    if (race.phase === 'countdown' && race.playerInput.throttle === 0) this.throttleAt = null
+    // green light, not early. The rule is in StartWatch, which the
+    // leaderboard's replay runs too.
+    const perfect = this.startWatch.after(race, before)
     if (race.phase === 'countdown') {
       const count = Math.ceil(-race.clock)
       if (count !== this.lastCount && count <= 3) {
@@ -649,8 +665,7 @@ export class Game {
     if (before === 'countdown' && race.phase === 'racing') {
       flash('Go')
       this.sound.beep(true)
-      if (this.throttleAt !== null && this.throttleAt > -0.45) {
-        player.car.nitro = Math.min(1, player.car.nitro + 0.3)
+      if (perfect) {
         popup('Perfect start', 'gold')
         this.nitroPulse = 0.6
       }
@@ -706,7 +721,7 @@ export class Game {
 
     for (const e of race.events) {
       if (e.type === 'nearMiss') {
-        player.car.nitro = Math.min(1, player.car.nitro + 0.15)
+        player.car.nitro = Math.min(1, player.car.nitro + NEAR_MISS_NITRO)
         popup('Near miss +50', 'cyan')
         this.sound.whoosh()
         // A beat of slow motion as the car slips past.
