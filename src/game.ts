@@ -17,7 +17,7 @@ import { fitParts } from './render/parts'
 import { buzz } from './touch'
 import { type Fitted, type Tune, tuned } from './upgrades'
 import { createHelicopter, type HelicopterModel } from './render/helicopter'
-import { buildPuddles, buildSigns, type Puddle } from './render/roadside'
+import { buildArrows, buildPuddles, buildSigns, Crowd, type Puddle } from './render/roadside'
 import { disposeStrip, spikeStrip } from './render/spikes'
 import { spot } from './render/textures'
 import { buildTrackMeshes } from './render/trackMesh'
@@ -240,6 +240,9 @@ export class Game {
   private readonly driftSparks: [Particles, Particles]
   private readonly skids = new Skids()
   private readonly scrapes = new Scrapes()
+  // The crowd at the start line, and how excited it is.
+  private crowd: Crowd | null = null
+  private crowdMood = 0
   private readonly trails = new Trails(64)
   private readonly rain = new Rain()
   private raining = false
@@ -374,11 +377,16 @@ export class Game {
         this.scenery = [track, city.group]
         this.materials = { city, road: track.userData.road, ground: city.ground }
       }
-      // Chevrons at the sharp corners, and the puddles shown when it rains.
+      // Chevrons at the sharp corners and arrows on the road before them,
+      // the puddles shown when it rains, and on the mountain road a crowd
+      // at the start line, half as many on low graphics. (In the city the
+      // start wall has the harbour behind it.)
       const roadside = buildPuddles(this.race.track, spec.seed)
       this.puddles = roadside.puddles
       this.puddleGroup = roadside.group
-      this.scenery.push(buildSigns(this.race.track), roadside.group)
+      this.crowd = day ? new Crowd(this.race.track, barrierOffset(this.race.track), spec.seed, this.world.quality !== 'low') : null
+      this.scenery.push(buildSigns(this.race.track), buildArrows(this.race.track), roadside.group)
+      if (this.crowd) this.scenery.push(this.crowd.group)
       this.world.scene.add(...this.scenery)
       this.cameras = tvCameras(this.race.track)
       this.builtSeed = look
@@ -1209,6 +1217,16 @@ export class Game {
       }
     }
     this.wheelBank.update()
+    // The crowd jumps through the countdown and the first seconds, and
+    // again whenever a racer comes past the line.
+    if (this.crowd) {
+      const race = this.race
+      let near = Infinity
+      for (const r of race.racers) near = Math.min(near, Math.hypot(r.car.x - race.track.x[0], r.car.z - race.track.z[0]))
+      const mood = race.clock < 5 ? 1 : MathUtils.clamp(1 - (near - 15) / 30, 0, 0.8)
+      this.crowdMood += (mood - this.crowdMood) * Math.min(1, dt * 3)
+      this.crowd.update(this.time, this.crowdMood)
+    }
     if (dt > 0) {
       this.smoke.update(dt)
       this.spray.update(dt)
