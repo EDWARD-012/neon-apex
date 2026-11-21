@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { fresh, settle } from '../src/career'
-import { BOOST_TIME, type CarInput, createCar, idle, speedOf, stepCar } from '../src/sim/car'
+import { BAND, BOOST_TIME, type CarInput, createCar, guided, idle, speedOf, stepCar } from '../src/sim/car'
 import { brakingAid } from '../src/sim/ai'
 import { racingLine } from '../src/sim/line'
 import { Race, SLIP_NITRO, STEP, TAKEDOWN_HIT } from '../src/sim/race'
@@ -192,6 +192,40 @@ describe('slipstream', () => {
 
   it('too far back gets nothing', () => {
     expect(follow(40, 0).events).toBe(0)
+  })
+})
+
+describe('guided drift steering', () => {
+  it('maps the stick onto a band into the corner, and lets a hard countersteer through', () => {
+    expect(guided(1)).toBeCloseTo(BAND[1])
+    expect(guided(0)).toBeCloseTo((BAND[0] + BAND[1]) / 2)
+    expect(guided(-0.6)).toBeGreaterThan(BAND[0] - 1e-9)
+    expect(guided(-1)).toBe(-1)
+  })
+
+  // A brake-tap drift, then `seconds` with the given steering, on guided or
+  // classic steering. Returns whether the car is still drifting, and how far
+  // its travel turned.
+  const hold = (band: boolean, steer: number, seconds: number) => {
+    const car = start(32)
+    drive(car, { ...idle, throttle: 1, steer: 1, brake: 1, assist: true, band }, STEP)
+    drive(car, { ...idle, throttle: 1, steer: 0.7, assist: true, band }, 0.5)
+    const before = Math.atan2(car.vx, car.vz)
+    drive(car, { ...idle, throttle: 1, steer, assist: true, band }, seconds)
+    return { drifting: car.driftDir !== 0, turned: Math.abs(Math.atan2(car.vx, car.vz) - before) }
+  }
+
+  it('a released stick holds the drift on guided, and ends it on classic', () => {
+    expect(hold(true, 0, 1.5).drifting).toBe(true)
+    expect(hold(false, 0, 1.5).drifting).toBe(false)
+  })
+
+  it('a hard countersteer still ends a guided drift', () => {
+    expect(hold(true, -1, 1.5).drifting).toBe(false)
+  })
+
+  it('full lock on guided turns less sharply than on classic, so it cannot over-rotate', () => {
+    expect(hold(true, 1, 0.8).turned).toBeLessThan(hold(false, 1, 0.8).turned)
   })
 })
 

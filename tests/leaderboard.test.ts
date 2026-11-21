@@ -8,7 +8,7 @@ import { cleanTune, type Tune, tuned } from '../src/upgrades'
 // Drives a time trial the way the game does, with the AI standing in for
 // the player's hands: the recorder rounds each step's input before the
 // race uses it, and the perfect-start rule runs after each step.
-function driveTrial(options: { seed?: string; laps?: number; car?: string; fitted?: Record<string, number>; tune?: Partial<Tune>; resetAt?: number; startAt?: number; damage?: number } = {}) {
+function driveTrial(options: { seed?: string; laps?: number; car?: string; fitted?: Record<string, number>; tune?: Partial<Tune>; resetAt?: number; startAt?: number; damage?: number; aids?: { assist?: boolean; band?: boolean } } = {}) {
   const seed = options.seed ?? 'board-test'
   const laps = options.laps ?? 1
   const car = options.car ?? 'vanta'
@@ -30,7 +30,7 @@ function driveTrial(options: { seed?: string; laps?: number; car?: string; fitte
     const hands = drive(race.player.car, driver, race.track, race.line, [], STEP)
     // Throttle down from this clock time in the countdown, if given.
     if (race.phase === 'countdown') hands.throttle = options.startAt !== undefined && race.clock >= options.startAt ? 1 : 0
-    race.playerInput = hands
+    race.playerInput = { ...hands, ...options.aids }
     race.playerInput = recorder.step(race)
     const before = race.phase
     race.step()
@@ -138,3 +138,26 @@ describe('checked leaderboard laps', () => {
     expect(s[s.length - 4]).toBeLessThanOrEqual(three.run.best)
   })
 })
+
+describe('guided drift steering on the boards', () => {
+  it('records the guided flag, and the server replays the lap to the same time', () => {
+    const { race, run } = driveTrial({ seed: 'board-band', aids: { assist: true, band: true } })
+    expect(race.player.finishTime).not.toBeNull()
+    // The flags column carries guided steering (32) on every step.
+    const flags = run.inputs.filter((_, i) => i % 5 === 4)
+    expect(flags.every((f) => (f & 32) !== 0)).toBe(true)
+    const checked = checkRun(JSON.parse(JSON.stringify(run)))
+    expect(checked.ok).toBe(true)
+    expect(Math.min(...replay(run).laps)).toBeCloseTo(run.best, 5)
+  })
+
+  it('the input the race drives with, and the one the server decodes, both carry it', () => {
+    const race = new Race({ seed: 'board-band-2', laps: 1, rivals: 0, traffic: 0, mode: 'circuit' })
+    const recorder = new RunRecorder('board-band-2', 1)
+    race.playerInput = { throttle: 1, brake: 0, steer: 0.5, handbrake: false, nitro: false, assist: true, band: true }
+    expect(recorder.step(race).band).toBe(true)
+    race.playerInput = { ...race.playerInput, band: false }
+    expect(recorder.step(race).band).toBe(false)
+  })
+})
+
