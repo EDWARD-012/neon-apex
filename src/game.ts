@@ -252,6 +252,7 @@ export class Game {
   private camLook = new Vector3()
   private fov = 62
   private shake = 0
+  private slipShownAt = -Infinity
   // How much of the followed car was on a kerb last frame, 0 to 1.
   private kerbBefore = 0
   private follow = 0
@@ -816,6 +817,12 @@ export class Game {
         // A beat of slow motion as the car slips past.
         this.bulletUntil = now + 260
         this.nitroPulse = Math.max(this.nitroPulse, 0.3)
+      } else if (e.type === 'slipstream') {
+        // Once in a while, not every time the car tucks in again.
+        if (now - this.slipShownAt > 6000) {
+          popup('Slipstream', 'cyan')
+          this.slipShownAt = now
+        }
       } else if (e.type === 'cleanLap') {
         popup('Clean lap +100', 'gold')
       } else if (e.type === 'driftBank') {

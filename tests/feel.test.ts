@@ -3,7 +3,7 @@ import { fresh, settle } from '../src/career'
 import { BOOST_TIME, type CarInput, createCar, idle, speedOf, stepCar } from '../src/sim/car'
 import { brakingAid } from '../src/sim/ai'
 import { racingLine } from '../src/sim/line'
-import { Race, STEP, TAKEDOWN_HIT } from '../src/sim/race'
+import { Race, SLIP_NITRO, STEP, TAKEDOWN_HIT } from '../src/sim/race'
 import { buildTrack, locate, pointAt } from '../src/sim/track'
 
 const track = buildTrack('feel')
@@ -158,3 +158,40 @@ describe('driving aids', () => {
     expect(spin(true)).toBeGreaterThan(spin(false))
   })
 })
+
+describe('slipstream', () => {
+  // The player's car at 30 m/s, `behind` metres behind a rival going the
+  // same way and `side` metres to its right, for one second.
+  const follow = (behind: number, side: number) => {
+    const race = new Race({ seed: 'slipstream', laps: 3, rivals: 1 })
+    for (let t = 0; t < 3.1; t += STEP) race.step()
+    const t = race.track
+    const at = pointAt(t, 200, 0)
+    const h = at.heading
+    const fx = Math.sin(h)
+    const fz = Math.cos(h)
+    const i = locate(t, at.x, at.z).i
+    const rival = race.racers[0].car
+    Object.assign(rival, { x: at.x, z: at.z, heading: h, vx: fx * 30, vz: fz * 30, yawRate: 0, hint: i })
+    const me = race.player.car
+    Object.assign(me, { x: at.x - fx * behind + fz * side, z: at.z - fz * behind - fx * side, heading: h, vx: fx * 30, vz: fz * 30, yawRate: 0, hint: i, nitro: 0 })
+    race.playerInput = { ...idle, throttle: 0.6 }
+    // The game empties the event list each frame; here it only grows.
+    race.events.length = 0
+    for (let k = 0; k < 120; k++) race.step()
+    return { nitro: me.nitro, events: race.events.filter((e) => e.type === 'slipstream').length }
+  }
+
+  it('close behind a rival fills the nitro, and says so once', () => {
+    const tucked = follow(8, 0)
+    const wide = follow(8, 4)
+    expect(tucked.nitro - wide.nitro).toBeGreaterThan(SLIP_NITRO * 0.5)
+    expect(tucked.events).toBe(1)
+    expect(wide.events).toBe(0)
+  })
+
+  it('too far back gets nothing', () => {
+    expect(follow(40, 0).events).toBe(0)
+  })
+})
+
