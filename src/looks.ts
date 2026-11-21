@@ -1,5 +1,6 @@
 import { Color, type Material, type Mesh, type MeshBasicMaterial, type MeshPhysicalMaterial } from 'three'
 import type { CarModel } from './render/carModel'
+import { cleanTune, STOCK_TUNE, type Tune } from './upgrades'
 
 // Looks bought with coins: a paint finish, an underglow colour and a
 // livery. Each is bought once and can then go on any car the player owns.
@@ -25,9 +26,12 @@ export interface Looks {
   ride: Ride
   tint: Tint
   spoiler: Spoiler
+  // The car's tuning sliders (see upgrades.ts), kept here so they go with
+  // the car's setup in the save.
+  tune: Tune
 }
 
-export const STOCK_LOOKS: Looks = { finish: 'gloss', glow: 'paint', livery: 'none', trim: 'white', number: 7, rims: 'stock', ride: 'stock', tint: 'stock', spoiler: 'stock' }
+export const STOCK_LOOKS: Looks = { finish: 'gloss', glow: 'paint', livery: 'none', trim: 'white', number: 7, rims: 'stock', ride: 'stock', tint: 'stock', spoiler: 'stock', tune: STOCK_TUNE }
 
 export const FINISHES: { id: Finish; name: string; price: number }[] = [
   { id: 'gloss', name: 'Gloss', price: 0 },
@@ -114,6 +118,7 @@ export function fullLooks(saved?: Partial<Looks> | null): Looks {
     ride: s.ride && isLook('ride', s.ride) ? s.ride : STOCK_LOOKS.ride,
     tint: s.tint && isLook('tint', s.tint) ? s.tint : STOCK_LOOKS.tint,
     spoiler: s.spoiler && isLook('spoiler', s.spoiler) ? s.spoiler : STOCK_LOOKS.spoiler,
+    tune: cleanTune(s.tune),
   }
 }
 

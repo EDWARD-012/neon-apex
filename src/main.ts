@@ -18,7 +18,7 @@ import { carById, CARS, type Rating, ratings } from './sim/cars'
 import { bindPedals, bindWheel, startTilt, stopTilt } from './touch'
 import { dailySeed, weeklySeed } from './sim/track'
 import { FINISHES, fullLooks, GLOWS, isFree, LIVERIES, type LookKind, lookKey, lookName, type Looks, priceOfLook, RIDES, RIMS, SPOILERS, TINTS, TRIMS, type Trim } from './looks'
-import { classOf, kmh, type Part, PARTS, partById, priceOf, ratingOf, STAGES, stageOf, tuned } from './upgrades'
+import { classOf, kmh, type Part, PARTS, partById, priceOf, ratingOf, setTune, STAGES, stageOf, STOCK_TUNE, type Tune, tuned, TUNES, tuneOpen } from './upgrades'
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement
 const params = new URLSearchParams(location.search)
@@ -119,7 +119,8 @@ function keep() {
 // The player can only drive cars they own.
 if (!progress.owned.includes(settings.car)) settings.car = CARS[0].id
 // A car's handling with the upgrades fitted to it.
-const specFor = (carId: string) => tuned(carById(carId), progress.upgrades[carId])
+const tuneFor = (carId: string) => fullLooks(progress.looks[carId]).tune
+const specFor = (carId: string) => tuned(carById(carId), progress.upgrades[carId], tuneFor(carId))
 const coins = (n: number) => n.toLocaleString('en')
 
 let game: Game
@@ -593,6 +594,7 @@ function drawGarageBody() {
   list.classList.toggle('hidden', upgrading || styling)
   $('paint-row').classList.toggle('hidden', upgrading)
   $('parts').classList.toggle('hidden', !upgrading)
+  $('tuning').classList.toggle('hidden', !upgrading)
   $('part-note').classList.toggle('hidden', !upgrading)
   $('looks').classList.toggle('hidden', !styling)
   $('car-stats').classList.toggle('hidden', styling)
@@ -632,13 +634,14 @@ function drawGarageBody() {
   const part = partById(picked)
   const stage = stageOf(fitted, picked)
   const maxed = stage >= STAGES
-  const after = maxed ? spec : tuned(car, { ...fitted, [picked]: stage + 1 })
+  const after = maxed ? spec : tuned(car, { ...fitted, [picked]: stage + 1 }, tuneFor(car.id))
   const price = maxed ? 0 : priceOf(car, picked, stage + 1)
   const faster = kmh(after) !== kmh(spec) ? `, ${kmh(after)} km/h with stage ${stage + 1}` : ''
   const better = ratingOf(after) !== ratingOf(spec) ? ` (${classOf(after)} ${ratingOf(after)} with stage ${stage + 1})` : ''
   $('car-speed').textContent = `Class ${classOf(spec)} ${ratingOf(spec)}${better}, top speed ${kmh(spec)} km/h${faster}`
   drawStats(ratings(spec), ratings(after))
   $('part-note').textContent = `${part.does}.`
+  drawTuning(car.id, owned)
   if (!owned) {
     action.textContent = 'Buy this car to upgrade it'
     action.disabled = true
@@ -649,6 +652,50 @@ function drawGarageBody() {
     action.textContent = progress.cash >= price ? `Fit stage ${stage + 1} for ${coins(price)}` : `Stage ${stage + 1} needs ${coins(price)} coins`
     action.disabled = progress.cash < price
   }
+}
+
+// Tuning sliders under the parts. Moving one previews its effect on the
+// bars; letting go keeps it. A slider whose part isn't fitted yet says
+// which one it needs.
+function drawTuning(carId: string, owned: boolean) {
+  const car = carById(carId)
+  const fitted = progress.upgrades[carId]
+  const saved = tuneFor(carId)
+  const box = $('tuning')
+  box.innerHTML = `<span class="label">Tuning, free to change${owned ? '' : ' once you own the car'}</span>${TUNES.map((t) => {
+    const open = owned && tuneOpen(t, fitted)
+    const need = t.needs && !tuneOpen(t, fitted) ? `<small>Needs ${partById(t.needs).name.toLowerCase()} stage 1</small>` : `<small>${t.does}.</small>`
+    return `<label class="tune"><span class="tune-name">${t.name}</span><span class="tune-ends"><i>${t.low}</i><input type="range" data-tune="${t.id}" min="${t.min}" max="${t.max}" step="0.1" value="${saved[t.id]}" ${open ? '' : 'disabled'} aria-label="${t.name}" /><i>${t.high}</i></span>${need}</label>`
+  }).join('')}<button class="ghost tune-reset" ${owned ? '' : 'disabled'}>Reset tuning</button>`
+  const read = (): Tune => {
+    const out = { ...saved }
+    box.querySelectorAll<HTMLInputElement>('input[data-tune]').forEach((i) => {
+      out[i.dataset.tune as keyof Tune] = Number(i.value)
+    })
+    return out
+  }
+  box.querySelectorAll<HTMLInputElement>('input[data-tune]').forEach((input) => {
+    input.addEventListener('input', () => {
+      const now = specFor(carId)
+      const next = tuned(car, fitted, read())
+      $('car-speed').textContent = `Class ${classOf(next)} ${ratingOf(next)}, top speed ${kmh(next)} km/h with this setup`
+      drawStats(ratings(now), ratings(next))
+    })
+    input.addEventListener('change', () => {
+      const next = setTune(progress, carId, read())
+      if (!next) return
+      progress = next
+      keep()
+      drawGarage()
+    })
+  })
+  box.querySelector<HTMLButtonElement>('.tune-reset')?.addEventListener('click', () => {
+    const next = setTune(progress, carId, STOCK_TUNE)
+    if (!next) return
+    progress = next
+    keep()
+    drawGarage()
+  })
 }
 
 document.querySelectorAll<HTMLButtonElement>('#garage-tab button').forEach((b) =>
