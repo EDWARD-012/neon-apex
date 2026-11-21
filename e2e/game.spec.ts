@@ -281,6 +281,28 @@ test('saves carried over from the old address are kept, and the link is tidied',
   await expect.poll(() => page.evaluate(() => (window as any).__neon?.progress().cash), { timeout: 60_000 }).toBe(4321)
 })
 
+test('career damage stays on the car until it is repaired', async ({ page }) => {
+  // A save with a badly damaged car, put in before each load of the page.
+  await page.addInitScript(() => localStorage.setItem('neon-apex/career', JSON.stringify({ cash: 3000, owned: ['vanta'], won: {}, wear: { vanta: 0.8 } })))
+  await open(page)
+  await page.locator('#go-career').click()
+  await expect(page.locator('#repair')).toContainText('80% damage')
+  await expect(page.locator('#repair')).toContainText('patched up to 50%')
+  await expect(page.locator('#repair-car')).toHaveText('Repair for 1,600')
+  // The car goes into the next event patched up to half damage.
+  await page.locator('.event[data-event="first-night"]').click()
+  await expect(page.locator('#intro-detail')).toContainText('your car at 50% damage')
+  expect(await page.evaluate(() => (window as any).__neon.game.race.player.car.damage)).toBe(0.5)
+  // Back on the career screen, the repair takes the coins and the damage.
+  await forward(page, 3.2)
+  await open(page)
+  await page.locator('#go-career').click()
+  await page.locator('#repair-car').click()
+  await expect(page.locator('#repair')).toBeHidden()
+  await expect(page.locator('#cash')).toHaveText('1,400')
+  expect(await page.evaluate(() => (window as any).__neon.progress().wear)).toEqual({})
+})
+
 test('the career pays coins, which buy a car and its upgrades in the garage', async ({ page }) => {
   await open(page, '&autopilot')
   await page.locator('#go-career').click()
