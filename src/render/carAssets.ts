@@ -219,6 +219,7 @@ function templateFor(shape: CarShape, variant: number): Template | undefined {
   if (shape === 'police') return traffic.get('sedan')
   if (shape === 'police-heavy') return traffic.get('suv') ?? traffic.get('sedan')
   if (shape === 'police-fast') return traffic.get('sport') ?? traffic.get('sedan')
+  if (shape === 'kestrel') return traffic.get('sport')
   return templates.get(shape)
 }
 
@@ -293,6 +294,44 @@ function paintReference(map: Texture, hue: number): { reference: number; coverag
   const result = { reference, coverage }
   references.set(map, result)
   return result
+}
+
+// The commonest strongly coloured hue in a texture, 0 to 1, for a body whose
+// paint colour is not known ahead: the pack cars came painted in their own
+// colours.
+const hues = new Map<Texture, number | undefined>()
+function dominantHue(map: Texture): number | undefined {
+  if (hues.has(map)) return hues.get(map)
+  let found: number | undefined
+  try {
+    const image = map.image as CanvasImageSource & { width: number; height: number }
+    const canvas = document.createElement('canvas')
+    canvas.width = 128
+    canvas.height = Math.max(1, Math.round((128 * image.height) / image.width))
+    const g = canvas.getContext('2d') as CanvasRenderingContext2D
+    g.drawImage(image, 0, 0, canvas.width, canvas.height)
+    const data = g.getImageData(0, 0, canvas.width, canvas.height).data
+    const bins = new Array(36).fill(0)
+    let counted = 0
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i] / 255
+      const gr = data[i + 1] / 255
+      const b = data[i + 2] / 255
+      const hi = Math.max(r, gr, b)
+      const chroma = hi - Math.min(r, gr, b)
+      if (hi < 0.08 || chroma / hi < 0.3) continue
+      let h = hi === r ? ((gr - b) / chroma + 6) % 6 : hi === gr ? (b - r) / chroma + 2 : (r - gr) / chroma + 4
+      h /= 6
+      bins[Math.min(35, Math.floor(h * 36))]++
+      counted++
+    }
+    const top = bins.indexOf(Math.max(...bins))
+    if (counted > (data.length / 4) * 0.03) found = (top + 0.5) / 36
+  } catch {
+    // No hue: the material is tinted instead.
+  }
+  hues.set(map, found)
+  return found
 }
 
 // Repaints paint-coloured texels of a textured body in the chosen colour,
@@ -374,7 +413,10 @@ const TAIL = new Color('#ff1a2e').multiplyScalar(1.6)
 export function makeAssetCar(shape: CarShape, color: string, variant = 0): AssetCar | null {
   const template = templateFor(shape, variant)
   if (!template) return null
-  const { def, half } = template
+  const { half } = template
+  // The Kestrel S is a pack car the player paints: its body materials are
+  // repainted wherever the texture shows the body's own colour.
+  const def: AssetDef = shape === 'kestrel' ? { ...template.def, paint: /^Body/ } : template.def
   // car is in car space (metres, nose along +z); model is the scaled copy.
   const car = new Group()
   const model = template.root.clone(true)
@@ -404,7 +446,7 @@ export function makeAssetCar(shape: CarShape, color: string, variant = 0): Asset
     } else if (def.paint.test(name) && !inWheel(mesh)) {
       let paint = paints.get(material)
       if (!paint) {
-        paint = paintMaterial(material, color, def.paintHue)
+        paint = paintMaterial(material, color, def.paintHue ?? (shape === 'kestrel' && material.map ? dominantHue(material.map) : undefined))
         paint.userData.paint = true
         paints.set(material, paint)
       }

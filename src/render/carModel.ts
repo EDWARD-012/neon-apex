@@ -200,6 +200,9 @@ const DEFS: Record<CarShape, Def> = {
   police: { ...SEDAN, exhausts: 2 },
   'police-heavy': { ...SEDAN, exhausts: 2 },
   'police-fast': { ...SEDAN, exhausts: 2 },
+  // The Kestrel S is the traffic pack's sports car in the player's paint;
+  // this drawn body only shows if the models fail to load.
+  kestrel: { ...SEDAN, exhausts: 2, sport: true },
 }
 
 // Station values at any point along a car, linearly.

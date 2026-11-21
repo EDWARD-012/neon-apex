@@ -20,6 +20,7 @@ describe('upgrades', () => {
     expect(speeds('vanta')).toEqual([259, 270, 280, 290])
     expect(speeds('volt')).toEqual([256, 266, 276, 286])
     expect(speeds('kite')).toEqual([238, 247, 257, 266])
+    expect(speeds('kestrel')).toEqual([270, 281, 292, 302])
   })
 
   it('prices follow the car, and the starter car is priced as if it cost 10,000', () => {
@@ -186,6 +187,7 @@ describe('classes and rating', () => {
     expect(cls('vanta')).toBe('B')
     expect(cls('volt')).toBe('B')
     expect(cls('kite')).toBe('C')
+    expect(cls('kestrel')).toBe('A')
     // Upgrades can lift a car a class.
     expect(cls('vanta', 3)).toBe('A')
     expect(cls('brute', 3)).toBe('S')

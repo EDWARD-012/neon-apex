@@ -3,7 +3,7 @@ import { CAR, type CarSpec } from './car'
 // The cars in the game. Each one is the shared CAR with a few numbers
 // changed, so they feel different without needing different physics.
 
-export type Shape = 'vanta' | 'kite' | 'brute' | 'volt' | 'sedan' | 'van' | 'police' | 'police-heavy' | 'police-fast'
+export type Shape = 'vanta' | 'kite' | 'brute' | 'volt' | 'kestrel' | 'sedan' | 'van' | 'police' | 'police-heavy' | 'police-fast'
 
 export interface CarDef {
   id: string
@@ -49,6 +49,14 @@ export const CARS: CarDef[] = [
     price: 26000,
     shape: 'volt',
     spec: make({ topSpeed: 71, engine: 20, lateralLimit: 19.5, nitroBurn: 0.21, nitroBoost: 1.6 }),
+  },
+  {
+    id: 'kestrel',
+    name: 'Kestrel S',
+    blurb: 'Light sports coupe. Turns in sharper than any of the others and pulls hard, but it skates when pushed.',
+    price: 20000,
+    shape: 'kestrel',
+    spec: make({ topSpeed: 75, engine: 18, lateralLimit: 19.5, grip: 8.4, driftGrip: 1.2, maxSteer: 0.6, yawResponse: 11 }),
   },
 ]
 
