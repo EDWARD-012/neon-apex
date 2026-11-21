@@ -8,3 +8,4 @@ playwright-report
 .env*
 assets-src
 scratch-inspect.*
+dist-portal

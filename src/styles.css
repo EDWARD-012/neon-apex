@@ -1672,6 +1672,11 @@ kbd {
   }
 }
 
+/* The portal build (see portal.ts) hides the links to the guide pages. */
+.portal .guides {
+  display: none;
+}
+
 /* Phones held upright: ask for the phone to be turned. */
 #rotate {
   display: none;
