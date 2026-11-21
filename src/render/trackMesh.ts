@@ -19,6 +19,7 @@ import { barrierOffset } from '../sim/car'
 import { createRng } from '../sim/rng'
 import type { Track } from '../sim/track'
 import { pbr } from './assets'
+import { misty } from './mist'
 import { asphalt, banner, checker, spot } from './textures'
 import { KERB_IN, KERB_OUT, kerbSide } from '../sim/kerbs'
 
@@ -91,7 +92,7 @@ export function buildTrackMeshes(track: Track, day = false): Group {
   // Road with a narrow shoulder out to the barriers.
   let roadMaterial: MeshStandardMaterial
   if (day) {
-    roadMaterial = new MeshStandardMaterial({ ...pbr('road', 3, 3), roughness: 1, metalness: 0, envMapIntensity: 0.5 })
+    roadMaterial = misty(new MeshStandardMaterial({ ...pbr('road', 3, 3), roughness: 1, metalness: 0, envMapIntensity: 0.5 }))
     roadMaterial.normalScale.set(0.7, 0.7)
   } else {
     const { map, roughness } = asphalt()
@@ -112,7 +113,8 @@ export function buildTrackMeshes(track: Track, day = false): Group {
   for (let i = 0; i < track.n; i++) {
     for (const d of [-half + 0.3, half - 0.3]) lines.push({ from: i, to: i + 1, inner: d - 0.14, outer: d + 0.14, y: 0.02 })
   }
-  const paint = new Mesh(quads(track, lines), new MeshStandardMaterial({ color: day ? '#bdbcb4' : '#cfd2da', roughness: day ? 0.85 : 0.6 }))
+  const paintMaterial = new MeshStandardMaterial({ color: day ? '#bdbcb4' : '#cfd2da', roughness: day ? 0.85 : 0.6 })
+  const paint = new Mesh(quads(track, lines), day ? misty(paintMaterial) : paintMaterial)
   paint.receiveShadow = true
   group.add(paint)
 
@@ -211,7 +213,7 @@ export function buildTrackMeshes(track: Track, day = false): Group {
 // Steel crash barrier on posts, like a mountain road: a galvanised rail on
 // each side, with the post every 2.5 m.
 function guardRails(track: Track, wall: number, group: Group) {
-  const metal = new MeshStandardMaterial({ color: '#c3c8cc', metalness: 0.85, roughness: 0.32, side: DoubleSide })
+  const metal = misty(new MeshStandardMaterial({ color: '#c3c8cc', metalness: 0.85, roughness: 0.32, side: DoubleSide }))
   for (const side of [-1, 1]) {
     for (const [y0, y1] of [
       [0.52, 0.86],
@@ -241,7 +243,7 @@ function guardRails(track: Track, wall: number, group: Group) {
   }
   const every = Math.max(1, Math.round(2.5 / track.spacing))
   const count = Math.ceil(track.n / every) * 2
-  const posts = new InstancedMesh(new BoxGeometry(0.14, 0.9, 0.14), new MeshStandardMaterial({ color: '#8f969c', metalness: 0.7, roughness: 0.45 }), count)
+  const posts = new InstancedMesh(new BoxGeometry(0.14, 0.9, 0.14), misty(new MeshStandardMaterial({ color: '#8f969c', metalness: 0.7, roughness: 0.45 })), count)
   const m = new Matrix4()
   let k = 0
   for (let i = 0; i < track.n; i += every) {

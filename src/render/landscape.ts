@@ -19,6 +19,7 @@ import { barrierOffset } from '../sim/car'
 import { createRng } from '../sim/rng'
 import type { Track } from '../sim/track'
 import { pbr } from './assets'
+import { misty } from './mist'
 import { distanceField } from './city'
 
 // The daytime setting: the circuit runs through a forested valley with a
@@ -96,7 +97,7 @@ function mountains(cx: number, cz: number, inner: number, rng: () => number) {
   geo.setAttribute('uv', new BufferAttribute(uv, 2))
   geo.setIndex(index)
   geo.computeVertexNormals()
-  const material = new MeshStandardMaterial({ ...pbr('rock', 1), vertexColors: true, roughness: 1, envMapIntensity: 0.6 })
+  const material = misty(new MeshStandardMaterial({ ...pbr('rock', 1), vertexColors: true, roughness: 1, envMapIntensity: 0.6 }))
   const mesh = new Mesh(geo, material)
   mesh.receiveShadow = true
   return mesh
@@ -130,8 +131,8 @@ function forest(track: Track, cx: number, cz: number, radius: number, rng: () =>
     new ConeGeometry(0.7, 2.4, 9).translate(0, 9.4, 0),
   ])
   const trunk = new CylinderGeometry(0.22, 0.32, 2.8, 6).translate(0, 1.4, 0)
-  const leaves = new InstancedMesh(crown, new MeshStandardMaterial({ color: '#ffffff', roughness: 0.9, side: DoubleSide }), spots.length)
-  const bark = new InstancedMesh(trunk, new MeshStandardMaterial({ color: '#4a3526', roughness: 1 }), spots.length)
+  const leaves = new InstancedMesh(crown, misty(new MeshStandardMaterial({ color: '#ffffff', roughness: 0.9, side: DoubleSide })), spots.length)
+  const bark = new InstancedMesh(trunk, misty(new MeshStandardMaterial({ color: '#4a3526', roughness: 1 })), spots.length)
   const o = new Object3D()
   const tint = new Color()
   spots.forEach((p, k) => {
@@ -157,7 +158,7 @@ function forest(track: Track, cx: number, cz: number, radius: number, rng: () =>
     if (d < wall + 4 || d > 60) continue
     rocks.push({ x, z, s: 0.6 + rng() * 2.2 })
   }
-  const stones = new InstancedMesh(new DodecahedronGeometry(1, 1), new MeshStandardMaterial({ ...pbr('rock', 0.5), color: '#b8b2aa', roughness: 1 }), rocks.length)
+  const stones = new InstancedMesh(new DodecahedronGeometry(1, 1), misty(new MeshStandardMaterial({ ...pbr('rock', 0.5), color: '#b8b2aa', roughness: 1 })), rocks.length)
   rocks.forEach((p, k) => {
     o.position.set(p.x, p.s * 0.25, p.z)
     o.rotation.set(rng() * 3, rng() * 3, rng() * 3)
@@ -189,7 +190,7 @@ export function buildLandscape(track: Track): Landscape {
   // The valley floor: forest soil and grass, tiled about every 6 m.
   // Tinted towards green, so the valley reads as grass and needles rather
   // than bare soil.
-  const ground = new MeshStandardMaterial({ ...pbr('ground', 1500), color: '#8fa56a', roughness: 1, envMapIntensity: 0.35 })
+  const ground = misty(new MeshStandardMaterial({ ...pbr('ground', 1500), color: '#8fa56a', roughness: 1, envMapIntensity: 0.35 }))
   const floor = new Mesh(new PlaneGeometry(9000, 9000).rotateX(-Math.PI / 2), ground)
   floor.position.set(cx, -0.04, cz)
   floor.receiveShadow = true

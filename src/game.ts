@@ -19,6 +19,7 @@ import { type Fitted, type Tune, tuned } from './upgrades'
 import { createHelicopter, type HelicopterModel } from './render/helicopter'
 import { buildArrows, buildPuddles, buildSigns, Crowd, type Puddle } from './render/roadside'
 import { type Lamps, Nightfall } from './render/nightfall'
+import { setMist, setMistTime } from './render/mist'
 import { Birds, type CarLike } from './render/birds'
 import { disposeStrip, spikeStrip } from './render/spikes'
 import { spot } from './render/textures'
@@ -298,6 +299,8 @@ export class Game {
     this.settings = settings
     this.autopilot = autopilot
     this.world = new World(canvas, settings.quality)
+    // The mountains' mist is for medium and high graphics.
+    setMist(settings.quality !== 'low')
     if (settings.renderScale < 1) this.world.setScale(settings.renderScale)
     // The cockpit's rear-view mirror shows the road behind on high quality.
     this.world.beforeDraw = () => {
@@ -691,6 +694,7 @@ export class Game {
   setQuality(quality: Quality) {
     this.settings.quality = quality
     this.world.setQuality(quality)
+    setMist(quality !== 'low')
   }
 
   // Advances the simulation without drawing, for the browser tests.
@@ -1282,6 +1286,7 @@ export class Game {
       this.updateDebris(dt)
     }
     this.nitroPulse *= Math.exp(-dt * 2.6)
+    setMistTime(this.time)
     const city = this.materials?.city
     if (this.world.day) this.world.followSun(this.player.car.x, this.player.car.z)
     if (city && this.nightfall && this.materials) this.nightfall.update(this.mode === 'replay' ? this.replayTime : this.race.clock, this.world, this.materials.road, city.facade, city.dome)
