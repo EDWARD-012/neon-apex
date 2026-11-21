@@ -11,6 +11,7 @@ import { Cockpit, DRIVER } from './render/cockpit'
 import { Particles, Rain, Skids, Trails } from './render/effects'
 import { Garage } from './render/garage'
 import { type Looks, STOCK_LOOKS, styleCar } from './looks'
+import { tuned } from './upgrades'
 import { createHelicopter, type HelicopterModel } from './render/helicopter'
 import { disposeStrip, spikeStrip } from './render/spikes'
 import { spot } from './render/textures'
@@ -39,6 +40,11 @@ export interface EventSpec {
   weather: Weather | 'auto'
   target?: number
   careerId?: string
+  // Career: the stage on the rivals' engines and tyres, and a crew
+  // leader's name and car.
+  rivalStage?: number
+  leader?: string
+  rivalCar?: string
 }
 
 export interface Settings {
@@ -138,6 +144,7 @@ export class Game {
   mode: Mode = 'menu'
   timeScale = 1
   onResults: ((outcome: Outcome) => void) | null = null
+  onRestart: (() => void) | null = null
   // The player's car with its upgrades. Set by the menus, which know the
   // save; until then a car drives as it left the factory.
   tune: (carId: string) => CarSpec = (carId) => carById(carId).spec
@@ -259,7 +266,8 @@ export class Game {
     this.event = spec
     const car = carById(this.settings.car)
     this.sound.setEngine(ENGINES[car.shape] ?? 'v12')
-    const rivalCars = Array.from({ length: spec.rivals }, (_, k) => CARS[(k + 1) % CARS.length])
+    const rivalCars = Array.from({ length: spec.rivals }, (_, k) => (spec.rivalCar ? carById(spec.rivalCar) : CARS[(k + 1) % CARS.length]))
+    const stage = spec.rivalStage ?? 0
     this.race = new Race({
       seed: spec.seed,
       laps: spec.kind === 'elimination' || spec.kind === 'pursuit' ? 99 : spec.laps,
@@ -273,7 +281,8 @@ export class Game {
       playerColor: this.settings.color,
       // Playing the cop, the player drives an interceptor.
       playerSpec: spec.kind === 'cop' ? INTERCEPTOR_SPEC : this.tune(car.id),
-      rivalSpecs: rivalCars.map((c) => c.spec),
+      rivalSpecs: rivalCars.map((c) => (stage > 0 ? tuned(c, { engine: stage, tyres: stage }) : c.spec)),
+      rivalNames: spec.leader ? [spec.leader] : undefined,
       autopilot: attract || this.autopilot,
       tools: spec.kind === 'pursuit' ? this.settings.tools : spec.kind === 'cop' ? this.settings.copTools : undefined,
     })
@@ -501,6 +510,8 @@ export class Game {
       popup(`Camera: ${CAMERA_NAMES[this.camMode]}`, 'cyan')
     }
     if (this.input.take('reset') && this.race.phase === 'racing') this.race.reset(this.player)
+    // Quick restart: one key, the event starts again from the grid.
+    if (this.input.take('restart')) this.onRestart?.()
     if (this.input.take('tool1')) this.race.useTool(0)
     if (this.input.take('tool2')) this.race.useTool(1)
   }
@@ -787,6 +798,7 @@ export class Game {
       escaped: race.pursuit.outcome === 'escaped',
       bestLap: player.lapTimes.length ? Math.min(...player.lapTimes) : undefined,
       referenceLap: race.line.lapTime,
+      time: Math.max(0, race.clock),
       busts: race.busts,
       racers: race.racers.length - 1,
     })

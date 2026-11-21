@@ -59,7 +59,7 @@ The game is original. It borrows the street racing genre, not any particular gam
   </tr>
 </table>
 
-Events. Races against five rivals. Elimination, where the last car is knocked out every time the leader finishes a lap. Drift events with a points target. Pursuits, where patrol cars chase you and you have to get 300 m clear of every one and stay there. Time trials against a ghost. And playing the cop: you drive a police interceptor after four racers with a 3 second start, and bust them by ramming until their damage is full or by boxing them in, with a patrol car of backup every 30 seconds and two police tools (a roadblock or spike strip ahead of the leader, a helicopter that drops spikes in front of the leader, or a pulse that cuts a racer's power). Each one can be played on its own from Quick race, and the career strings twelve of them together.
+Events. Races against five rivals. Elimination, where the last car is knocked out every time the leader finishes a lap. Drift events with a points target. Pursuits, where patrol cars chase you and you have to get 300 m clear of every one and stay there. Time trials against a ghost. And playing the cop: you drive a police interceptor after four racers with a 3 second start, and bust them by ramming until their damage is full or by boxing them in, with a patrol car of backup every 30 seconds and two police tools (a roadblock or spike strip ahead of the leader, a helicopter that drops spikes in front of the leader, or a pulse that cuts a racer's power). Each one can be played on its own from Quick race, and the career strings twelve of them together as a ladder of three street crews. Win three of a crew's events to race its leader one on one, with upgrades fitted, and pick one of three reward cards the first time you win. Every career event has bronze, silver, gold and Skidline medals worth 500, 1,000, 2,000 and 5,000 coins once each, and rival cars carry more upgrades the higher you climb.
 
 Cars. Four, each the same physics with different numbers: a balanced coupe, a light hatch with sticky tyres, a muscle car that slides, and an electric car with instant pull and a long-lasting nitro tank. The garage shows each on a turntable with its ratings and lets you buy, upgrade and paint them.
 
@@ -136,6 +136,7 @@ Lap counting does not trust where a car is on the map. Each car keeps a running 
 | Look back, held | V or B | Left bumper | |
 | Pursuit tools 1 and 2 | 1 and 2, or Q and E | D-pad left and right | Tool buttons |
 | Pause | Esc or P | Start | Pause button |
+| Restart the event | T | Back / Select | |
 
 Any key or tap skips the fly-in before a race.
 

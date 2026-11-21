@@ -2007,3 +2007,59 @@ kbd {
   border-color: var(--cyan);
   box-shadow: inset 0 0 0 1px var(--cyan);
 }
+
+/* Career: medals on events, the crew leader's race, and reward cards. */
+.medal {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: none;
+}
+
+.medal.m1 {
+  background: rgba(205, 127, 50, 0.25);
+  color: #e3a36b;
+}
+
+.medal.m2 {
+  background: rgba(200, 205, 215, 0.2);
+  color: #dfe3ea;
+}
+
+.medal.m3 {
+  background: rgba(255, 210, 61, 0.22);
+  color: var(--gold);
+}
+
+.medal.m4 {
+  background: rgba(255, 45, 149, 0.22);
+  color: #ff7ac0;
+}
+
+.event.leader {
+  --kind: var(--gold);
+  border-style: dashed;
+}
+
+.cards {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.cards .card {
+  padding: 12px 14px;
+  border: 1px solid var(--gold);
+  border-radius: 8px;
+  background: rgba(255, 210, 61, 0.08);
+  color: var(--text);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cards .card:hover {
+  background: rgba(255, 210, 61, 0.18);
+}

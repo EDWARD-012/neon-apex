@@ -67,6 +67,9 @@ export interface RaceOptions {
   police?: number
   // The player's two racer tools in a pursuit.
   tools?: ToolId[]
+  // Names for the rivals in grid order, where an event gives them (a crew
+  // leader's race).
+  rivalNames?: string[]
   // Police in a race: a patrol car waits by the road and gives chase when
   // the player goes past it fast. Up to this many can be after the player
   // at once. Not used in a pursuit, which has its own police.
@@ -341,7 +344,7 @@ export class Race {
       const rival = RIVALS[k % RIVALS.length]
       this.racers.push({
         id: k,
-        name: player ? 'You' : rival.name,
+        name: player ? 'You' : options.rivalNames?.[k] ?? rival.name,
         color: player ? options.playerColor ?? '#f2a900' : rival.color,
         player,
         car: createCar(at.x, at.z, at.heading, this.track, player ? options.playerSpec ?? CAR : options.rivalSpecs?.[k] ?? CAR),

@@ -29,16 +29,29 @@ export interface EventDef {
   target?: number
   // Cash for a first win. Repeat wins and lesser results pay part of it.
   reward: number
+  // Upgrade stage on the rivals' engines and tyres: rival cars carry more
+  // upgrades the higher the player climbs.
+  rivalStage?: number
+  // A crew leader's race: the one rival's name and car.
+  leader?: string
+  rivalCar?: string
 }
 
+// Each tier is a street crew. Win three of its events to open a race
+// against its leader; beating the leader the first time pays a reward the
+// player picks from three cards.
 export interface Tier {
   name: string
+  crew: string
   events: EventDef[]
+  leader: EventDef
 }
 
 export const TIERS: Tier[] = [
   {
     name: 'Street',
+    crew: 'Dockside',
+    leader: { id: 'leader-street', title: 'Kade, Dockside', kind: 'race', blurb: 'One on one against the leader of Dockside, three laps by night.', seed: 'career-kade', laps: 3, rivals: 1, skill: 1.0, traffic: 4, weather: 'clear', reward: 5000, rivalStage: 1, leader: 'Kade', rivalCar: 'kite' },
     events: [
       { id: 'first-night', title: 'First night', kind: 'race', blurb: 'Three laps against three locals. Finish first.', seed: 'career-harbour', laps: 3, rivals: 3, skill: 0.88, traffic: 0, patrols: 1, weather: 'clear', reward: 2500 },
       { id: 'wet-paint', title: 'Wet paint', kind: 'drift', blurb: 'Two laps on a wet road. Score 1,800 drift points.', seed: 'career-docks', laps: 2, rivals: 0, skill: 1, traffic: 0, weather: 'rain', target: 1800, reward: 2000 },
@@ -48,6 +61,8 @@ export const TIERS: Tier[] = [
   },
   {
     name: 'Downtown',
+    crew: 'Glass Tower',
+    leader: { id: 'leader-downtown', title: 'Selin, Glass Tower', kind: 'race', blurb: 'One on one against the leader of Glass Tower, in the rain.', seed: 'career-selin', laps: 3, rivals: 1, skill: 1.05, traffic: 6, weather: 'rain', reward: 9000, rivalStage: 2, leader: 'Selin', rivalCar: 'brute' },
     events: [
       { id: 'downpour', title: 'Downpour', kind: 'race', blurb: 'Five rivals, traffic and standing water. Finish first.', seed: 'career-financial', laps: 3, rivals: 5, skill: 0.96, traffic: 6, patrols: 2, weather: 'rain', reward: 4500 },
       { id: 'clock', title: 'Against the clock', kind: 'trial', blurb: 'Set a lap within 12% of the reference lap, up in the mountains.', seed: 'career-boulevard', laps: 3, rivals: 0, skill: 1, traffic: 0, weather: 'day', target: 1.12, reward: 4000 },
@@ -57,6 +72,8 @@ export const TIERS: Tier[] = [
   },
   {
     name: 'Apex',
+    crew: 'Zero Line',
+    leader: { id: 'leader-apex', title: 'Halvard, Zero Line', kind: 'race', blurb: 'The last one on one: the leader of Zero Line, five laps at dusk.', seed: 'career-halvard', laps: 5, rivals: 1, skill: 1.08, traffic: 6, weather: 'dusk', reward: 18000, rivalStage: 3, leader: 'Halvard', rivalCar: 'volt' },
     events: [
       { id: 'neon-mile', title: 'Neon mile', kind: 'race', blurb: 'Five laps, the best drivers in the city. Finish first.', seed: 'career-skyline', laps: 5, rivals: 5, skill: 1.0, traffic: 8, patrols: 3, weather: 'clear', reward: 8000 },
       { id: 'sideways', title: 'Sideways', kind: 'drift', blurb: 'Three laps at dusk. Score 6,000 drift points.', seed: 'career-quarry', laps: 3, rivals: 0, skill: 1, traffic: 0, weather: 'dusk', target: 6000, reward: 7000 },
@@ -66,7 +83,11 @@ export const TIERS: Tier[] = [
   },
 ]
 
-export const ALL_EVENTS = TIERS.flatMap((t) => t.events)
+// Rivals in the higher tiers carry upgrades: a stage on engine and tyres
+// in Downtown, two in Apex.
+TIERS.forEach((tier, t) => tier.events.forEach((e) => (e.rivalStage ??= t)))
+
+export const ALL_EVENTS = TIERS.flatMap((t) => [...t.events, t.leader])
 export const WINS_TO_UNLOCK = 3
 
 export interface Progress {
@@ -82,9 +103,13 @@ export interface Progress {
   // Looks bought ("finish:matte", "glow:cyan"), and the looks on each car.
   ownedLooks: string[]
   looks: Record<string, Looks>
+  // The best medal won on each career event (1 bronze to 4 Skidline), and
+  // the crew leaders whose reward card has been taken.
+  medals: Record<string, number>
+  claimed: string[]
 }
 
-export const fresh = (): Progress => ({ cash: 0, owned: [CARS[0].id], won: {}, upgrades: {}, daily: null, ownedLooks: [], looks: {} })
+export const fresh = (): Progress => ({ cash: 0, owned: [CARS[0].id], won: {}, upgrades: {}, daily: null, ownedLooks: [], looks: {}, medals: {}, claimed: [] })
 
 // Fills in what an older or damaged save is missing.
 export function tidy(saved: Partial<Progress>): Progress {
@@ -97,6 +122,8 @@ export function tidy(saved: Partial<Progress>): Progress {
     upgrades: object(saved.upgrades) ? (saved.upgrades as Progress['upgrades']) : {},
     ownedLooks: Array.isArray(saved.ownedLooks) ? saved.ownedLooks.filter((k) => typeof k === 'string') : [],
     looks: object(saved.looks) ? (saved.looks as Progress['looks']) : {},
+    medals: object(saved.medals) ? (saved.medals as Progress['medals']) : {},
+    claimed: Array.isArray(saved.claimed) ? saved.claimed.filter((k) => typeof k === 'string') : [],
     daily: daily && typeof daily.day === 'string' && Number.isInteger(daily.streak) ? daily : null,
   }
 }
@@ -108,6 +135,10 @@ export interface Outcome {
   escaped?: boolean
   bestLap?: number
   referenceLap?: number
+  // Seconds the event lasted, and the heat at the end, for the pursuit
+  // medals.
+  time?: number
+  heat?: number
   // Playing the cop: racers busted, and how many there were.
   busts?: number
   racers?: number
@@ -173,6 +204,76 @@ export function winsIn(progress: Progress, tier: number): number {
 
 export function tierOpen(progress: Progress, tier: number): boolean {
   return tier === 0 || winsIn(progress, tier - 1) >= WINS_TO_UNLOCK
+}
+
+// A crew's leader takes the player on once three of its events are won.
+export function leaderOpen(progress: Progress, tier: number): boolean {
+  return winsIn(progress, tier) >= WINS_TO_UNLOCK
+}
+
+// Medals on every career event: bronze, silver, gold, and a fourth, the
+// Skidline medal, harder than a win. Each pays once, the first time it is
+// reached: 500, 1,000, 2,000 and 5,000 coins, as the plan has them.
+export const MEDAL_NAMES = ['', 'Bronze', 'Silver', 'Gold', 'Skidline']
+export const MEDAL_PAY = [0, 500, 1000, 2000, 5000]
+
+export function medalFor(event: EventDef, outcome: Outcome): number {
+  const ref = outcome.referenceLap ?? 0
+  const best = outcome.bestLap ?? Infinity
+  switch (event.kind) {
+    case 'race':
+    case 'elimination': {
+      // By place, and the Skidline medal for a win with a best lap close to
+      // the racing line's own.
+      const place = outcome.place ?? 99
+      if (place === 1) return best <= ref * (event.kind === 'race' ? 1.03 : 1.05) ? 4 : 3
+      return place === 2 ? 2 : place === 3 ? 1 : 0
+    }
+    case 'drift': {
+      const share = (outcome.points ?? 0) / (event.target ?? 1)
+      return share >= 1.5 ? 4 : share >= 1 ? 3 : share >= 0.75 ? 2 : share >= 0.5 ? 1 : 0
+    }
+    case 'pursuit': {
+      const time = outcome.time ?? 0
+      if (outcome.escaped) return (outcome.heat ?? 1) >= 3 ? 4 : 3
+      return time >= 120 ? 2 : time >= 60 ? 1 : 0
+    }
+    case 'trial': {
+      const target = event.target ?? 1.12
+      return best <= ref * 1.04 ? 4 : best <= ref * target ? 3 : best <= ref * (target + 0.04) ? 2 : best <= ref * (target + 0.08) ? 1 : 0
+    }
+    default:
+      return 0
+  }
+}
+
+// The reward for beating a crew leader the first time: coins, a free stage
+// on the car being driven, or a look not owned yet. The player takes one.
+export type Card = { kind: 'coins'; coins: number } | { kind: 'stage'; part: Part; stage: number } | { kind: 'look'; key: string }
+
+const CARD_LOOKS = [
+  ['glow:cyan', 'glow:pink', 'finish:matte'],
+  ['finish:pearl', 'glow:green', 'glow:orange'],
+  ['finish:chrome', 'finish:pearl', 'glow:white'],
+]
+
+export function rewardCards(progress: Progress, tier: number, carId: string): Card[] {
+  const cards: Card[] = [{ kind: 'coins', coins: TIERS[tier].leader.reward }]
+  const fitted = progress.upgrades[carId] ?? {}
+  const part = (['engine', 'tyres', 'nitro', 'gearbox', 'brakes', 'suspension'] as Part[]).find((p) => stageOf(fitted, p) < STAGES)
+  if (part && progress.owned.includes(carId)) cards.push({ kind: 'stage', part, stage: stageOf(fitted, part) + 1 })
+  const look = CARD_LOOKS[tier].find((k) => !progress.ownedLooks.includes(k))
+  if (look) cards.push({ kind: 'look', key: look })
+  return cards
+}
+
+export function takeCard(progress: Progress, card: Card, carId: string, leaderId: string): Progress {
+  if (progress.claimed.includes(leaderId)) return progress
+  const next = { ...progress, claimed: [...progress.claimed, leaderId] }
+  if (card.kind === 'coins') return { ...next, cash: next.cash + card.coins }
+  if (card.kind === 'look') return { ...next, ownedLooks: [...next.ownedLooks, card.key] }
+  const fitted = next.upgrades[carId] ?? {}
+  return { ...next, upgrades: { ...next.upgrades, [carId]: { ...fitted, [card.part]: card.stage } } }
 }
 
 // What a finished event pays, beyond the career's own reward.
@@ -263,8 +364,16 @@ export function settle(progress: Progress, run: Run, today: string, event?: Even
   const judged = event ? judge(event, run, Boolean(progress.won[event.id])) : null
   const result = judged && out ? { won: false, cash: 0, summary: run.fate === 'busted' ? 'Busted by the police.' : 'Wrecked.' } : judged
   // A car that went out gets nothing for its place.
+  let medals = progress.medals
   if (result && !out) {
     if (result.cash > 0) lines.push({ label: result.won ? 'Event won' : 'Event result', coins: result.cash })
+    // A better medal than before pays for every level newly reached.
+    const medal = event ? medalFor(event, run) : 0
+    const before = event ? progress.medals[event.id] ?? 0 : 0
+    if (event && medal > before) {
+      lines.push({ label: `${MEDAL_NAMES[medal]} medal`, coins: MEDAL_PAY.slice(before + 1, medal + 1).reduce((a, b) => a + b, 0) })
+      medals = { ...medals, [event.id]: medal }
+    }
   } else if (!result && !out && !busted) {
     const base = quickPay(run)
     if (base && base.coins > 0) lines.push(base)
@@ -290,7 +399,7 @@ export function settle(progress: Progress, run: Run, today: string, event?: Even
   }
   const total = lines.reduce((sum, l) => sum + l.coins, 0)
   const won = event && result ? { ...progress.won, [event.id]: progress.won[event.id] || result.won } : progress.won
-  return { progress: { ...progress, cash: progress.cash + total, won, daily }, lines, total, result }
+  return { progress: { ...progress, cash: progress.cash + total, won, daily, medals }, lines, total, result }
 }
 
 // Fits the next stage of a part to a car the player owns, if there is

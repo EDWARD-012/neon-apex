@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fresh, type Progress, type Run, settle, tidy, TIERS, upgrade } from '../src/career'
+import { fresh, MEDAL_PAY, type Progress, type Run, settle, tidy, TIERS, upgrade } from '../src/career'
 import { createCar, idle, speedOf, stepCar } from '../src/sim/car'
 import { carById, CARS, ratings } from '../src/sim/cars'
 import { Race, STEP } from '../src/sim/race'
@@ -146,7 +146,9 @@ describe('coins', () => {
     const event = TIERS[0].events[0]
     const paid = settle(fresh(), quick({ nearMisses: 2 }), today, event)
     expect(paid.result?.won).toBe(true)
-    expect(paid.total).toBe(event.reward + 100)
+    // A first win is also a first gold medal, which pays for bronze and
+    // silver on the way.
+    expect(paid.total).toBe(event.reward + 100 + MEDAL_PAY[1] + MEDAL_PAY[2] + MEDAL_PAY[3])
     expect(paid.progress.won[event.id]).toBe(true)
   })
 })

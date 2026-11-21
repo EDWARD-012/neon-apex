@@ -7,7 +7,7 @@ import './styles.css'
 import { report, startClock } from './analytics'
 import { loadCarAssets } from './render/carAssets'
 import { AccountError, type Account, chooseLogin, cloudEnabled, currentAccount, googleButton, signIn, signInWithGoogle, signOut, uploadProgress } from './cloud'
-import { ALL_EVENTS, buy, fitLook, type EventDef, type EventKind, loadProgress, type Outcome, type Progress, saveProgress, settle, TIERS, tidy, tierOpen, upgrade, WINS_TO_UNLOCK, winsIn } from './career'
+import { ALL_EVENTS, buy, type Card, fitLook, leaderOpen, MEDAL_NAMES, rewardCards, takeCard, type EventDef, type EventKind, loadProgress, type Outcome, type Progress, saveProgress, settle, TIERS, tidy, tierOpen, upgrade, WINS_TO_UNLOCK, winsIn } from './career'
 import { type EventSpec, formatTime, Game, ordinal, REPLAY_CAMERAS, type Settings, TOOL_INFO } from './game'
 import { COP_TOOL_IDS, type CopToolId, type RacerToolId, TOOL_IDS, type ToolId } from './sim/race'
 import type { Weather } from './render/atmosphere'
@@ -254,23 +254,37 @@ function career() {
     const col = document.createElement('div')
     col.className = `tier${open ? '' : ' locked'}`
     const need = t > 0 && !open ? `Win ${WINS_TO_UNLOCK} in ${TIERS[t - 1].name} to open` : `${winsIn(progress, t)} of ${tier.events.length} won`
-    col.innerHTML = `<h3>${tier.name}<small>${need}</small></h3>`
+    col.innerHTML = `<h3>${tier.name}<small>${tier.crew} crew, ${need}</small></h3>`
+    const medal = (id: string) => {
+      const m = progress.medals[id] ?? 0
+      return m ? `<span class="medal m${m}" title="${MEDAL_NAMES[m]} medal">${MEDAL_NAMES[m]}</span>` : ''
+    }
     for (const e of tier.events) {
       const b = document.createElement('button')
       b.className = `event${progress.won[e.id] ? ' won' : ''}`
       b.dataset.event = e.id
       b.style.setProperty('--kind', KIND_COLORS[e.kind])
       b.disabled = !open
-      b.innerHTML = `<b>${e.title}</b><span class="pay">${e.reward.toLocaleString('en')}</span><span class="kind">${e.kind}, ${e.weather}${e.patrols ? ', police' : ''}</span><span class="blurb">${e.blurb}</span>`
+      b.innerHTML = `<b>${e.title}</b><span class="pay">${e.reward.toLocaleString('en')}</span><span class="kind">${e.kind}, ${e.weather}${e.patrols ? ', police' : ''}${e.rivalStage ? `, rivals stage ${e.rivalStage}` : ''} ${medal(e.id)}</span><span class="blurb">${e.blurb}</span>`
       b.addEventListener('click', () => begin(careerSpec(e)))
       col.appendChild(b)
     }
+    // The crew's leader, once three of its events are won.
+    const l = tier.leader
+    const lead = document.createElement('button')
+    const ready = open && leaderOpen(progress, t)
+    lead.className = `event leader${progress.won[l.id] ? ' won' : ''}`
+    lead.dataset.event = l.id
+    lead.disabled = !ready
+    lead.innerHTML = `<b>${l.title}</b><span class="pay">${l.reward.toLocaleString('en')}</span><span class="kind">crew leader, ${l.weather} ${medal(l.id)}</span><span class="blurb">${ready ? `${l.blurb} Beat ${l.leader} the first time and pick a reward.` : `Win ${WINS_TO_UNLOCK} of ${tier.crew}'s events to race its leader, ${l.leader}.`}</span>`
+    lead.addEventListener('click', () => begin(careerSpec(l)))
+    col.appendChild(lead)
     box.appendChild(col)
   })
 }
 
 function careerSpec(e: EventDef): EventSpec {
-  return { kind: e.kind, title: e.title, seed: e.seed, laps: e.laps, rivals: e.rivals, skill: e.skill, traffic: e.traffic, police: e.police, patrols: e.patrols, weather: e.weather, target: e.target, careerId: e.id }
+  return { kind: e.kind, title: e.title, seed: e.seed, laps: e.laps, rivals: e.rivals, skill: e.skill, traffic: e.traffic, police: e.police, patrols: e.patrols, weather: e.weather, target: e.target, careerId: e.id, rivalStage: e.rivalStage, leader: e.leader, rivalCar: e.rivalCar }
 }
 
 // Garage
@@ -627,6 +641,7 @@ $('quit').addEventListener('click', () => {
   menu()
 })
 $('again').addEventListener('click', () => current && begin(current))
+game.onRestart = () => current && begin(current)
 $('to-menu').addEventListener('click', () => {
   game.showMenu()
   if (current?.careerId) career()
@@ -634,6 +649,36 @@ $('to-menu').addEventListener('click', () => {
 })
 
 // Results
+
+const cardText = (card: Card) =>
+  card.kind === 'coins'
+    ? `${coins(card.coins)} coins`
+    : card.kind === 'stage'
+      ? `A free stage ${card.stage} ${partById(card.part).name.toLowerCase()} for the ${carById(settings.car).name}`
+      : (() => {
+          const [kind, id] = card.key.split(':') as ['finish' | 'glow', string]
+          const look = (kind === 'finish' ? FINISHES : GLOWS).find((l) => l.id === id)
+          return `${look?.name ?? id} ${kind === 'finish' ? 'finish' : 'underglow'}, free on every car`
+        })()
+
+function showCards(tier: number, leaderId: string) {
+  const cards = rewardCards(progress, tier, settings.car)
+  const box = document.createElement('div')
+  box.className = 'cards'
+  box.innerHTML = `<p class="pay-head">${TIERS[tier].crew} is beaten. Pick your reward:</p>`
+  for (const card of cards) {
+    const b = document.createElement('button')
+    b.className = 'card'
+    b.textContent = cardText(card)
+    b.addEventListener('click', () => {
+      progress = takeCard(progress, card, settings.car, leaderId)
+      keep()
+      box.innerHTML = `<p class="pay-head">You took: ${cardText(card)}.</p>`
+    })
+    box.appendChild(b)
+  }
+  $('reward').appendChild(box)
+}
 
 let resultTimer = 0
 function results(outcome: Outcome) {
@@ -674,6 +719,9 @@ function results(outcome: Outcome) {
   const lines = paid.lines.map((l) => `<li><span>${l.label}</span><b>+${coins(l.coins)}</b></li>`).join('')
   $('reward').innerHTML = `${head}<ul class="pay-lines">${lines}</ul><p class="pay-total">+${coins(paid.total)} coins</p>`
   $('reward').classList.remove('hidden')
+  // Beating a crew leader the first time: pick one of the reward cards.
+  const tierOf = TIERS.findIndex((t) => t.leader.id === def?.id)
+  if (def && tierOf >= 0 && paid.result?.won && !progress.claimed.includes(def.id)) showCards(tierOf, def.id)
 
   const draw = () => {
     const player = race.player

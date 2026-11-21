@@ -42,6 +42,7 @@ export class Input {
       if (e.repeat) return
       if (e.code === 'KeyR') this.pressed.add('reset')
       if (e.code === 'KeyC') this.pressed.add('camera')
+      if (e.code === 'KeyT') this.pressed.add('restart')
       if (e.code === 'Digit1' || e.code === 'KeyQ') this.pressed.add('tool1')
       if (e.code === 'Digit2' || e.code === 'KeyE') this.pressed.add('tool2')
       if (e.code === 'Escape' || e.code === 'KeyP') this.pressed.add('pause')
@@ -98,7 +99,7 @@ export class Input {
     const pad = navigator.getGamepads?.().find((p) => p)
     if (!pad) return false
     // The d-pad's left and right fire the two pursuit tools.
-    const button = { reset: 3, camera: 2, pause: 9, tool1: 14, tool2: 15 }[action]
+    const button = { reset: 3, camera: 2, pause: 9, tool1: 14, tool2: 15, restart: 8 }[action]
     if (button === undefined) return false
     const now = Boolean(pad.buttons[button]?.pressed)
     const was = this.padWas[button] ?? false
