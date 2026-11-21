@@ -576,6 +576,10 @@ export class Game {
     return new Promise((done) => out.toBlob((b) => done(b), 'image/png'))
   }
 
+  restyleGarage(looks: Looks) {
+    this.garage.restyle(looks)
+  }
+
   refreshGarage(carId = this.settings.car, looks = this.looksFor(carId)) {
     this.garage.show(carById(carId).shape, this.settings.color, looks, this.plateText())
   }
