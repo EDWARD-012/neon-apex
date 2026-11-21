@@ -1,6 +1,7 @@
 import { gunzipSync, gzipSync } from 'node:zlib'
 import { checkRun, dailySeed, PHYSICS_VERSION, SEED, weeklySeed } from './_replay.js'
-import { currentPlayer, json, sql, table as playersTable } from './_lib.js'
+import { currentPlayer, json, sql } from './_lib.js'
+import { lapsTable, socialTables } from './_tables.js'
 
 // Leaderboards: the best time-trial lap of each signed-in player on each
 // track. GET ?seed= reads a board; GET ?seed=&ghost=<username> gives that
@@ -10,26 +11,7 @@ import { currentPlayer, json, sql, table as playersTable } from './_lib.js'
 // to the physics starts fresh boards instead of mixing old laps with new
 // ones.
 
-let ready: Promise<unknown> | null = null
-function table() {
-  ready ??= playersTable()
-    .then(
-      () => sql`create table if not exists laps (
-        seed text not null,
-        physics integer not null,
-        player_id bigint not null references players (id) on delete cascade,
-        time double precision not null,
-        car text not null,
-        fitted jsonb,
-        set_at timestamptz not null default now(),
-        primary key (seed, physics, player_id)
-      )`,
-    )
-    // The best run itself, gzipped JSON in base64, for ghosts. Laps stored
-    // before ghosts existed have none.
-    .then(() => sql`alter table laps add column if not exists ghost text`)
-  return ready
-}
+const table = lapsTable
 
 const pack = (run: unknown) => gzipSync(JSON.stringify(run)).toString('base64')
 const unpack = (text: string) => JSON.parse(gunzipSync(Buffer.from(text, 'base64')).toString('utf8')) as unknown
@@ -37,16 +19,23 @@ const USERNAME = /^[a-z0-9_]{3,20}$/
 const DAY = 86_400_000
 
 // Ghosts take room, so they are kept only where someone is likely to race
-// them: a lap keeps its ghost while it is in its board's top 10; ghosts on
-// a daily track go once the track is more than 7 days old, on a weekly
-// track once it is more than 5 weeks old, and on any older physics version
-// straight away. The times stay on the boards. Run after every new lap.
+// them: a lap keeps its ghost while it is in its board's top 10, while
+// someone who added its driver as a friend has a lap on the same track, or
+// while an open challenge points at it. Ghosts on a daily track go once
+// the track is more than 7 days old, on a weekly track once it is more
+// than 5 weeks old, and on any older physics version straight away. The
+// times stay on the boards. Run after every new lap.
 async function pruneGhosts(seed: string) {
+  await socialTables()
   await sql`update laps set ghost = null
     where seed = ${seed} and physics = ${PHYSICS_VERSION} and ghost is not null
       and player_id not in (select l.player_id from laps l join players p on p.id = l.player_id
         where l.seed = ${seed} and l.physics = ${PHYSICS_VERSION} and p.username is not null
-        order by l.time asc, l.set_at asc limit 10)`
+        order by l.time asc, l.set_at asc limit 10)
+      and not exists (select 1 from friends f join laps m on m.player_id = f.player_id
+        where f.friend_id = laps.player_id and m.seed = laps.seed and m.physics = laps.physics)
+      and not exists (select 1 from challenges c
+        where c.from_id = laps.player_id and c.seed = laps.seed and c.physics = laps.physics)`
   const now = Date.now()
   await sql`update laps set ghost = null
     where ghost is not null and (physics <> ${PHYSICS_VERSION}
