@@ -1,3 +1,4 @@
+import { fetchBytes } from '../loader'
 import {
   AdditiveBlending,
   Box3,
@@ -127,27 +128,55 @@ const traffic = new Map<string, Template>()
 
 // Loads every model; resolves when they are ready, or quietly falls back
 // to the drawn cars if they cannot load.
-export async function loadCarAssets(): Promise<void> {
+// Downloads the car models: the given car's file first, so the menu can
+// show it, then the rest and the traffic pack in the background. A file
+// that fails after its retries leaves the drawn car in its place.
+let pending = true
+export function carAssetsPending() {
+  return pending
+}
+
+export function loadCarAssets(first: CarShape = 'vanta'): { first: Promise<void>; all: Promise<void> } {
   const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder)
   const base = `${import.meta.env.BASE_URL}models/`
+  const scenes = new Map<string, Promise<Group | null>>()
+  const scene = (file: string) => {
+    if (!scenes.has(file))
+      scenes.set(
+        file,
+        fetchBytes(base + file)
+          .then((bytes) => loader.parseAsync(bytes, base))
+          .then(
+            (g) => g.scene as unknown as Group,
+            (error) => {
+              console.warn(`${file} did not load; the drawn cars stand in.`, error)
+              return null
+            },
+          ),
+      )
+    return scenes.get(file) as Promise<Group | null>
+  }
   // One template per file: shapes that share a model share its template.
-  const prepared = new Map<string, Promise<Template>>()
-  await Promise.all([
-    ...(Object.entries(DEFS) as [CarShape, AssetDef][]).map(async ([shape, def]) => {
-      try {
-        if (!prepared.has(def.file)) prepared.set(def.file, loader.loadAsync(base + def.file).then((g) => prepare(g.scene as unknown as Group, def)))
-        templates.set(shape, await (prepared.get(def.file) as Promise<Template>))
-      } catch {
-        // Keep the drawn car for this shape.
-      }
-    }),
-    loader.loadAsync(base + TRAFFIC.file).then(
-      (g) => {
-        for (const [name, template] of splitPack(g.scene as unknown as Group)) traffic.set(name, template)
-      },
-      (error) => console.warn('Traffic car models did not load; using the drawn ones.', error),
-    ),
-  ])
+  const prepared = new Map<string, Promise<Template | null>>()
+  const fit = async (shape: CarShape, def: AssetDef) => {
+    if (!prepared.has(def.file)) prepared.set(def.file, scene(def.file).then((g) => (g ? prepare(g, def) : null)))
+    const template = await (prepared.get(def.file) as Promise<Template | null>)
+    if (template) templates.set(shape, template)
+  }
+  const pack = () =>
+    scene(TRAFFIC.file).then((g) => {
+      if (g && traffic.size === 0) for (const [name, template] of splitPack(g)) traffic.set(name, template)
+    })
+  // The Kestrel S is a car from the traffic pack, so for it the pack comes
+  // first.
+  const firstDef = DEFS[first]
+  const firstDone = firstDef ? fit(first, firstDef) : first === 'kestrel' ? pack() : Promise.resolve()
+  const all = firstDone
+    .then(() => Promise.all([...(Object.entries(DEFS) as [CarShape, AssetDef][]).map(([shape, def]) => fit(shape, def)), pack()]))
+    .then(() => {
+      pending = false
+    })
+  return { first: firstDone, all }
 }
 
 // The pack has all ten cars on one stand, each turned a different way.

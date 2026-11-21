@@ -260,6 +260,16 @@ export class Game {
     return this.race.player
   }
 
+  // Compiles the shaders of what is on screen before the loading screen
+  // goes, so the first frame does not stall.
+  async warmUp() {
+    try {
+      await this.world.renderer.compileAsync(this.world.scene, this.world.camera)
+    } catch {
+      // The first frame compiles them instead.
+    }
+  }
+
   // Builds the race and everything drawn for it. The city is only rebuilt
   // when the track changes.
   private setup(spec: EventSpec, attract: boolean) {

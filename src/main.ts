@@ -5,7 +5,8 @@ import '@fontsource/chakra-petch/600-italic.css'
 import '@fontsource/chakra-petch/500-italic.css'
 import './styles.css'
 import { report, startClock } from './analytics'
-import { loadCarAssets } from './render/carAssets'
+import { carAssetsPending, loadCarAssets } from './render/carAssets'
+import { fetchBytes, onLoadProgress, report as loadReport, setStep } from './loader'
 import { AccountError, type Account, chooseLogin, cloudEnabled, currentAccount, googleButton, signIn, signInWithGoogle, signOut, uploadProgress } from './cloud'
 import { ALL_EVENTS, buy, type Card, CHALLENGE_PAY, challengeFor, fitLook, WEEKLY_PAY, leaderOpen, MEDAL_NAMES, rewardCards, takeCard, type EventDef, type EventKind, loadProgress, type Outcome, type Progress, saveProgress, settle, TIERS, tidy, tierOpen, upgrade, WINS_TO_UNLOCK, winsIn } from './career'
 import { type EventSpec, formatTime, Game, ordinal, REPLAY_CAMERAS, type Settings, TOOL_INFO } from './game'
@@ -71,16 +72,34 @@ function saveSettings(s: Settings) {
   }
 }
 
+// The first load: a bar of the bytes downloaded so far and what is being
+// done. The menu needs fonts, the player's car and the sky; the other cars
+// download in the background while the menu is up.
+const later = (ms: number) => new Promise<void>((done) => setTimeout(done, ms))
+const MB = (n: number) => (n / 1048576).toFixed(1)
+onLoadProgress((r) => {
+  $('load-step').textContent = r.step
+  $('load-fill').style.transform = `scaleX(${r.total > 0 ? Math.min(1, r.done / r.total).toFixed(3) : 0})`
+  $('load-bytes').textContent = r.total > 0 ? `${MB(r.done)} of ${MB(r.total)} MB` : ''
+})
+setStep('Getting things ready')
 // Fonts are drawn into canvas textures (signs, the start banner), so they
 // have to be loaded before the city is built.
 await document.fonts.load('700 italic 40px "Chakra Petch"').catch(() => undefined)
 await document.fonts.load('700 40px "Chakra Petch"').catch(() => undefined)
-// The car models, before the first race is built. If they are slow or fail,
-// the game goes on with the drawn cars rather than waiting for ever.
-$('loading').textContent = 'Loading the cars'
-await Promise.race([loadCarAssets(), new Promise((done) => setTimeout(done, 20000))])
 
 const settings = loadSettings()
+// The player's own car first, then the rest in the background. If the
+// first one is slow or fails, the game goes on with a drawn car rather
+// than waiting for ever. The browser tests wait for every model, so each
+// test starts from the same state.
+setStep('Downloading the cars')
+const cars = loadCarAssets(carById(settings.car).shape)
+await Promise.race([params.has('test') ? cars.all : cars.first, later(20000)])
+// The daytime sky photo, so the first race by day has it at once.
+setStep('Loading the sky')
+await Promise.race([fetchBytes(`${import.meta.env.BASE_URL}textures/sky.hdr`).catch(() => undefined), later(15000)])
+
 let progress: Progress = loadProgress()
 // Saves locally, and to the account when signed in.
 function keep() {
@@ -103,6 +122,16 @@ try {
   throw new Error('WebGL is not available')
 }
 game.input.bindTouch($('touch'))
+// When the other cars arrive, the title screen is rebuilt with them, and a
+// car that never came is named in a note on the menu.
+void cars.all.then(() => {
+  if (game.mode === 'menu') game.showMenu()
+  const missing = loadReport().failed.length
+  if (missing) {
+    $('load-note').textContent = 'Some car models did not download, so simpler drawn cars stand in for them. Reloading the page tries again.'
+    $('load-note').classList.remove('hidden')
+  }
+})
 game.tune = specFor
 game.looksFor = (carId) => progress.looks[carId] ?? STOCK_LOOKS
 
@@ -620,7 +649,16 @@ $('go-landscape').classList.toggle('hidden', !canLock)
 $('go-landscape').addEventListener('click', () => void landscape())
 const portrait = matchMedia('(orientation: portrait) and (pointer: coarse)')
 
-function begin(spec: EventSpec) {
+async function begin(spec: EventSpec) {
+  // A race started before every car has downloaded waits for them, for up
+  // to 20 seconds, with the intro saying so.
+  if (carAssetsPending()) {
+    setScreen('intro')
+    $('intro-kind').textContent = ''
+    $('intro-title').textContent = 'Getting things ready'
+    $('intro-detail').textContent = 'The cars are still downloading.'
+    await Promise.race([cars.all, later(20000)])
+  }
   current = spec
   if (touchScreen) void landscape()
   game.start(spec)
@@ -826,7 +864,17 @@ window.addEventListener('keydown', () => game.sound.start(), { once: true })
 
 game.showMenu()
 menu()
+// Shaders for the title screen, so its first frame does not stall.
+setStep('Warming up the graphics')
+if (!params.has('test')) await Promise.race([game.warmUp(), later(8000)])
+setStep('Ready')
 $('loading').classList.add('done')
+
+// The service worker keeps the big files for the next visit. Not in the
+// tests or the dev server, where it would only get in the way.
+if ('serviceWorker' in navigator && import.meta.env.PROD && !params.has('test')) {
+  navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => undefined)
+}
 report('visit', null, null, { touch: matchMedia('(pointer: coarse)').matches, quality: settings.quality, width: Math.round(innerWidth / 100) * 100 })
 startClock()
 
