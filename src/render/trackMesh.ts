@@ -196,6 +196,14 @@ export function buildTrackMeshes(track: Track, day = false): Group {
     pool.setMatrixAt(k, m)
   })
   pool.renderOrder = 1
+  // Every lamp starts lit. A dusk race turns them off and on one by one
+  // through these colours.
+  const lit = new Color('#ffffff')
+  for (let k = 0; k < lamps.length; k++) {
+    head.setColorAt(k, lit)
+    pool.setColorAt(k, lit)
+  }
+  group.userData.lamps = { head, pool }
   group.add(pole, head, pool)
 
   addStart(track, wall, group)
