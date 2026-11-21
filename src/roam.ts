@@ -66,7 +66,8 @@ export class Roam {
   frame(dt: number) {
     const game = this.game
     this.time += dt
-    const input = { ...game.input.read(dt), assist: this.settings.driftAssist, raw: !this.settings.stability }
+    // The same driving aids as in a race.
+    const input = { ...game.input.read(dt), assist: this.settings.driftAssist, raw: !this.settings.stability, band: this.settings.driftSteer === 'guided' }
     if (game.input.take('reset')) this.roamer.reset()
     if (game.input.take('camera')) {
       this.far = !this.far
