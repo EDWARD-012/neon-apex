@@ -28,8 +28,8 @@ export const MAX_STEPS = Math.round((20 * 60) / STEP)
 // second, or 1% of the lap if that is more.
 export const TOLERANCE = { seconds: 0.1, share: 0.01 }
 
-const FLAG = { handbrake: 1, nitro: 2, assist: 4, raw: 8, brakeHelp: 16 }
-const ALL_FLAGS = 31
+const FLAG = { handbrake: 1, nitro: 2, assist: 4, raw: 8, brakeHelp: 16, band: 32 }
+const ALL_FLAGS = 63
 
 export interface Run {
   format: number
@@ -66,6 +66,7 @@ function decode(throttle: number, brake: number, steer: number, flags: number): 
     nitro: (flags & FLAG.nitro) !== 0,
     assist: (flags & FLAG.assist) !== 0,
     raw: (flags & FLAG.raw) !== 0,
+    band: (flags & FLAG.band) !== 0,
   }
 }
 
@@ -119,7 +120,7 @@ export class RunRecorder {
     const t = round(input.throttle, 0, 1000)
     const b = round(input.brake, 0, 1000)
     const s = round(input.steer, -1000, 1000)
-    const f = (input.handbrake ? FLAG.handbrake : 0) | (input.nitro ? FLAG.nitro : 0) | (input.assist ? FLAG.assist : 0) | (input.raw ? FLAG.raw : 0) | (race.brakeHelp ? FLAG.brakeHelp : 0)
+    const f = (input.handbrake ? FLAG.handbrake : 0) | (input.nitro ? FLAG.nitro : 0) | (input.assist ? FLAG.assist : 0) | (input.raw ? FLAG.raw : 0) | (input.band ? FLAG.band : 0) | (race.brakeHelp ? FLAG.brakeHelp : 0)
     const n = this.inputs.length
     if (n >= 5 && this.inputs[n - 4] === t && this.inputs[n - 3] === b && this.inputs[n - 2] === s && this.inputs[n - 1] === f) this.inputs[n - 5]++
     else this.inputs.push(1, t, b, s, f)
