@@ -319,11 +319,12 @@ test('the career pays coins, which buy a car and its upgrades in the garage', as
   await expect(page.locator('#parts .part[data-part="engine"] .pips i.on')).toHaveCount(1)
   await expect(page.locator('#car-action')).toHaveText('Stage 2 needs 1,800 coins')
   await expect(page.locator('#car-action')).toBeDisabled()
-  // The Looks tab: four finishes, seven underglow choices and six
-  // liveries, the free ones already usable. Trying a livery on shows its
-  // colours, and the race number its number too.
+  // The Looks tab: four finishes, seven underglow choices, six liveries,
+  // five wheels, three ride heights, three tints and three spoilers, the
+  // free ones already usable. Trying a livery on shows its colours, and the
+  // race number its number too.
   await page.locator('#garage-tab button[data-value="looks"]').click()
-  await expect(page.locator('#looks button[data-kind]')).toHaveCount(17)
+  await expect(page.locator('#looks button[data-kind]')).toHaveCount(31)
   await expect(page.locator('#looks button[data-look="gloss"]')).toHaveClass(/on/)
   await expect(page.locator('#looks button[data-trim]')).toHaveCount(0)
   await page.locator('#looks button[data-look="number"]').click()
