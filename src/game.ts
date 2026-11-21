@@ -7,7 +7,7 @@ import { applyWeather, isDay, type Weather, weatherFor } from './render/atmosphe
 import { type CarModel, createCarModel, WheelBank } from './render/carModel'
 import { buildCity, type City } from './render/city'
 import { buildLandscape } from './render/landscape'
-import { Cockpit, DRIVER } from './render/cockpit'
+import { Cockpit } from './render/cockpit'
 import { Particles, Rain, Skids, Trails } from './render/effects'
 import { Garage } from './render/garage'
 import { type Looks, STOCK_LOOKS, styleCar } from './looks'
@@ -256,6 +256,10 @@ export class Game {
     this.settings = settings
     this.autopilot = autopilot
     this.world = new World(canvas, settings.quality)
+    // The cockpit's rear-view mirror shows the road behind on high quality.
+    this.world.beforeDraw = () => {
+      if (this.world.quality === 'high') this.cockpit.renderMirror(this.world.renderer, this.world.scene)
+    }
     this.garage = new Garage(this.world.environment, this.spotTexture)
     this.sound.setEnabled(settings.sound)
     this.smoke = new Particles(900, this.spotTexture, '#c9cad6', { grow: 3.2 })
@@ -406,6 +410,8 @@ export class Game {
     this.headlight.removeFromParent()
     const playerModel = this.views[this.race.racers.length - 1].model.group
     this.cockpit.group.removeFromParent()
+    // The cabin of the car being driven: its colours and its driving side.
+    this.cockpit.setCar(spec.kind === 'cop' ? 'police-fast' : car.shape, spec.kind === 'cop' ? '#0e1116' : this.settings.color)
     this.views[this.race.racers.length - 1].model.body.add(this.cockpit.group)
     this.headlight.position.set(0, 0.8, 2.0)
     this.headlight.target.position.set(0, 0, 30)
@@ -1294,6 +1300,8 @@ export class Game {
 
   private camera(dt: number) {
     const cam = this.world.camera
+    // Every camera but the driving ones sees the car from outside.
+    if (this.mode !== 'race' || this.finishCamera) this.leaveCockpit()
     if (this.cameraOverride) {
       this.cameraOverride(cam)
       return
@@ -1355,6 +1363,45 @@ export class Game {
     this.chase(this.views[this.race.racers.length - 1], dt)
   }
 
+  // Puts the player's car back together and the cabin lights back to
+  // normal when a camera outside the car takes over.
+  private leaveCockpit() {
+    if (!this.cockpit.group.visible) return
+    this.cockpit.group.visible = false
+    const view = this.views[this.race.racers.length - 1]
+    if (view) for (const part of view.model.body.children) if (part !== this.cockpit.group) part.visible = true
+    this.world.setInterior(false)
+    $('cabin-shade').classList.remove('on')
+  }
+
+  // The driver's head in the cockpit view, from the car's acceleration:
+  // side and forward in metres along the car, up for the road's shake, and
+  // a slight roll.
+  private readonly head = { side: 0, forward: 0, up: 0, roll: 0, vx: 0, vz: 0, primed: false }
+
+  private headMotion(car: CarState, fx: number, fz: number, speed: number, dt: number) {
+    const h = this.head
+    if (!h.primed || dt <= 0) {
+      h.vx = car.vx
+      h.vz = car.vz
+      h.primed = true
+      return h
+    }
+    const ax = (car.vx - h.vx) / dt
+    const az = (car.vz - h.vz) / dt
+    h.vx = car.vx
+    h.vz = car.vz
+    const lateral = ax * -fz + az * fx
+    const along = ax * fx + az * fz
+    const k = 1 - Math.exp(-dt * 6)
+    h.side += (MathUtils.clamp(-lateral * 0.0028, -0.035, 0.035) - h.side) * k
+    h.forward += (MathUtils.clamp(-along * 0.0025, -0.03, 0.03) - h.forward) * k
+    h.roll += (MathUtils.clamp(lateral * 0.0025, -0.035, 0.035) - h.roll) * k
+    const shake = Math.min(1, speed / 70) * 0.0012
+    h.up = shake * (Math.sin(this.time * 31) + 0.6 * Math.sin(this.time * 47 + 1.3))
+    return h
+  }
+
   private chase(view: View, dt: number) {
     const cam = this.world.camera
     const g = view.model.group
@@ -1373,11 +1420,18 @@ export class Game {
       this.camPos.copy(pos)
       this.camLook.copy(look)
     } else if (mode === 'cockpit') {
-      // The driver's eye, inside the car.
+      // The driver's eye, inside the car, with the head moving as a body
+      // does: pushed outward in a corner, forward under braking, a fine
+      // shake from the road at speed, and the eyes going a little into the
+      // turn.
       const rx = -fz
       const rz = fx
-      pos = new Vector3(g.position.x + fx * DRIVER.z - rx * DRIVER.x, DRIVER.y, g.position.z + fz * DRIVER.z - rz * DRIVER.x)
-      look = new Vector3(pos.x + fx * 25, DRIVER.y - 0.35, pos.z + fz * 25)
+      const eye = this.cockpit.driver
+      const head = this.headMotion(car, fx, fz, speed, dt)
+      const across = eye.x - head.side
+      const ahead = eye.z + head.forward
+      pos = new Vector3(g.position.x + fx * ahead - rx * across, eye.y + head.up, g.position.z + fz * ahead - rz * across)
+      look = new Vector3(pos.x + fx * 25 + rx * car.steer * 3.2, eye.y - 0.35 + head.up, pos.z + fz * 25 + rz * car.steer * 3.2)
       this.camPos.copy(pos)
       this.camLook.copy(look)
     } else if (mode === 'hood') {
@@ -1424,16 +1478,23 @@ export class Game {
     // Inside the car the view is wider and the speed widening smaller, as
     // a driver's eye sees it.
     const inside = mode === 'cockpit' && !(this.mode === 'race' && this.input.holding('lookback'))
+    if (inside) cam.rotateZ(this.head.roll)
     this.cockpit.group.visible = inside && view.racer?.player === true
     // From the driver's seat, the car's own outside shell (and a model's
     // own interior) would sit in front of the cockpit; hide it there.
     for (const part of view.model.body.children) if (part !== this.cockpit.group) part.visible = !this.cockpit.group.visible
-    const firstPerson = this.mode === 'race' && (inside || mode === 'hood' || mode === 'bumper')
+    this.world.setInterior(this.cockpit.group.visible)
+    $('cabin-shade').classList.toggle('on', this.cockpit.group.visible)
+    // The pedal overlay is for the bonnet and bumper views; the cockpit has
+    // its own dials and wheel, so there the speedo panel goes and the map
+    // gets smaller.
+    const firstPerson = this.mode === 'race' && !inside && (mode === 'hood' || mode === 'bumper')
     $('pedals').classList.toggle('hidden', !firstPerson)
+    $('hud').classList.toggle('cockpit-view', inside && this.mode === 'race')
     if (inside) {
       const kmh = Math.abs(forwardSpeed(car)) * 3.6
       const { gear, rpm } = gearOf(Math.abs(forwardSpeed(car)), car.spec)
-      this.cockpit.update(car.steer, kmh, rpm, gear, car.nitro, performance.now(), this.world.camera.aspect)
+      this.cockpit.update(car.steer, kmh, rpm, gear, car.nitro, car.damage, performance.now(), this.world.camera.aspect, $('minimap') as HTMLCanvasElement)
     }
     // Inside the car, a wide phone screen gets a narrower view: 70 degrees
     // there stretched the edges and made the wheel look huge.

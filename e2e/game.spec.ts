@@ -381,6 +381,11 @@ test('on a phone the camera button changes the view', async ({ page, isMobile })
   await expect.poll(camera).toBe('far')
   await page.locator('#touch-camera').tap()
   await expect.poll(camera).toBe('cockpit')
-  // The cockpit's pedal bars would sit under the touch buttons.
+  // In the cockpit the dash shows the speed, so the speedo panel and the
+  // pedal bars go.
   await expect(page.locator('#pedals')).toBeHidden()
+  await expect(page.locator('#hud')).toHaveClass(/cockpit-view/)
+  await expect(page.locator('#hud .gauge')).toBeHidden()
+  await page.locator('#touch-camera').tap()
+  await expect(page.locator('#hud')).not.toHaveClass(/cockpit-view/)
 })

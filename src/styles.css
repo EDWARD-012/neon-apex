@@ -65,6 +65,21 @@ button {
   transition: opacity 200ms ease;
 }
 
+/* In the cockpit the corners of the view fall into shade, as the cabin
+   does round a driver's eye. */
+#cabin-shade {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(ellipse 80% 75% at 50% 40%, transparent 58%, rgba(0, 0, 0, 0.34) 100%);
+  transition: opacity 200ms ease;
+}
+
+#cabin-shade.on {
+  opacity: 1;
+}
+
 /* HUD */
 
 #hud {
@@ -2515,4 +2530,15 @@ kbd {
   .garage-tabs button:active {
     transform: none;
   }
+}
+
+/* In the cockpit the dash has the speed, gear, nitro and damage, so the
+   speedo panel goes and the map shrinks to keep the view clear. */
+#hud.cockpit-view .gauge {
+  display: none;
+}
+
+#hud.cockpit-view .map-box {
+  transform: scale(0.68);
+  transform-origin: bottom left;
 }

@@ -77,7 +77,7 @@ await page.keyboard.up('ArrowRight')
 await page.keyboard.up('ArrowUp')
 
 // The cockpit camera on the mountain road, driven with the keyboard so the
-// pedal panel shows the throttle.
+// needles are up.
 await open(page, '&seed=readme&weather=day')
 await run(page, `window.__neon.begin(window.__neon.quickSpec('race'))`)
 await run(page, 'window.__neon.game.fastForward(3.2)')
