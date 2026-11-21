@@ -21,6 +21,8 @@ import { buildArrows, buildPuddles, buildSigns, Crowd, type Puddle } from './ren
 import { type Lamps, Nightfall } from './render/nightfall'
 import { setMist, setMistTime } from './render/mist'
 import { Birds, type CarLike } from './render/birds'
+import { bridgeSpot, buildBridge } from './render/bridge'
+import { buildCarPark, type CarPark, carParkSpots } from './render/carPark'
 import { disposeStrip, spikeStrip } from './render/spikes'
 import { spot } from './render/textures'
 import { buildTrackMeshes } from './render/trackMesh'
@@ -251,6 +253,10 @@ export class Game {
   // Flocks by the mountain road, and the cars that can startle them.
   private birds: Birds | null = null
   private readonly birdCars: CarLike[] = []
+  // Spectators' cars parked near the start there, and the track, weather
+  // and graphics they were built for (null to build them again).
+  private carPark: CarPark | null = null
+  private carParkFor: string | null = ''
   private readonly trails = new Trails(64)
   private readonly rain = new Rain()
   private raining = false
@@ -383,8 +389,14 @@ export class Game {
       for (const g of this.scenery) this.world.scene.remove(g)
       const track = buildTrackMeshes(this.race.track, day)
       if (day) {
-        const land = buildLandscape(this.race.track)
-        this.scenery = [track, land.group]
+        // On the mountain road, an overpass on the straightest stretch.
+        // Trees and boulders keep off it and off the verges where
+        // spectators park.
+        const place = bridgeSpot(this.race.track)
+        const bridge = place ? buildBridge(this.race.track, place, this.world.quality !== 'low') : null
+        const parking = carParkSpots(this.race.track, spec.seed, 12).map((p) => ({ x: p.x, z: p.z, r: 3.5 }))
+        const land = buildLandscape(this.race.track, [...(bridge?.clear ?? []), ...parking])
+        this.scenery = bridge ? [track, land.group, bridge.group] : [track, land.group]
         this.materials = { city: null, road: track.userData.road, ground: land.ground }
       } else {
         const city = buildCity(this.race.track)
@@ -409,6 +421,19 @@ export class Game {
       this.builtSeed = look
     }
     this.birds?.reset()
+    // The parked cars need the car models, which a race waits for but the
+    // title screen may not have yet; until they are all in, try again on
+    // the next start. None on low graphics.
+    const parkFor = day && this.world.quality !== 'low' ? `${look}/${this.world.quality}` : ''
+    if (this.carParkFor !== parkFor) {
+      if (this.carPark) {
+        this.world.scene.remove(this.carPark.group)
+        this.carPark.dispose()
+      }
+      this.carPark = parkFor ? buildCarPark(this.race.track, spec.seed, this.world.quality === 'high' ? 12 : 7, this.spotTexture) : null
+      if (this.carPark) this.world.scene.add(this.carPark.group)
+      this.carParkFor = !this.carPark || this.carPark.complete ? parkFor : null
+    }
     const m = this.materials!
     // The wet-street mirror is a night thing; by day the road is dry.
     const mirror = this.world.quality === 'high' && !day

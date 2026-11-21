@@ -57,10 +57,12 @@ export function finishOrbit(car: CarState, t: number, camera: PerspectiveCamera)
 }
 
 // Trackside TV cameras every 90 metres, alternating sides, on poles.
+// The TV cameras stand this far apart along the road.
+export const TV_EVERY = 90
+
 export function tvCameras(track: Track): Vector3[] {
   const out: Vector3[] = []
-  const every = 90
-  for (let s = 0, k = 0; s < track.length; s += every, k++) {
+  for (let s = 0, k = 0; s < track.length; s += TV_EVERY, k++) {
     const p = pointAt(track, s, (k % 2 === 0 ? 1 : -1) * (track.width / 2 + 7))
     out.push(new Vector3(p.x, 4 + (k % 3), p.z))
   }
