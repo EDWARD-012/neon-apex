@@ -22,6 +22,7 @@ import { disposeStrip, spikeStrip } from './render/spikes'
 import { spot } from './render/textures'
 import { buildTrackMeshes } from './render/trackMesh'
 import { type Quality, World } from './render/world'
+import { FrameSampler, type Level, type QualityMode } from './autoQuality'
 import { type Replay, Recorder } from './replay'
 import { NEAR_MISS_NITRO, type Run, RunRecorder, StartWatch } from './replay-check'
 import { barrierOffset, CAR, type CarSpec, type CarState, driftTier, forwardSpeed, PHYSICS_VERSION, speedOf } from './sim/car'
@@ -54,6 +55,9 @@ export interface EventSpec {
   rivalCar?: string
   // Career: damage the player's car carries in from earlier events.
   startDamage?: number
+  // Time trials: another driver's ghost from the leaderboard to race,
+  // shown instead of your own best lap.
+  ghost?: Ghost & { name: string; car: string }
 }
 
 export interface Settings {
@@ -62,6 +66,9 @@ export interface Settings {
   color: string
   car: string
   quality: Quality
+  // Auto, or the level picked in Settings, and the render scale Auto set.
+  qualityMode: QualityMode
+  renderScale: number
   sound: boolean
   traffic: boolean
   // Patrol cars in quick races and eliminations.
@@ -112,7 +119,7 @@ interface Debris {
 }
 
 // Which engine each of the player's cars has.
-const ENGINES: Partial<Record<Shape, EngineKind>> = { vanta: 'v12', kite: 'turbo4', brute: 'v8', volt: 'electric', kestrel: 'turbo4' }
+const ENGINES: Partial<Record<Shape, EngineKind>> = { vanta: 'v12', kite: 'turbo4', brute: 'v8', volt: 'electric', kestrel: 'turbo4', finch: 'turbo4', marten: 'turbo4', granite: 'v8', moraine: 'v8' }
 
 export type CameraMode = 'chase' | 'far' | 'cockpit' | 'hood' | 'bumper' | 'drone'
 export const CAMERA_MODES: CameraMode[] = ['chase', 'far', 'cockpit', 'hood', 'bumper', 'drone']
@@ -221,6 +228,8 @@ export class Game {
   private views: View[] = []
   private ghostModel: CarModel | null = null
   private ghost: Ghost | null = null
+  // Your own best lap on this track, which a new lap must beat to be saved.
+  private ownBest: number | null = null
   private ghostRecording: number[] = []
   private recorder: Recorder | null = null
   private readonly smoke: Particles
@@ -274,6 +283,7 @@ export class Game {
     this.settings = settings
     this.autopilot = autopilot
     this.world = new World(canvas, settings.quality)
+    if (settings.renderScale < 1) this.world.setScale(settings.renderScale)
     // The cockpit's rear-view mirror shows the road behind on high quality.
     this.world.beforeDraw = () => {
       if (this.world.quality === 'high') this.cockpit.renderMirror(this.world.renderer, this.world.scene)
@@ -323,6 +333,7 @@ export class Game {
   // when the track changes.
   private setup(spec: EventSpec, attract: boolean) {
     this.event = spec
+    this.sampler.reset()
     const car = carById(this.settings.car)
     this.sound.setEngine(ENGINES[car.shape] ?? 'v12')
     const rivalCars = Array.from({ length: spec.rivals }, (_, k) => (spec.rivalCar ? carById(spec.rivalCar) : CARS[(k + 1) % CARS.length]))
@@ -468,8 +479,10 @@ export class Game {
     this.ghost = null
     this.ghostRecording = []
     if (spec.kind === 'trial') {
-      this.ghost = loadGhost(spec.seed)
-      this.ghostModel = createCarModel('#9fe8ff', this.spotTexture, { shape: car.shape, ghost: true })
+      const own = loadGhost(spec.seed)
+      this.ownBest = own?.time ?? null
+      this.ghost = spec.ghost ?? own
+      this.ghostModel = createCarModel('#9fe8ff', this.spotTexture, { shape: (spec.ghost ? carById(spec.ghost.car) : car).shape, ghost: true })
       this.ghostModel.group.visible = false
       this.world.scene.add(this.ghostModel.group)
     }
@@ -579,6 +592,10 @@ export class Game {
     return new Promise((done) => out.toBlob((b) => done(b), 'image/png'))
   }
 
+  restyleGarage(looks: Looks) {
+    this.garage.restyle(looks)
+  }
+
   refreshGarage(carId = this.settings.car, looks = this.looksFor(carId)) {
     this.garage.show(carById(carId).shape, this.settings.color, looks, this.plateText())
   }
@@ -600,6 +617,31 @@ export class Game {
     $('hud').classList.remove('hidden')
   }
 
+  // Automatic quality: off in the browser tests unless asked for, so a slow
+  // test machine does not change what the tests draw.
+  autoQuality = true
+  onQualityChange: (() => void) | null = null
+  private sampler = new FrameSampler()
+
+  // Settings: Auto starts again from the device's default at full size;
+  // High and Low are kept as picked.
+  setQualityMode(mode: QualityMode, deviceDefault: Quality) {
+    this.settings.qualityMode = mode
+    this.settings.renderScale = 1
+    this.world.setScale(1)
+    this.setQuality(mode === 'auto' ? deviceDefault : mode)
+  }
+
+  private autoLevel(next: Level) {
+    if (next.quality !== this.settings.quality) this.setQuality(next.quality)
+    if (next.scale !== this.settings.renderScale) {
+      this.settings.renderScale = next.scale
+      this.world.setScale(next.scale)
+    }
+    popup('Graphics lowered to keep the race smooth', 'cyan')
+    this.onQualityChange?.()
+  }
+
   setQuality(quality: Quality) {
     this.settings.quality = quality
     this.world.setQuality(quality)
@@ -617,8 +659,14 @@ export class Game {
   }
 
   private frame = (now: number) => {
-    const dt = Math.min(0.1, (now - this.last) / 1000)
+    const raw = now - this.last
+    const dt = Math.min(0.1, raw / 1000)
     this.last = now
+    // Automatic quality times the frames of each race once it is moving.
+    if (this.autoQuality && this.settings.qualityMode === 'auto' && this.mode === 'race' && this.race.phase === 'racing' && this.race.clock > 1 && document.visibilityState === 'visible') {
+      const next = this.sampler.add(raw, { quality: this.settings.quality, scale: this.settings.renderScale })
+      if (next) this.autoLevel(next)
+    }
     this.time += dt
     if (this.mode === 'intro') {
       this.introTime += dt
@@ -912,9 +960,12 @@ export class Game {
       this.lapsSeen = player.lapTimes.length
       const lap = player.lapTimes[this.lapsSeen - 1]
       const more = this.event.kind === 'elimination' || this.lapsSeen < race.laps
-      if (this.event.kind === 'trial' && (!this.ghost || lap < this.ghost.time)) {
-        this.ghost = { time: lap, samples: this.ghostRecording }
-        saveGhost(this.event.seed, this.ghost)
+      if (this.event.kind === 'trial' && (this.ownBest === null || lap < this.ownBest)) {
+        const mine = { time: lap, samples: this.ghostRecording }
+        saveGhost(this.event.seed, mine)
+        this.ownBest = lap
+        // Racing someone else's ghost, theirs stays on the road.
+        if (!this.event.ghost) this.ghost = mine
         if (more) flash(`New best ${formatTime(lap)}`, 'small')
       } else if (more && this.event.kind !== 'elimination') {
         flash(this.lapsSeen === race.laps - 1 ? 'Final lap' : `Lap ${formatTime(lap)}`, 'small')
@@ -1682,7 +1733,7 @@ export class Game {
     $('lap-time').textContent = formatTime(Math.max(0, current))
     $('best-lap').textContent = player.lapTimes.length ? formatTime(Math.min(...player.lapTimes)) : 'none yet'
     $('ghost-row').classList.toggle('hidden', kind !== 'trial')
-    $('ghost-time').textContent = this.ghost ? formatTime(this.ghost.time) : 'none yet'
+    $('ghost-time').textContent = this.ghost ? `${formatTime(this.ghost.time)}${this.event.ghost ? ` ${this.event.ghost.name}` : ''}` : 'none yet'
     $('speed').textContent = String(Math.round(speed * 3.6))
     $('gear').textContent = String(gearOf(speed, car.spec).gear)
     $('gauge-fill').style.strokeDashoffset = String(1 - Math.min(1, speed / (car.spec.topSpeed * car.spec.nitroTop)))

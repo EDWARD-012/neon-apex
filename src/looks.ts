@@ -1,5 +1,6 @@
 import { Color, type Material, type Mesh, type MeshBasicMaterial, type MeshPhysicalMaterial } from 'three'
 import type { CarModel } from './render/carModel'
+import type { Progress } from './career'
 import { cleanTune, STOCK_TUNE, type Tune } from './upgrades'
 
 // Looks bought with coins: a paint finish, an underglow colour and a
@@ -29,9 +30,85 @@ export interface Looks {
   // The car's tuning sliders (see upgrades.ts), kept here so they go with
   // the car's setup in the save.
   tune: Tune
+  // Wrap layers the player painted, drawn over the livery in order.
+  wrap: WrapLayer[]
 }
 
-export const STOCK_LOOKS: Looks = { finish: 'gloss', glow: 'paint', livery: 'none', trim: 'white', number: 7, rims: 'stock', ride: 'stock', tint: 'stock', spoiler: 'stock', tune: STOCK_TUNE }
+// The wrap painter: up to six layers of stripes, shapes and text, each
+// placed on the bonnet, the roof or the sides, in a colour from a set, and
+// sized, moved and turned with sliders. Free to paint.
+export type WrapKind = 'stripe' | 'circle' | 'star' | 'chevron' | 'text'
+export type WrapWhere = 'bonnet' | 'roof' | 'sides' | 'left' | 'right'
+export interface WrapLayer {
+  kind: WrapKind
+  where: WrapWhere
+  color: string
+  // Size in metres, 0.2 to 1.2; along the car from the nose (-1) to the
+  // tail (1); up the side (0 to 1), or across the top from right to left;
+  // and turned, -45 to 45 degrees.
+  size: number
+  along: number
+  up: number
+  angle: number
+  text: string
+}
+export const WRAP_KINDS: { id: WrapKind; name: string }[] = [
+  { id: 'stripe', name: 'Stripe' },
+  { id: 'circle', name: 'Circle' },
+  { id: 'star', name: 'Star' },
+  { id: 'chevron', name: 'Chevron' },
+  { id: 'text', name: 'Text' },
+]
+export const WRAP_PLACES: { id: WrapWhere; name: string }[] = [
+  { id: 'sides', name: 'Both sides' },
+  { id: 'left', name: 'Left side' },
+  { id: 'right', name: 'Right side' },
+  { id: 'bonnet', name: 'Bonnet' },
+  { id: 'roof', name: 'Roof' },
+]
+export const WRAP_COLOURS = ['#f2f2ee', '#141416', '#d81e2a', '#f4c20d', '#2fd8f0', '#ff2d95', '#5dff7a', '#ff8a2e', '#8a5cff']
+export const MAX_LAYERS = 6
+export const newLayer = (): WrapLayer => ({ kind: 'stripe', where: 'sides', color: WRAP_COLOURS[0], size: 0.6, along: 0, up: 0.5, angle: 0, text: 'SKIDLINE' })
+
+const step = (v: unknown, lo: number, hi: number, by: number, fallback: number) => {
+  const n = Number(v)
+  return Number.isFinite(n) ? Math.round(Math.max(lo, Math.min(hi, n)) / by) * by + 0 : fallback
+}
+// Letters, digits, spaces and a little punctuation, upper case, twelve at
+// most.
+export const cleanText = (v: unknown) =>
+  String(v ?? '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9 .!#-]/g, '')
+    .slice(0, 12)
+
+// A car's wrap with every layer valid, at most six, for saves edited by
+// hand.
+export function cleanWrap(raw: unknown): WrapLayer[] {
+  if (!Array.isArray(raw)) return []
+  return raw.slice(0, MAX_LAYERS).map((l) => {
+    const r = (l && typeof l === 'object' ? l : {}) as Record<string, unknown>
+    const base = newLayer()
+    return {
+      kind: WRAP_KINDS.some((k) => k.id === r.kind) ? (r.kind as WrapKind) : base.kind,
+      where: WRAP_PLACES.some((k) => k.id === r.where) ? (r.where as WrapWhere) : base.where,
+      color: WRAP_COLOURS.includes(r.color as string) ? (r.color as string) : base.color,
+      size: Number(step(r.size, 0.2, 1.2, 0.05, base.size).toFixed(2)),
+      along: Number(step(r.along, -1, 1, 0.05, base.along).toFixed(2)),
+      up: Number(step(r.up, 0, 1, 0.05, base.up).toFixed(2)),
+      angle: step(r.angle, -45, 45, 5, base.angle),
+      text: cleanText(r.text ?? base.text) || base.text,
+    }
+  })
+}
+
+// Saves a wrap on a car the player owns. Painting is free.
+export function setWrap(progress: Progress, carId: string, wrap: WrapLayer[]): Progress | null {
+  if (!progress.owned.includes(carId)) return null
+  return { ...progress, looks: { ...progress.looks, [carId]: { ...fullLooks(progress.looks[carId]), wrap: cleanWrap(wrap) } } }
+}
+
+export const STOCK_LOOKS: Looks = { finish: 'gloss', glow: 'paint', livery: 'none', trim: 'white', number: 7, rims: 'stock', ride: 'stock', tint: 'stock', spoiler: 'stock', tune: STOCK_TUNE, wrap: [] }
 
 export const FINISHES: { id: Finish; name: string; price: number }[] = [
   { id: 'gloss', name: 'Gloss', price: 0 },
@@ -119,6 +196,7 @@ export function fullLooks(saved?: Partial<Looks> | null): Looks {
     tint: s.tint && isLook('tint', s.tint) ? s.tint : STOCK_LOOKS.tint,
     spoiler: s.spoiler && isLook('spoiler', s.spoiler) ? s.spoiler : STOCK_LOOKS.spoiler,
     tune: cleanTune(s.tune),
+    wrap: cleanWrap(s.wrap),
   }
 }
 

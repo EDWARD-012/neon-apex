@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { checkRun, MAX_STEPS, replay, type Run, RunRecorder, StartWatch } from '../src/replay-check'
+import { checkRun, ghostOf, MAX_STEPS, replay, type Run, RunRecorder, StartWatch } from '../src/replay-check'
 import { createDriver, drive } from '../src/sim/ai'
 import { carById } from '../src/sim/cars'
 import { Race, STEP } from '../src/sim/race'
@@ -51,6 +51,11 @@ describe('checked leaderboard laps', () => {
     // Every step is in there, and the countdown collapses into one entry.
     expect(steps).toBeGreaterThan(3 / STEP)
     expect(run.inputs[0]).toBeGreaterThan(300)
+  })
+
+  it('records no -0, which JSON would turn into 0', () => {
+    expect(run.inputs.some((v) => Object.is(v, -0))).toBe(false)
+    expect(JSON.parse(JSON.stringify(run))).toEqual(run)
   })
 
   it('replays to exactly the same lap, as the server will', () => {
@@ -118,5 +123,18 @@ describe('checked leaderboard laps', () => {
     expect(Math.min(...replayed.laps)).toBe(quick.run.best)
     const early = driveTrial({ seed: 'board-test-3', startAt: -2 })
     expect(early.perfect).toBe(false)
+  })
+
+  it('rebuilds the best lap of a run as a ghost', () => {
+    const three = driveTrial({ seed: 'board-test-5', laps: 3 })
+    const ghost = ghostOf(JSON.parse(JSON.stringify(three.run)))
+    expect(ghost?.time).toBe(three.run.best)
+    const s = ghost?.samples ?? []
+    expect(s.length % 4).toBe(0)
+    // About one sample every four steps through the lap, in time order.
+    expect(s.length / 4).toBeGreaterThan(three.run.best / (4 * STEP) - 3)
+    for (let i = 4; i < s.length; i += 4) expect(s[i]).toBeGreaterThan(s[i - 4])
+    expect(s[0]).toBeGreaterThanOrEqual(0)
+    expect(s[s.length - 4]).toBeLessThanOrEqual(three.run.best)
   })
 })

@@ -214,6 +214,8 @@ export class World {
   // Extra light for a lightning flash, fading back to zero.
   flash = 0
   quality: Quality
+  // Below 1 on a slow device: the picture is drawn smaller and scaled up.
+  private scale = 1
 
   constructor(canvas: HTMLCanvasElement, quality: Quality) {
     this.quality = quality
@@ -277,7 +279,7 @@ export class World {
 
   setQuality(quality: Quality) {
     this.quality = quality
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality === 'high' ? 2 : 1))
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality === 'high' ? 2 : 1) * this.scale)
     if (quality === 'high') {
       const size = this.renderer.getSize(new Vector2())
       // A multisampled target, so car edges and barrier lines stay smooth
@@ -303,6 +305,12 @@ export class World {
       this.renderPass = null
     }
     this.setDay(this.day)
+    this.resize()
+  }
+
+  setScale(scale: number) {
+    this.scale = scale
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.quality === 'high' ? 2 : 1) * scale)
     this.resize()
   }
 

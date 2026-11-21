@@ -1,7 +1,7 @@
 import { Group, Mesh, MeshBasicMaterial, MeshPhysicalMaterial, PlaneGeometry } from 'three'
 import { describe, expect, it } from 'vitest'
 import { fitLook, fresh, type Progress, setLiveryDetail } from '../src/career'
-import { fullLooks, STOCK_LOOKS, styleCar } from '../src/looks'
+import { cleanWrap, fullLooks, setWrap, STOCK_LOOKS, styleCar } from '../src/looks'
 import type { CarModel } from '../src/render/carModel'
 
 describe('looks', () => {
@@ -77,5 +77,20 @@ describe('looks', () => {
     expect(p.ownedLooks).toContain('rims:deep')
     // Parts that don't exist are refused.
     expect(fitLook(p, 'vanta', 'spoiler', 'rocket')).toBeNull()
+  })
+
+  it('a wrap keeps six valid layers at most, and only a car the player owns can be painted', () => {
+    const p: Progress = { ...fresh(), owned: ['vanta'] }
+    const layers = Array.from({ length: 8 }, () => ({ kind: 'text', where: 'roof', color: '#f4c20d', size: 0.9, along: 0.3, up: 0.2, angle: 15, text: 'fast <b>lane</b> 99' }))
+    const painted = setWrap(p, 'vanta', layers as never)!
+    const wrap = painted.looks.vanta.wrap
+    expect(wrap).toHaveLength(6)
+    // Text is upper case, letters, digits and a little punctuation, 12 at most.
+    expect(wrap[0]).toMatchObject({ kind: 'text', where: 'roof', color: '#f4c20d', size: 0.9, angle: 15, text: 'FAST BLANEB ' })
+    expect(setWrap(p, 'kite', [])).toBeNull()
+    // Anything unknown falls back to the new-layer values.
+    const odd = cleanWrap([{ kind: 'skull', where: 'boot', color: '#123456', size: 9, along: -3, up: 2, angle: 50, text: '' }])[0]
+    expect(odd).toMatchObject({ kind: 'stripe', where: 'sides', color: '#f2f2ee', size: 1.2, along: -1, up: 1, angle: 45, text: 'SKIDLINE' })
+    expect(cleanWrap('nope')).toEqual([])
   })
 })

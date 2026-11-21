@@ -1,6 +1,6 @@
 import { Box3, BufferGeometry, CanvasTexture, Euler, Float32BufferAttribute, Group, type Material, Matrix4, Mesh, MeshPhysicalMaterial, type Object3D, SRGBColorSpace, type Texture, Vector3 } from 'three'
 import { DecalGeometry } from 'three/addons/geometries/DecalGeometry.js'
-import { type Livery, type Looks, TRIMS } from '../looks'
+import { type Livery, type Looks, TRIMS, type WrapLayer } from '../looks'
 import type { Shape } from '../sim/cars'
 import type { CarModel } from './carModel'
 
@@ -29,6 +29,10 @@ interface Piece {
   up: Vector3
   art: Texture
   plate?: boolean
+  // Turned about the line out toward the reader, in radians.
+  spin?: number
+  // Drawn over the pieces with a lower number.
+  layer?: number
 }
 
 const X = new Vector3(1, 0, 0)
@@ -197,6 +201,91 @@ function pieces(livery: Livery, trim: string, number: number, b: Box3): Piece[] 
   return []
 }
 
+// Artwork for a wrap layer: one shape or a line of text in the layer's
+// colour, on a transparent canvas, square or four times as wide as tall.
+function wrapArt(layer: WrapLayer) {
+  const wide = layer.kind === 'stripe' || layer.kind === 'text'
+  const w = wide ? 512 : 256
+  const h = wide ? 128 : 256
+  const art = canvas(w, h, (g) => {
+    g.fillStyle = layer.color
+    g.translate(w / 2, h / 2)
+    const r = h * 0.46
+    g.beginPath()
+    if (layer.kind === 'stripe') {
+      g.rect(-w * 0.49, -h * 0.3, w * 0.98, h * 0.6)
+      g.fill()
+      g.fillStyle = 'rgba(0,0,0,0.3)'
+      g.fillRect(-w * 0.49, -h * 0.3, w * 0.98, 4)
+      g.fillRect(-w * 0.49, h * 0.3 - 4, w * 0.98, 4)
+      return
+    }
+    if (layer.kind === 'circle') g.arc(0, 0, r, 0, Math.PI * 2)
+    else if (layer.kind === 'star') {
+      for (let k = 0; k < 10; k++) {
+        const a = -Math.PI / 2 + (k * Math.PI) / 5
+        const rr = k % 2 ? r * 0.42 : r
+        g.lineTo(Math.cos(a) * rr, Math.sin(a) * rr)
+      }
+    } else if (layer.kind === 'chevron') {
+      for (const [x, y] of [
+        [-0.75, -0.9],
+        [-0.2, -0.9],
+        [0.75, 0],
+        [-0.2, 0.9],
+        [-0.75, 0.9],
+        [0.2, 0],
+      ])
+        g.lineTo(x * r, y * r)
+    } else {
+      let size = h * 0.78
+      g.font = `italic 700 ${size}px "Chakra Petch", sans-serif`
+      while (g.measureText(layer.text).width > w * 0.94 && size > 20) {
+        size -= 4
+        g.font = `italic 700 ${size}px "Chakra Petch", sans-serif`
+      }
+      g.textAlign = 'center'
+      g.textBaseline = 'middle'
+      g.fillText(layer.text, 0, h * 0.04)
+      return
+    }
+    g.closePath()
+    g.fill()
+  })
+  return { art, wide }
+}
+
+// The pieces for the wrap layers: sides along the length and up the door,
+// the bonnet and the roof along their part of the car and across it.
+function wrapPieces(layers: WrapLayer[], b: Box3): Piece[] {
+  const h = b.max.y - b.min.y
+  const length = b.max.z - b.min.z
+  const width = b.max.x - b.min.x
+  const cz = (b.min.z + b.max.z) / 2
+  const out: Piece[] = []
+  layers.forEach((layer, i) => {
+    const { art, wide } = wrapArt(layer)
+    const w = wide ? layer.size * (layer.kind === 'stripe' ? 2.6 : 2) : layer.size
+    const t = wide ? w / 4 : layer.size
+    const spin = (layer.angle * Math.PI) / 180
+    const common = { art, spin, layer: 2 + i }
+    if (layer.where === 'bonnet' || layer.where === 'roof') {
+      const z = layer.where === 'bonnet' ? b.max.z - length * 0.22 - layer.along * length * 0.12 : cz - length * 0.06 - layer.along * length * 0.12
+      // Across the top, 0 is toward the car's right and 1 its left.
+      const x = (layer.up - 0.5) * width * 0.8
+      out.push({ at: new Vector3(x, b.max.y, z), size: new Vector3(w, t, h * 2), across: X.clone().negate(), up: Z.clone(), ...common })
+      return
+    }
+    const y = b.min.y + h * (0.25 + 0.4 * layer.up)
+    const z = cz - layer.along * length * 0.42
+    for (const left of [true, false]) {
+      if ((left && layer.where === 'right') || (!left && layer.where === 'left')) continue
+      out.push({ at: new Vector3(left ? b.max.x : b.min.x, y, z), size: new Vector3(w, t, width), across: left ? Z.clone().negate() : Z.clone(), up: Y.clone(), ...common })
+    }
+  })
+  return out
+}
+
 const plates = (text: string, b: Box3, shape?: Shape): Piece[] => {
   const usual: Spot = { y: b.min.y + (b.max.y - b.min.y) * 0.28, style: 'long' }
   const spots = shape ? PLATE_SPOTS[shape] : undefined
@@ -239,6 +328,35 @@ function facing(g: BufferGeometry, out: Vector3, min: number): BufferGeometry {
   next.setAttribute('position', pick(p, 3))
   next.setAttribute('normal', pick(n, 3))
   next.setAttribute('uv', pick(uv, 2))
+  g.dispose()
+  return next
+}
+
+// Keeps only the layer nearest the reader: a plate laid on a bumper must
+// not also land on a grille a hand's width behind it.
+function frontmost(g: BufferGeometry, out: Vector3, within: number): BufferGeometry {
+  const p = g.attributes.position
+  if (!p || p.count === 0) return g
+  let top = -Infinity
+  const v = new Vector3()
+  for (let i = 0; i < p.count; i++) top = Math.max(top, v.fromBufferAttribute(p, i).dot(out))
+  const keep: number[] = []
+  for (let i = 0; i < p.count; i += 3) {
+    let d = 0
+    for (let k = 0; k < 3; k++) d += v.fromBufferAttribute(p, i + k).dot(out) / 3
+    if (d >= top - within) keep.push(i)
+  }
+  if (keep.length * 3 === p.count) return g
+  const next = new BufferGeometry()
+  for (const name of ['position', 'normal', 'uv']) {
+    const a = g.attributes[name]
+    const size = a.itemSize
+    const values = new Float32Array(keep.length * 3 * size)
+    keep.forEach((i, j) => {
+      for (let k = 0; k < 3 * size; k++) values[j * 3 * size + k] = a.array[i * size + k] as number
+    })
+    next.setAttribute(name, new Float32BufferAttribute(values, size))
+  }
   g.dispose()
   return next
 }
@@ -288,7 +406,7 @@ export function applyLivery(model: CarModel, looks: Looks, plateText: string, sh
   const bounds = new Box3()
   for (const s of painted) bounds.union(s.box)
   const trim = TRIMS.find((t) => t.id === looks.trim)?.color ?? TRIMS[0].color
-  const all = [...pieces(livery, trim, looks.number ?? 7, bounds), ...plates(plateText, bounds, shape)]
+  const all = [...pieces(livery, trim, looks.number ?? 7, bounds), ...wrapPieces(looks.wrap ?? [], bounds), ...plates(plateText, bounds, shape)]
   const group = new Group()
   group.name = LIVERY
   const matte = looks.finish === 'matte'
@@ -296,7 +414,9 @@ export function applyLivery(model: CarModel, looks: Looks, plateText: string, sh
   const proxy = new Mesh()
   for (const piece of all) {
     const out = new Vector3().crossVectors(piece.across, piece.up)
-    const turn = new Euler().setFromRotationMatrix(new Matrix4().makeBasis(piece.across, piece.up, out))
+    const across = piece.across.clone().applyAxisAngle(out, piece.spin ?? 0)
+    const up = piece.up.clone().applyAxisAngle(out, piece.spin ?? 0)
+    const turn = new Euler().setFromRotationMatrix(new Matrix4().makeBasis(across, up, out))
     const reach = new Box3().setFromCenterAndSize(piece.at, new Vector3(1, 1, 1).multiplyScalar(Math.max(piece.size.x, piece.size.y, piece.size.z)))
     let material = materials.get(piece.art)
     if (!material) {
@@ -318,14 +438,15 @@ export function applyLivery(model: CarModel, looks: Looks, plateText: string, sh
       if (!s.box.intersectsBox(reach)) continue
       proxy.geometry = s.mesh.geometry
       proxy.matrixWorld.copy(s.toBody)
-      const g = facing(new DecalGeometry(proxy, piece.at, turn, piece.size), out, piece.plate ? 0.6 : 0.3)
+      const faced = facing(new DecalGeometry(proxy, piece.at, turn, piece.size), out, piece.plate ? 0.6 : 0.3)
+      const g = piece.plate ? frontmost(faced, out, 0.06) : faced
       if (!g.attributes.position || g.attributes.position.count === 0) {
         g.dispose()
         continue
       }
       const decal = new Mesh(g, material)
       decal.receiveShadow = true
-      decal.renderOrder = 1
+      decal.renderOrder = piece.layer ?? 1
       group.add(decal)
     }
   }

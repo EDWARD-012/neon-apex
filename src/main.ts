@@ -5,7 +5,8 @@ import '@fontsource/chakra-petch/600-italic.css'
 import '@fontsource/chakra-petch/500-italic.css'
 import './styles.css'
 import { report, startClock } from './analytics'
-import { boardsEnabled, drawBoard, fetchBoard, sendRun } from './leaderboard'
+import { boardsEnabled, drawBoard, fetchBoard, fetchGhost, sendRun } from './leaderboard'
+import { ghostOf } from './replay-check'
 import { PORTAL } from './portal'
 import { carAssetsPending, loadCarAssets } from './render/carAssets'
 import { fetchBytes, onLoadProgress, report as loadReport, setStep } from './loader'
@@ -15,14 +16,18 @@ import { type EventSpec, formatTime, Game, ordinal, REPLAY_CAMERAS, type Setting
 import { COP_TOOL_IDS, type CopToolId, type RacerToolId, TOOL_IDS, type ToolId } from './sim/race'
 import type { Weather } from './render/atmosphere'
 import type { Quality } from './render/world'
+import { MIN_SCALE, type QualityMode } from './autoQuality'
 import { carById, CARS, type Rating, ratings } from './sim/cars'
 import { bindPedals, bindWheel, startTilt, stopTilt } from './touch'
 import { dailySeed, weeklySeed } from './sim/track'
-import { FINISHES, fullLooks, GLOWS, isFree, LIVERIES, type LookKind, lookKey, lookName, type Looks, priceOfLook, RIDES, RIMS, SPOILERS, TINTS, TRIMS, type Trim } from './looks'
+import { drawWrap } from './wrap'
+import { FINISHES, fullLooks, GLOWS, isFree, LIVERIES, type LookKind, lookKey, lookName, type Looks, priceOfLook, RIDES, RIMS, SPOILERS, TINTS, setWrap, TRIMS, type Trim } from './looks'
 import { classOf, kmh, type Part, PARTS, partById, priceOf, ratingOf, setTune, STAGES, stageOf, STOCK_TUNE, type Tune, tuned, TUNES, tuneOpen } from './upgrades'
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement
 const params = new URLSearchParams(location.search)
+// The graphics a device starts on: low on phones and tablets, high elsewhere.
+const deviceQuality: Quality = matchMedia('(pointer: coarse)').matches ? 'low' : 'high'
 // On a game portal the links that leave the game are hidden (see portal.ts).
 if (PORTAL) {
   document.body.classList.add('portal')
@@ -51,13 +56,19 @@ function loadSettings(): Settings {
   } catch {
     saved = {}
   }
-  const coarse = matchMedia('(pointer: coarse)').matches
+  // A quality in the address is a fixed pick for this visit. A save from
+  // before Auto existed keeps a level that differs from the device's
+  // default, since the player must have picked it; otherwise it is Auto.
+  const picked = params.get('quality') as Quality | null
+  const mode: QualityMode = picked ?? (saved.qualityMode === 'auto' || saved.qualityMode === 'high' || saved.qualityMode === 'low' ? saved.qualityMode : saved.quality && saved.quality !== deviceQuality ? saved.quality : 'auto')
   return {
     seed: params.get('seed') ?? dailySeed(),
     laps: Number(params.get('laps')) || saved.laps || 3,
     color: saved.color && COLORS.includes(saved.color) ? saved.color : COLORS[0],
     car: saved.car && CARS.some((c) => c.id === saved.car) ? saved.car : CARS[0].id,
-    quality: (params.get('quality') as Quality) ?? saved.quality ?? (coarse ? 'low' : 'high'),
+    quality: picked ?? (mode === 'auto' ? saved.quality ?? deviceQuality : mode),
+    qualityMode: mode,
+    renderScale: !picked && mode === 'auto' && typeof saved.renderScale === 'number' ? Math.min(1, Math.max(MIN_SCALE, saved.renderScale)) : 1,
     sound: params.has('test') ? false : saved.sound ?? true,
     traffic: saved.traffic ?? true,
     police: saved.police ?? true,
@@ -569,8 +580,23 @@ function drawLooks(carId: string, owned: boolean, action: HTMLButtonElement) {
     shown.livery === 'number'
       ? `<span class="label">Race number</span><div class="look-row number-row"><button data-number="-1" ${owned ? '' : 'disabled'} aria-label="Lower number">−</button><b>${shown.number}</b><button data-number="1" ${owned ? '' : 'disabled'} aria-label="Higher number">+</button></div>`
       : ''
-  $('looks').innerHTML = `<span class="label">Finish</span><div class="look-row">${row('finish', FINISHES)}</div><span class="label">Underglow, seen at night</span><div class="look-row">${row('glow', GLOWS)}</div><span class="label">Livery, with your name on the plates</span><div class="look-row">${row('livery', LIVERIES)}</div>${trims}${number}<span class="label">Wheels</span><div class="look-row">${row('rims', RIMS)}</div><span class="label">Ride height</span><div class="look-row">${row('ride', RIDES)}</div><span class="label">Window tint</span><div class="look-row">${row('tint', TINTS)}</div><span class="label">Spoiler</span><div class="look-row">${row('spoiler', SPOILERS)}</div>`
+  $('looks').innerHTML = `<span class="label">Finish</span><div class="look-row">${row('finish', FINISHES)}</div><span class="label">Underglow, seen at night</span><div class="look-row">${row('glow', GLOWS)}</div><span class="label">Livery, with your name on the plates</span><div class="look-row">${row('livery', LIVERIES)}</div>${trims}${number}<span class="label">Wheels</span><div class="look-row">${row('rims', RIMS)}</div><span class="label">Ride height</span><div class="look-row">${row('ride', RIDES)}</div><span class="label">Window tint</span><div class="look-row">${row('tint', TINTS)}</div><span class="label">Spoiler</span><div class="look-row">${row('spoiler', SPOILERS)}</div><div id="wrap-box" class="wrap"></div>`
   const preview = () => (trying ? { ...fullLooks(progress.looks[carId]), [trying.kind]: trying.id } : undefined)
+  // The wrap painter, on a car the player owns.
+  drawWrap(
+    $('wrap-box'),
+    shown.wrap,
+    owned,
+    (wrap) => game.restyleGarage({ ...shown, wrap }),
+    (wrap) => {
+      const next = setWrap(progress, carId, wrap)
+      if (!next) return
+      progress = next
+      keep()
+      game.refreshGarage(carId, preview())
+      drawGarage()
+    },
+  )
   $('looks')
     .querySelectorAll<HTMLButtonElement>('button[data-kind]')
     .forEach((b) =>
@@ -833,7 +859,23 @@ for (const color of COLORS) {
 
 // Settings
 
-segmented('quality', settings.quality, (v) => game.setQuality(v as Quality))
+segmented('quality', settings.qualityMode, (v) => {
+  game.setQualityMode(v as QualityMode, deviceQuality)
+  qualityNote()
+})
+// Under the graphics buttons, what Auto has picked on this device.
+function qualityNote() {
+  const note = $('quality-note')
+  const auto = settings.qualityMode === 'auto'
+  note.classList.toggle('hidden', !auto)
+  note.textContent = auto ? `Auto has picked ${settings.quality === 'high' ? 'High' : 'Low'}${settings.renderScale < 1 ? `, drawn at ${Math.round(settings.renderScale * 100)}% size` : ''} for this device. It steps down if races run slowly.` : ''
+}
+qualityNote()
+game.autoQuality = !params.has('test') || params.has('autoquality')
+game.onQualityChange = () => {
+  saveSettings(settings)
+  qualityNote()
+}
 segmented('drift-assist', settings.driftAssist ? 'on' : 'off', (v) => (settings.driftAssist = v === 'on'))
 segmented('brake-assist', settings.brakeAssist ? 'on' : 'off', (v) => (settings.brakeAssist = v === 'on'))
 segmented('stability', settings.stability ? 'on' : 'off', (v) => (settings.stability = v === 'on'))
@@ -942,8 +984,24 @@ function menuBoard() {
   const daily = boardPick === 'daily'
   $('board-track').textContent = daily ? "today's track" : "this week's track"
   const el = $('menu-board')
+  const seed = daily ? dailySeed() : weeklySeed()
   el.innerHTML = '<p class="board-note">Loading the board</p>'
-  void fetchBoard(daily ? dailySeed() : weeklySeed()).then((board) => drawBoard(el, board, formatTime, boardName(), boardName() ? '' : signInNote))
+  void fetchBoard(seed).then((board) => drawBoard(el, board, formatTime, boardName(), boardName() ? '' : signInNote, (name, button) => raceGhost(seed, name, button)))
+}
+
+// Races a board entry's ghost. Its run comes from the server and is
+// replayed here, the same replay that checked it, to rebuild the lap; then
+// a time trial starts on that track with the ghost on the road.
+async function raceGhost(seed: string, name: string, button: HTMLButtonElement) {
+  button.disabled = true
+  button.textContent = 'Loading'
+  const got = await fetchGhost(seed, name)
+  const ghost = got ? ghostOf(got.run) : null
+  if (!got || !ghost) {
+    button.textContent = 'Not found'
+    return
+  }
+  void begin({ ...quickSpec('trial'), seed, ghost: { ...ghost, name, car: got.car } })
 }
 segmented('board-pick', boardPick, (v) => {
   boardPick = v
@@ -960,18 +1018,18 @@ function lapBoard(spec: EventSpec) {
   const name = boardName()
   const run = name ? game.lapRun(settings.car, progress.upgrades[settings.car], tuneFor(settings.car)) : null
   if (!run) {
-    void fetchBoard(spec.seed).then((board) => drawBoard(box, board, formatTime, name, name ? '' : signInNote))
+    void fetchBoard(spec.seed).then((board) => drawBoard(box, board, formatTime, name, name ? '' : signInNote, (who, button) => raceGhost(spec.seed, who, button)))
     return
   }
   box.innerHTML = '<p class="board-note">Checking your lap</p>'
   void sendRun(run).then((sent) => {
     if (!sent.ok) {
-      void fetchBoard(spec.seed).then((board) => drawBoard(box, board, formatTime, name, sent.error))
+      void fetchBoard(spec.seed).then((board) => drawBoard(box, board, formatTime, name, sent.error, (who, button) => raceGhost(spec.seed, who, button)))
       return
     }
     const me = sent.board.me
     const note = me && me.time < sent.time ? `Checked: ${formatTime(sent.time)}. Your best here is still ${formatTime(me.time)}, ${ordinal(me.place)} of ${sent.board.count}.` : me ? `Checked: ${formatTime(sent.time)}, ${ordinal(me.place)} of ${sent.board.count}.` : `Checked: ${formatTime(sent.time)}.`
-    drawBoard(box, sent.board, formatTime, name, note)
+    drawBoard(box, sent.board, formatTime, name, note, (who, button) => raceGhost(spec.seed, who, button))
   })
 }
 

@@ -29,6 +29,8 @@ export class Garage {
   // Photo mode: the turntable stops and the camera orbits where the player
   // drags it, round the car, at a distance they zoom.
   photo: { yaw: number; pitch: number; dist: number } | null = null
+  private shape: Shape | null = null
+  private plate = 'SKIDLINE'
   private readonly spot: Texture
   private readonly ring: MeshBasicMaterial
   private readonly bank = new WheelBank(8)
@@ -80,9 +82,17 @@ export class Garage {
     styleCar(this.model, looks, color)
     applyLivery(this.model, looks, plate, shape)
     fitParts(this.model, looks)
+    this.shape = shape
+    this.plate = plate
     this.model.group.position.y = 0.12
     this.turntable.add(this.model.group)
     this.ring.color.set(color).multiplyScalar(2.5)
+  }
+
+  // Lays the livery and wrap again on the car as it stands, for the wrap
+  // painter's sliders: much quicker than building the car again.
+  restyle(looks: Looks) {
+    if (this.model && this.shape) applyLivery(this.model, looks, this.plate, this.shape)
   }
 
   update(time: number, camera: import('three').PerspectiveCamera, wide: boolean) {

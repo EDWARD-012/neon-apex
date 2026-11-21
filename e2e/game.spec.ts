@@ -211,6 +211,20 @@ test('the race HUD shows the standings with gaps, the time, the map and the spee
   await expect(page.locator('#speed')).toBeVisible()
 })
 
+test('graphics start on Auto, and picking a level keeps it', async ({ page }) => {
+  // No quality in the address, so the game picks as it would for a player.
+  await page.goto('./?test')
+  await page.locator('#go-settings').click()
+  await expect(page.locator('#quality button.on')).toHaveAttribute('data-value', 'auto')
+  await expect(page.locator('#quality-note')).toHaveText(/^Auto has picked (High|Low) for this device\./)
+  await page.locator('#quality button[data-value="low"]').click()
+  await expect(page.locator('#quality-note')).toBeHidden()
+  await page.goto('./?test')
+  await page.locator('#go-settings').click()
+  await expect(page.locator('#quality button.on')).toHaveAttribute('data-value', 'low')
+  expect(await page.evaluate(() => (window as any).__neon.game.settings.quality)).toBe('low')
+})
+
 test('the driving aids in Settings are kept and used in the race', async ({ page }) => {
   await open(page)
   await page.locator('#go-settings').click()
@@ -381,6 +395,11 @@ test('the career pays coins, which buy a car and its upgrades in the garage', as
   await page.locator('#looks button[data-number="1"]').click()
   await expect(page.locator('#looks .number-row b')).toHaveText('8')
   await expect(page.locator('#car-action')).toHaveText('Race number needs 3,000 coins')
+  // The wrap painter: add a layer, make it text, and a text box appears.
+  await page.locator('#looks .wrap-add').click()
+  await expect(page.locator('#looks .wrap-layer')).toHaveCount(1)
+  await page.locator('#looks .wrap-layer select[data-key="kind"]').selectOption('text')
+  await expect(page.locator('#looks .wrap-text')).toBeVisible()
   // The next race is driven with the upgraded engine.
   const top = await page.evaluate(() => {
     const neon = (window as any).__neon
