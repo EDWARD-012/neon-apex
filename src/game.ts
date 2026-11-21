@@ -12,6 +12,7 @@ import { Particles, Rain, Skids, Trails } from './render/effects'
 import { Garage } from './render/garage'
 import { type Looks, STOCK_LOOKS, styleCar } from './looks'
 import { applyLivery } from './render/livery'
+import { fitParts } from './render/parts'
 import { buzz } from './touch'
 import { tuned } from './upgrades'
 import { createHelicopter, type HelicopterModel } from './render/helicopter'
@@ -401,6 +402,7 @@ export class Game {
         const looks = this.looksFor(car.id)
         styleCar(model, looks, racer.color)
         applyLivery(model, looks, this.plateText(), shape)
+        fitParts(model, looks)
       }
       this.addView(racer.car, model, racer, false)
     })
