@@ -115,6 +115,12 @@ The AI drivers steer by pure pursuit towards a point on the line a little way ah
 
 Lap counting does not trust where a car is on the map. Each car keeps a running total of how far it has travelled along the centre line, forwards minus backwards, and the lap is split into 16 checkpoints. A lap counts only when that total passes every checkpoint in order. Driving backwards over the finish line earns nothing and turns on the wrong-way warning, and a car that is moved straight across the infield gets no distance for the jump. Both cases are tests in [tests/race.test.ts](tests/race.test.ts).
 
+## Leaderboards, ghosts and friends
+
+Every track has a board of the fastest time-trial laps by signed-in players. During a time trial the browser records the input of every physics step, rounded to a thousandth before its own simulation uses it, along with resets onto the road, the car's upgrades and tuning, and the damage it started with. [api/leaderboard.ts](api/leaderboard.ts) replays that run from the grid through the same simulation and stores the best lap it times itself, if that is within 0.1 s or 1% of what the browser saw; Math.sin and friends can differ in the last digit between browsers. The recording, the replay and the check are one file, [src/replay-check.ts](src/replay-check.ts), which the build also bundles into `api/_replay.js`, since Vercel compiles each function file on its own. Boards are kept per `PHYSICS_VERSION`, and [tests/physics-fingerprint.json](tests/physics-fingerprint.json) fails the tests if the handling changes without a bump. Any lap on a board whose run is kept can be raced as a ghost: the game downloads the run and replays it in the browser to rebuild the lap. Runs are kept for a board's top 10, for laps a friend of their driver could race, and for laps in a challenge, and dropped on daily tracks after 7 days and on weekly tracks after 5 weeks.
+
+Friends are added by username, one way and up to 200, and the Friends screen shows who added you so you can add them back. The menu's rivals feed shows friends whose lap beat yours in the last 14 days, with a button to race them. Two players who have added each other can send a checked lap as a challenge, up to 30 a day; a challenge is deleted when it is dismissed or after 30 days. The [privacy page](https://skidline.edward7780.com/privacy.html) lists what is stored.
+
 ## Numbers
 
 `npm run stats` builds five tracks, runs a two-lap race on each with every car on the AI, and prints this table:
