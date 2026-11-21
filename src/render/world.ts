@@ -154,6 +154,11 @@ const SpeedShader = {
 }
 
 // Renderer, scene, camera and the bloom pass that makes the neon glow.
+// ?test&nodraw skips drawing the 3D view. CI runs most browser tests this
+// way, since software WebGL there can take over a minute for a first frame.
+const query = new URLSearchParams(location.search)
+const NO_DRAW = query.has('test') && query.has('nodraw')
+
 export class World {
   readonly renderer: WebGLRenderer
   readonly scene = new Scene()
@@ -373,6 +378,9 @@ export class World {
   render() {
     this.hemi.intensity = this.ambient + this.flash * 6
     this.flash *= 0.86
+    // For the browser tests on machines without a graphics card: everything
+    // but the drawing itself still runs every frame.
+    if (NO_DRAW) return
     if (this.composer) this.composer.render()
     else this.renderer.render(this.active, this.camera)
   }

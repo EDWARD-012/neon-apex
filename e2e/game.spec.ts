@@ -25,8 +25,11 @@ type State = {
 }
 const state = (page: Page) => page.evaluate(() => (window as any).__neon.state() as State)
 const forward = (page: Page, seconds: number) => page.evaluate((s) => (window as any).__neon.game.fastForward(s), seconds)
-// Low graphics on CI, where every frame is drawn in software.
-const open = (page: Page, query = '') => page.goto(`./?test${process.env.CI ? '&quality=low' : ''}${query}`)
+// Low graphics on CI, where every frame is drawn in software, and no 3D
+// drawing at all unless the test looks at the picture: the frame loop, the
+// HUD and the menus still run, so the tests don't wait on a slow GPU-less
+// first frame. Only the title screen test draws.
+const open = (page: Page, query = '', draw = false) => page.goto(`./?test${process.env.CI ? `&quality=low${draw ? '' : '&nodraw'}` : ''}${query}`)
 
 // Main menu, then Quick race, pick the event, Start, and skip the fly-in.
 async function quickRace(page: Page, kind = 'race', police = true) {
@@ -75,7 +78,7 @@ test('the title screen draws the city', async ({ page }) => {
   // shared CI runner with another test beside it, that has taken from 51 s
   // to over 90 s.
   test.setTimeout(210_000)
-  await open(page)
+  await open(page, '', true)
   await expect(page.locator('#menu')).toBeVisible()
   await expect(page.locator('.logo')).toContainText('Skidline')
   await expect.poll(() => brightness(page), { timeout: 160_000, intervals: [800, 1000, 2000, 4000] }).toBeGreaterThan(8)
