@@ -7,14 +7,15 @@ import './styles.css'
 import { report, startClock } from './analytics'
 import { loadCarAssets } from './render/carAssets'
 import { AccountError, type Account, chooseLogin, cloudEnabled, currentAccount, googleButton, signIn, signInWithGoogle, signOut, uploadProgress } from './cloud'
-import { ALL_EVENTS, buy, type EventDef, type EventKind, loadProgress, type Outcome, type Progress, saveProgress, settle, TIERS, tidy, tierOpen, upgrade, WINS_TO_UNLOCK, winsIn } from './career'
+import { ALL_EVENTS, buy, fitLook, type EventDef, type EventKind, loadProgress, type Outcome, type Progress, saveProgress, settle, TIERS, tidy, tierOpen, upgrade, WINS_TO_UNLOCK, winsIn } from './career'
 import { type EventSpec, formatTime, Game, ordinal, REPLAY_CAMERAS, type Settings, TOOL_INFO } from './game'
 import { COP_TOOL_IDS, type CopToolId, type RacerToolId, TOOL_IDS, type ToolId } from './sim/race'
 import type { Weather } from './render/atmosphere'
 import type { Quality } from './render/world'
 import { carById, CARS, type Rating, ratings } from './sim/cars'
 import { dailySeed } from './sim/track'
-import { kmh, type Part, PARTS, partById, priceOf, STAGES, stageOf, tuned } from './upgrades'
+import { FINISHES, type Finish, type Glow, GLOWS, isFree, lookKey, type Looks, priceOfLook, STOCK_LOOKS } from './looks'
+import { classOf, kmh, type Part, PARTS, partById, priceOf, ratingOf, STAGES, stageOf, tuned } from './upgrades'
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement
 const params = new URLSearchParams(location.search)
@@ -103,6 +104,7 @@ try {
 }
 game.input.bindTouch($('touch'))
 game.tune = specFor
+game.looksFor = (carId) => progress.looks[carId] ?? STOCK_LOOKS
 
 type Screen = 'menu' | 'quick' | 'career' | 'garage' | 'settings-screen' | 'account' | 'intro' | 'race' | 'results' | 'replay'
 const SCREENS = ['menu', 'quick', 'career', 'garage', 'settings-screen', 'account', 'results', 'pause']
@@ -274,7 +276,9 @@ function careerSpec(e: EventDef): EventSpec {
 // Garage
 
 let viewing = settings.car
-let tab: 'cars' | 'upgrades' = 'cars'
+let tab: 'cars' | 'upgrades' | 'looks' = 'cars'
+// A look being tried on in the garage before it is bought.
+let trying: { kind: 'finish' | 'glow'; id: Finish | Glow } | null = null
 // The part picked on the upgrade tab, whose next stage the bars preview.
 let picked: Part = 'engine'
 function garage() {
@@ -285,6 +289,50 @@ function garage() {
 }
 
 const STAT_NAMES: Record<Rating, string> = { speed: 'Top speed', acceleration: 'Acceleration', grip: 'Grip', drift: 'Drift', braking: 'Braking', nitro: 'Nitro', toughness: 'Toughness' }
+
+// The looks tab: a row of finishes and a row of underglow colours. A free
+// or bought look goes straight on the car; one not bought yet is tried on
+// the turntable first, and the main button buys it.
+function drawLooks(carId: string, owned: boolean, action: HTMLButtonElement) {
+  const current = progress.looks[carId] ?? STOCK_LOOKS
+  const shown: Looks = trying ? { ...current, [trying.kind]: trying.id } : current
+  const row = (kind: 'finish' | 'glow', items: { id: string; name: string; price: number }[]) =>
+    items
+      .map((l) => {
+        const have = l.price === 0 || progress.ownedLooks.includes(lookKey(kind, l.id))
+        return `<button data-kind="${kind}" data-look="${l.id}" class="${shown[kind] === l.id ? 'on' : ''}">${l.name}<small>${have ? (current[kind] === l.id ? 'On' : l.price === 0 ? 'Free' : 'Owned') : `${coins(l.price)} coins`}</small></button>`
+      })
+      .join('')
+  $('looks').innerHTML = `<span class="label">Finish</span><div class="look-row">${row('finish', FINISHES)}</div><span class="label">Underglow, seen at night</span><div class="look-row">${row('glow', GLOWS)}</div>`
+  $('looks')
+    .querySelectorAll<HTMLButtonElement>('button')
+    .forEach((b) =>
+      b.addEventListener('click', () => {
+        const kind = b.dataset.kind as 'finish' | 'glow'
+        const id = b.dataset.look as Finish | Glow
+        const have = isFree(kind, id) || progress.ownedLooks.includes(lookKey(kind, id))
+        if (have && owned) {
+          const next = fitLook(progress, carId, kind, id)
+          if (next) {
+            progress = next
+            keep()
+          }
+          trying = null
+        } else trying = { kind, id }
+        game.refreshGarage(carId, trying ? { ...(progress.looks[carId] ?? STOCK_LOOKS), [kind]: id } : undefined)
+        drawGarage()
+      }),
+    )
+  if (!trying) {
+    action.textContent = owned ? 'Pick a look to try it' : 'Buy this car to style it'
+    action.disabled = true
+    return
+  }
+  const price = priceOfLook(trying.kind, trying.id)
+  const name = (trying.kind === 'finish' ? FINISHES : GLOWS).find((l) => l.id === trying?.id)?.name ?? ''
+  action.textContent = !owned ? 'Buy this car to style it' : progress.cash >= price ? `Buy ${name} for ${coins(price)}` : `${name} needs ${coins(price)} coins`
+  action.disabled = !owned || progress.cash < price
+}
 
 // Bars for the car as it is, and, when a stage is being looked at, what it
 // would change: green for a gain, red for a loss.
@@ -303,6 +351,7 @@ function drawGarage() {
   $('garage-cash').textContent = coins(progress.cash)
   document.querySelectorAll<HTMLButtonElement>('#garage-tab button').forEach((b) => b.classList.toggle('on', b.dataset.value === tab))
   const upgrading = tab === 'upgrades'
+  const styling = tab === 'looks'
   const list = $('car-list')
   list.innerHTML = ''
   for (const car of CARS) {
@@ -310,7 +359,8 @@ function drawGarage() {
     const b = document.createElement('button')
     b.className = car.id === viewing ? 'on' : ''
     b.dataset.car = car.id
-    b.innerHTML = `<b>${car.name}</b><small>${car.id === settings.car ? 'Driving' : owned ? 'Owned' : `${coins(car.price)} coins`}</small>`
+    const own = specFor(car.id)
+    b.innerHTML = `<b>${car.name} <span class="class">${classOf(own)} ${ratingOf(own)}</span></b><small>${car.id === settings.car ? 'Driving' : owned ? 'Owned' : `${coins(car.price)} coins`}</small>`
     b.addEventListener('click', () => {
       viewing = car.id
       game.refreshGarage(car.id)
@@ -324,15 +374,22 @@ function drawGarage() {
   const spec = specFor(car.id)
   // The upgrade tab works on the car picked on the Cars tab; the list is
   // hidden there to leave room for the parts.
-  $('car-blurb').textContent = upgrading ? `Upgrades for the ${car.name}` : car.blurb
-  list.classList.toggle('hidden', upgrading)
+  $('car-blurb').textContent = upgrading ? `Upgrades for the ${car.name}` : styling ? `Looks for the ${car.name}. A look you buy works on every car you own.` : car.blurb
+  list.classList.toggle('hidden', upgrading || styling)
   $('paint-row').classList.toggle('hidden', upgrading)
   $('parts').classList.toggle('hidden', !upgrading)
   $('part-note').classList.toggle('hidden', !upgrading)
+  $('looks').classList.toggle('hidden', !styling)
+  $('car-stats').classList.toggle('hidden', styling)
+  $('car-speed').classList.toggle('hidden', styling)
   const action = $('car-action') as HTMLButtonElement
 
+  if (styling) {
+    drawLooks(car.id, owned, action)
+    return
+  }
   if (!upgrading) {
-    $('car-speed').textContent = `Top speed ${kmh(spec)} km/h`
+    $('car-speed').textContent = `Class ${classOf(spec)} ${ratingOf(spec)}, top speed ${kmh(spec)} km/h`
     drawStats(ratings(spec))
     action.textContent = car.id === settings.car ? 'Driving this one' : owned ? 'Drive this car' : `Buy for ${coins(car.price)}`
     action.disabled = car.id === settings.car || (!owned && progress.cash < car.price)
@@ -363,7 +420,8 @@ function drawGarage() {
   const after = maxed ? spec : tuned(car, { ...fitted, [picked]: stage + 1 })
   const price = maxed ? 0 : priceOf(car, picked, stage + 1)
   const faster = kmh(after) !== kmh(spec) ? `, ${kmh(after)} km/h with stage ${stage + 1}` : ''
-  $('car-speed').textContent = `Top speed ${kmh(spec)} km/h${faster}`
+  const better = ratingOf(after) !== ratingOf(spec) ? ` (${classOf(after)} ${ratingOf(after)} with stage ${stage + 1})` : ''
+  $('car-speed').textContent = `Class ${classOf(spec)} ${ratingOf(spec)}${better}, top speed ${kmh(spec)} km/h${faster}`
   drawStats(ratings(spec), ratings(after))
   $('part-note').textContent = `${part.does}.`
   if (!owned) {
@@ -381,12 +439,25 @@ function drawGarage() {
 document.querySelectorAll<HTMLButtonElement>('#garage-tab button').forEach((b) =>
   b.addEventListener('click', () => {
     tab = b.dataset.value as typeof tab
+    trying = null
+    game.refreshGarage(viewing)
     drawGarage()
   }),
 )
 
 $('car-action').addEventListener('click', () => {
   const car = carById(viewing)
+  if (tab === 'looks') {
+    if (!trying) return
+    const next = fitLook(progress, car.id, trying.kind, trying.id)
+    if (!next) return
+    progress = next
+    trying = null
+    keep()
+    game.refreshGarage(car.id)
+    drawGarage()
+    return
+  }
   if (tab === 'upgrades') {
     const fitted = upgrade(progress, car.id, picked)
     if (!fitted) return

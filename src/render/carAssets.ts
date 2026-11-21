@@ -405,6 +405,7 @@ export function makeAssetCar(shape: CarShape, color: string, variant = 0): Asset
       let paint = paints.get(material)
       if (!paint) {
         paint = paintMaterial(material, color, def.paintHue)
+        paint.userData.paint = true
         paints.set(material, paint)
       }
       mesh.material = paint

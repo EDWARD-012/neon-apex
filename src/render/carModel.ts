@@ -365,6 +365,8 @@ export function createCarModel(color: string, spot: Texture, options: ModelOptio
     clearcoatRoughness: def.sport ? 0.025 : 0.1,
     envMapIntensity: 1.25,
   })
+  // So the looks in the garage can find the paint.
+  paint.userData.paint = true
   const glass = new MeshPhysicalMaterial({ color: '#06080d', metalness: 0.3, roughness: 0.03, clearcoat: 1, clearcoatRoughness: 0, envMapIntensity: 2.2 })
   // Gloss black for the lower body, intakes and splitter.
   const trim = new MeshPhysicalMaterial({ color: '#0b0c0f', roughness: 0.42, metalness: 0.25, clearcoat: def.sport ? 0.7 : 0, clearcoatRoughness: 0.08, envMapIntensity: 1.1 })

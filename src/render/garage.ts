@@ -14,6 +14,7 @@ import {
   type Texture,
   TorusGeometry,
 } from 'three'
+import { type Looks, STOCK_LOOKS, styleCar } from '../looks'
 import type { Shape } from '../sim/cars'
 import { type CarModel, createCarModel, WheelBank } from './carModel'
 
@@ -67,10 +68,11 @@ export class Garage {
     }
   }
 
-  show(shape: Shape, color: string) {
+  show(shape: Shape, color: string, looks: Looks = STOCK_LOOKS) {
     if (this.model) this.turntable.remove(this.model.group)
     this.bank.clear()
     this.model = createCarModel(color, this.spot, { shape, bank: this.bank })
+    styleCar(this.model, looks, color)
     this.model.group.position.y = 0.12
     this.turntable.add(this.model.group)
     this.ring.color.set(color).multiplyScalar(2.5)

@@ -10,6 +10,7 @@ import { buildLandscape } from './render/landscape'
 import { Cockpit, DRIVER } from './render/cockpit'
 import { Particles, Rain, Skids, Trails } from './render/effects'
 import { Garage } from './render/garage'
+import { type Looks, STOCK_LOOKS, styleCar } from './looks'
 import { createHelicopter, type HelicopterModel } from './render/helicopter'
 import { disposeStrip, spikeStrip } from './render/spikes'
 import { spot } from './render/textures'
@@ -140,6 +141,8 @@ export class Game {
   // The player's car with its upgrades. Set by the menus, which know the
   // save; until then a car drives as it left the factory.
   tune: (carId: string) => CarSpec = (carId) => carById(carId).spec
+  // The looks on each of the player's cars, set by the menus too.
+  looksFor: (carId: string) => Looks = () => STOCK_LOOKS
   // Lets the screenshot script place the camera by hand.
   cameraOverride: ((camera: import('three').PerspectiveCamera) => void) | null = null
   camMode: CameraMode = 'chase'
@@ -338,7 +341,9 @@ export class Game {
         return
       }
       const shape = racer.player ? car.shape : RIVAL_SHAPES[(k + 1) % RIVAL_SHAPES.length]
-      this.addView(racer.car, createCarModel(racer.color, this.spotTexture, { shape, bank: this.wheelBank }), racer, false)
+      const model = createCarModel(racer.color, this.spotTexture, { shape, bank: this.wheelBank })
+      if (racer.player) styleCar(model, this.looksFor(car.id), racer.color)
+      this.addView(racer.car, model, racer, false)
     })
     this.race.traffic.forEach((t, k) => this.addView(t.car, createCarModel(t.color, this.spotTexture, { shape: t.shape, glow: false, bank: this.wheelBank, variant: k }), null, false))
     for (const cop of this.race.police) this.addView(cop, createCarModel('#14161c', this.spotTexture, { shape: copShape(this.race, cop), glow: false, bank: this.wheelBank }), null, true)
@@ -414,8 +419,8 @@ export class Game {
     this.refreshGarage()
   }
 
-  refreshGarage(carId = this.settings.car) {
-    this.garage.show(carById(carId).shape, this.settings.color)
+  refreshGarage(carId = this.settings.car, looks = this.looksFor(carId)) {
+    this.garage.show(carById(carId).shape, this.settings.color, looks)
   }
 
   start(spec: EventSpec) {

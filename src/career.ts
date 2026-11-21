@@ -1,5 +1,6 @@
 import type { Weather } from './render/atmosphere'
 import { CARS } from './sim/cars'
+import { type Finish, type Glow, isFree, lookKey, type Looks, priceOfLook } from './looks'
 import { type Fitted, type Part, priceOf, STAGES, stageOf } from './upgrades'
 
 // The career: three tiers of events, and the coins that every event pays.
@@ -78,9 +79,12 @@ export interface Progress {
   // The last day (UTC, as in the daily track's seed) the daily bonus was
   // paid, and how many days in a row before it.
   daily: { day: string; streak: number } | null
+  // Looks bought ("finish:matte", "glow:cyan"), and the looks on each car.
+  ownedLooks: string[]
+  looks: Record<string, Looks>
 }
 
-export const fresh = (): Progress => ({ cash: 0, owned: [CARS[0].id], won: {}, upgrades: {}, daily: null })
+export const fresh = (): Progress => ({ cash: 0, owned: [CARS[0].id], won: {}, upgrades: {}, daily: null, ownedLooks: [], looks: {} })
 
 // Fills in what an older or damaged save is missing.
 export function tidy(saved: Partial<Progress>): Progress {
@@ -91,6 +95,8 @@ export function tidy(saved: Partial<Progress>): Progress {
     ...saved,
     won: object(saved.won) ? (saved.won as Progress['won']) : {},
     upgrades: object(saved.upgrades) ? (saved.upgrades as Progress['upgrades']) : {},
+    ownedLooks: Array.isArray(saved.ownedLooks) ? saved.ownedLooks.filter((k) => typeof k === 'string') : [],
+    looks: object(saved.looks) ? (saved.looks as Progress['looks']) : {},
     daily: daily && typeof daily.day === 'string' && Number.isInteger(daily.streak) ? daily : null,
   }
 }
@@ -298,6 +304,24 @@ export function upgrade(progress: Progress, carId: string, part: Part): Progress
   const price = priceOf(car, part, stage)
   if (progress.cash < price) return null
   return { ...progress, cash: progress.cash - price, upgrades: { ...progress.upgrades, [carId]: { ...fitted, [part]: stage } } }
+}
+
+// Puts a look on a car the player owns, buying it first if it is not free
+// and not bought yet. Returns null if the car is not owned or the coins
+// are short.
+export function fitLook(progress: Progress, carId: string, kind: 'finish' | 'glow', id: Finish | Glow): Progress | null {
+  if (!progress.owned.includes(carId)) return null
+  const key = lookKey(kind, id)
+  const have = isFree(kind, id) || progress.ownedLooks.includes(key)
+  const price = have ? 0 : priceOfLook(kind, id)
+  if (progress.cash < price) return null
+  const current = progress.looks[carId] ?? { finish: 'gloss', glow: 'paint' }
+  return {
+    ...progress,
+    cash: progress.cash - price,
+    ownedLooks: have ? progress.ownedLooks : [...progress.ownedLooks, key],
+    looks: { ...progress.looks, [carId]: { ...current, [kind]: id } },
+  }
 }
 
 // Buys a car if there is enough cash, otherwise returns null.

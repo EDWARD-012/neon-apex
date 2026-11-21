@@ -113,3 +113,21 @@ export function tuned(car: CarDef, fitted: Fitted = {}): CarSpec {
 }
 
 export const kmh = (spec: CarSpec) => Math.round(spec.topSpeed * 3.6)
+
+// Car classes come from top speed, the bands the plan sets: S from 295
+// km/h, A from 270, B from 245, C from 220, D below. A car's class is
+// worked out with its upgrades, so a tuned B car can climb into A.
+export type CarClass = 'S' | 'A' | 'B' | 'C' | 'D'
+export function classOf(spec: CarSpec): CarClass {
+  const v = kmh(spec)
+  return v >= 295 ? 'S' : v >= 270 ? 'A' : v >= 245 ? 'B' : v >= 220 ? 'C' : 'D'
+}
+
+// One number for the whole car, 100 to 999, from top speed, pull, grip and
+// braking against the range of the cars stock to fully upgraded. Upgrades
+// raise it.
+export function ratingOf(spec: CarSpec): number {
+  const scale = (v: number, lo: number, hi: number) => Math.max(0, Math.min(1, (v - lo) / (hi - lo)))
+  const score = 0.4 * scale(spec.topSpeed, 60, 90) + 0.25 * scale(spec.engine, 13, 30) + 0.25 * scale(spec.lateralLimit, 16, 25) + 0.1 * scale(spec.brake, 20, 34)
+  return Math.round(100 + 899 * score)
+}

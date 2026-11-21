@@ -4,7 +4,7 @@ import { createCar, idle, speedOf, stepCar } from '../src/sim/car'
 import { carById, CARS, ratings } from '../src/sim/cars'
 import { Race, STEP } from '../src/sim/race'
 import { buildTrack, pointAt } from '../src/sim/track'
-import { kmh, PARTS, priceOf, STAGES, STARTER_VALUE, tuned } from '../src/upgrades'
+import { classOf, kmh, PARTS, priceOf, ratingOf, STAGES, STARTER_VALUE, tuned } from '../src/upgrades'
 
 const track = buildTrack('upgrades')
 const open = { ...track, width: 1e6 }
@@ -174,5 +174,31 @@ describe('counting in the race', () => {
     }
     expect(race.player.lapTimes).toHaveLength(2)
     expect(race.cleanLaps).toBe(1)
+  })
+})
+
+describe('classes and rating', () => {
+  it('stock cars sit in the classes the plan gives them by top speed', () => {
+    const cls = (id: string, engine = 0) => classOf(tuned(carById(id), { engine }))
+    expect(cls('brute')).toBe('A')
+    expect(cls('vanta')).toBe('B')
+    expect(cls('volt')).toBe('B')
+    expect(cls('kite')).toBe('C')
+    // Upgrades can lift a car a class.
+    expect(cls('vanta', 3)).toBe('A')
+    expect(cls('brute', 3)).toBe('S')
+    expect(cls('kite', 3)).toBe('B')
+  })
+
+  it('every upgrade stage raises the rating, and it stays between 100 and 999', () => {
+    const all = Object.fromEntries(PARTS.map((p) => [p.id, STAGES]))
+    for (const car of CARS) {
+      const stock = ratingOf(car.spec)
+      const full = ratingOf(tuned(car, all))
+      expect(stock).toBeGreaterThanOrEqual(100)
+      expect(full).toBeLessThanOrEqual(999)
+      expect(ratingOf(tuned(car, { engine: 1 }))).toBeGreaterThan(stock)
+      expect(full).toBeGreaterThan(stock)
+    }
   })
 })

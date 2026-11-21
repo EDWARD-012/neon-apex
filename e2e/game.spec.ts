@@ -289,6 +289,11 @@ test('the career pays coins, which buy a car and its upgrades in the garage', as
   await expect(page.locator('#parts .part[data-part="engine"] .pips i.on')).toHaveCount(1)
   await expect(page.locator('#car-action')).toHaveText('Stage 2 needs 1,800 coins')
   await expect(page.locator('#car-action')).toBeDisabled()
+  // The Looks tab: four finishes and seven underglow choices, the free
+  // ones already usable.
+  await page.locator('#garage-tab button[data-value="looks"]').click()
+  await expect(page.locator('#looks button')).toHaveCount(11)
+  await expect(page.locator('#looks button[data-look="gloss"]')).toHaveClass(/on/)
   // The next race is driven with the upgraded engine.
   const top = await page.evaluate(() => {
     const neon = (window as any).__neon
