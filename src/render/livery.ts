@@ -243,6 +243,35 @@ function facing(g: BufferGeometry, out: Vector3, min: number): BufferGeometry {
   return next
 }
 
+// Keeps only the layer nearest the reader: a plate laid on a bumper must
+// not also land on a grille a hand's width behind it.
+function frontmost(g: BufferGeometry, out: Vector3, within: number): BufferGeometry {
+  const p = g.attributes.position
+  if (!p || p.count === 0) return g
+  let top = -Infinity
+  const v = new Vector3()
+  for (let i = 0; i < p.count; i++) top = Math.max(top, v.fromBufferAttribute(p, i).dot(out))
+  const keep: number[] = []
+  for (let i = 0; i < p.count; i += 3) {
+    let d = 0
+    for (let k = 0; k < 3; k++) d += v.fromBufferAttribute(p, i + k).dot(out) / 3
+    if (d >= top - within) keep.push(i)
+  }
+  if (keep.length * 3 === p.count) return g
+  const next = new BufferGeometry()
+  for (const name of ['position', 'normal', 'uv']) {
+    const a = g.attributes[name]
+    const size = a.itemSize
+    const values = new Float32Array(keep.length * 3 * size)
+    keep.forEach((i, j) => {
+      for (let k = 0; k < 3 * size; k++) values[j * 3 * size + k] = a.array[i * size + k] as number
+    })
+    next.setAttribute(name, new Float32BufferAttribute(values, size))
+  }
+  g.dispose()
+  return next
+}
+
 const LIVERY = 'livery'
 
 // Puts the livery and plates on a model, replacing any it had.
@@ -318,7 +347,8 @@ export function applyLivery(model: CarModel, looks: Looks, plateText: string, sh
       if (!s.box.intersectsBox(reach)) continue
       proxy.geometry = s.mesh.geometry
       proxy.matrixWorld.copy(s.toBody)
-      const g = facing(new DecalGeometry(proxy, piece.at, turn, piece.size), out, piece.plate ? 0.6 : 0.3)
+      const faced = facing(new DecalGeometry(proxy, piece.at, turn, piece.size), out, piece.plate ? 0.6 : 0.3)
+      const g = piece.plate ? frontmost(faced, out, 0.06) : faced
       if (!g.attributes.position || g.attributes.position.count === 0) {
         g.dispose()
         continue

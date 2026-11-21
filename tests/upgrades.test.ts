@@ -21,6 +21,10 @@ describe('upgrades', () => {
     expect(speeds('volt')).toEqual([256, 266, 276, 286])
     expect(speeds('kite')).toEqual([238, 247, 257, 266])
     expect(speeds('kestrel')).toEqual([270, 281, 292, 302])
+    expect(speeds('finch')).toEqual([230, 240, 249, 258])
+    expect(speeds('marten')).toEqual([241, 251, 260, 270])
+    expect(speeds('granite')).toEqual([209, 217, 226, 234])
+    expect(speeds('moraine')).toEqual([216, 225, 233, 242])
   })
 
   it('prices follow the car, and the starter car is priced as if it cost 10,000', () => {
@@ -188,6 +192,10 @@ describe('classes and rating', () => {
     expect(cls('volt')).toBe('B')
     expect(cls('kite')).toBe('C')
     expect(cls('kestrel')).toBe('A')
+    expect(cls('finch')).toBe('C')
+    expect(cls('marten')).toBe('C')
+    expect(cls('granite')).toBe('D')
+    expect(cls('moraine')).toBe('D')
     // Upgrades can lift a car a class.
     expect(cls('vanta', 3)).toBe('A')
     expect(cls('brute', 3)).toBe('S')

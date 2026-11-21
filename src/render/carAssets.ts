@@ -136,6 +136,10 @@ export function carAssetsPending() {
   return pending
 }
 
+// The player's cars that are the traffic pack's cars in the player's paint,
+// by the pack's name for each.
+const PACK_CARS: Partial<Record<CarShape, string>> = { kestrel: 'sport', finch: 'hatchback', marten: 'coupe', granite: 'pickup', moraine: 'offroad' }
+
 export function loadCarAssets(first: CarShape = 'vanta'): { first: Promise<void>; all: Promise<void> } {
   const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder)
   const base = `${import.meta.env.BASE_URL}models/`
@@ -170,7 +174,7 @@ export function loadCarAssets(first: CarShape = 'vanta'): { first: Promise<void>
   // The Kestrel S is a car from the traffic pack, so for it the pack comes
   // first.
   const firstDef = DEFS[first]
-  const firstDone = firstDef ? fit(first, firstDef) : first === 'kestrel' ? pack() : Promise.resolve()
+  const firstDone = firstDef ? fit(first, firstDef) : PACK_CARS[first] ? pack() : Promise.resolve()
   const all = firstDone
     .then(() => Promise.all([...(Object.entries(DEFS) as [CarShape, AssetDef][]).map(([shape, def]) => fit(shape, def)), pack()]))
     .then(() => {
@@ -248,7 +252,8 @@ function templateFor(shape: CarShape, variant: number): Template | undefined {
   if (shape === 'police') return traffic.get('sedan')
   if (shape === 'police-heavy') return traffic.get('suv') ?? traffic.get('sedan')
   if (shape === 'police-fast') return traffic.get('sport') ?? traffic.get('sedan')
-  if (shape === 'kestrel') return traffic.get('sport')
+  const pack = PACK_CARS[shape]
+  if (pack) return traffic.get(pack)
   return templates.get(shape)
 }
 
@@ -445,7 +450,8 @@ export function makeAssetCar(shape: CarShape, color: string, variant = 0): Asset
   const { half } = template
   // The Kestrel S is a pack car the player paints: its body materials are
   // repainted wherever the texture shows the body's own colour.
-  const def: AssetDef = shape === 'kestrel' ? { ...template.def, paint: /^Body/ } : template.def
+  const fromPack = Boolean(PACK_CARS[shape])
+  const def: AssetDef = fromPack ? { ...template.def, paint: /^Body/ } : template.def
   // car is in car space (metres, nose along +z); model is the scaled copy.
   const car = new Group()
   const model = template.root.clone(true)
@@ -475,7 +481,7 @@ export function makeAssetCar(shape: CarShape, color: string, variant = 0): Asset
     } else if (def.paint.test(name) && !inWheel(mesh)) {
       let paint = paints.get(material)
       if (!paint) {
-        paint = paintMaterial(material, color, def.paintHue ?? (shape === 'kestrel' && material.map ? dominantHue(material.map) : undefined))
+        paint = paintMaterial(material, color, def.paintHue ?? (fromPack && material.map ? dominantHue(material.map) : undefined))
         paint.userData.paint = true
         paints.set(material, paint)
       }
