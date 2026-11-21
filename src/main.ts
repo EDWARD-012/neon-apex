@@ -9,7 +9,7 @@ import { PORTAL } from './portal'
 import { carAssetsPending, loadCarAssets } from './render/carAssets'
 import { fetchBytes, onLoadProgress, report as loadReport, setStep } from './loader'
 import { AccountError, type Account, chooseLogin, cloudEnabled, currentAccount, googleButton, signIn, signInWithGoogle, signOut, uploadProgress } from './cloud'
-import { ALL_EVENTS, buy, type Card, CHALLENGE_PAY, challengeFor, fitLook, setLiveryDetail, WEEKLY_PAY, leaderOpen, MEDAL_NAMES, rewardCards, takeCard, type EventDef, type EventKind, loadProgress, type Outcome, type Progress, saveProgress, settle, TIERS, tidy, tierOpen, upgrade, WINS_TO_UNLOCK, winsIn } from './career'
+import { addWear, ALL_EVENTS, buy, carried, MAX_CARRY, repair, repairPrice, wearOf, type Card, CHALLENGE_PAY, challengeFor, fitLook, setLiveryDetail, WEEKLY_PAY, leaderOpen, MEDAL_NAMES, rewardCards, takeCard, type EventDef, type EventKind, loadProgress, type Outcome, type Progress, saveProgress, settle, TIERS, tidy, tierOpen, upgrade, WINS_TO_UNLOCK, winsIn } from './career'
 import { type EventSpec, formatTime, Game, ordinal, REPLAY_CAMERAS, type Settings, TOOL_INFO } from './game'
 import { COP_TOOL_IDS, type CopToolId, type RacerToolId, TOOL_IDS, type ToolId } from './sim/race'
 import type { Weather } from './render/atmosphere'
@@ -17,7 +17,7 @@ import type { Quality } from './render/world'
 import { carById, CARS, type Rating, ratings } from './sim/cars'
 import { bindPedals, bindWheel, startTilt, stopTilt } from './touch'
 import { dailySeed, weeklySeed } from './sim/track'
-import { FINISHES, fullLooks, GLOWS, isFree, LIVERIES, type LookKind, lookKey, lookName, type Looks, priceOfLook, TRIMS, type Trim } from './looks'
+import { FINISHES, fullLooks, GLOWS, isFree, LIVERIES, type LookKind, lookKey, lookName, type Looks, priceOfLook, RIDES, RIMS, SPOILERS, TINTS, TRIMS, type Trim } from './looks'
 import { classOf, kmh, type Part, PARTS, partById, priceOf, ratingOf, STAGES, stageOf, tuned } from './upgrades'
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement
@@ -380,6 +380,7 @@ $('go-race').addEventListener('click', () => begin(quickSpec()))
 function career() {
   setScreen('career')
   $('cash').textContent = coins(progress.cash)
+  drawRepair()
   const box = $('tiers')
   box.innerHTML = ''
   TIERS.forEach((tier, t) => {
@@ -414,6 +415,31 @@ function career() {
     col.appendChild(lead)
     box.appendChild(col)
   })
+}
+
+// Damage the car carries from earlier career events, and the button that
+// pays to fix it.
+function drawRepair() {
+  const box = $('repair')
+  const car = carById(settings.car)
+  const wear = wearOf(progress, car.id)
+  box.classList.toggle('hidden', wear === 0)
+  if (wear === 0) return
+  const price = repairPrice(progress, car.id)
+  const patched = wear > MAX_CARRY ? `, patched up to ${Math.round(MAX_CARRY * 100)}% for the next event` : ''
+  box.innerHTML = `<p>Your ${car.name} has <b>${Math.round(wear * 100)}% damage</b> from earlier events${patched}. It costs power, top speed and grip until it is repaired.</p>`
+  const b = document.createElement('button')
+  b.id = 'repair-car'
+  b.textContent = progress.cash >= price ? `Repair for ${coins(price)}` : `Repair needs ${coins(price)} coins`
+  b.disabled = progress.cash < price
+  b.addEventListener('click', () => {
+    const fixed = repair(progress, car.id)
+    if (!fixed) return
+    progress = fixed
+    keep()
+    career()
+  })
+  box.appendChild(b)
 }
 
 function careerSpec(e: EventDef): EventSpec {
@@ -540,7 +566,7 @@ function drawLooks(carId: string, owned: boolean, action: HTMLButtonElement) {
     shown.livery === 'number'
       ? `<span class="label">Race number</span><div class="look-row number-row"><button data-number="-1" ${owned ? '' : 'disabled'} aria-label="Lower number">−</button><b>${shown.number}</b><button data-number="1" ${owned ? '' : 'disabled'} aria-label="Higher number">+</button></div>`
       : ''
-  $('looks').innerHTML = `<span class="label">Finish</span><div class="look-row">${row('finish', FINISHES)}</div><span class="label">Underglow, seen at night</span><div class="look-row">${row('glow', GLOWS)}</div><span class="label">Livery, with your name on the plates</span><div class="look-row">${row('livery', LIVERIES)}</div>${trims}${number}`
+  $('looks').innerHTML = `<span class="label">Finish</span><div class="look-row">${row('finish', FINISHES)}</div><span class="label">Underglow, seen at night</span><div class="look-row">${row('glow', GLOWS)}</div><span class="label">Livery, with your name on the plates</span><div class="look-row">${row('livery', LIVERIES)}</div>${trims}${number}<span class="label">Wheels</span><div class="look-row">${row('rims', RIMS)}</div><span class="label">Ride height</span><div class="look-row">${row('ride', RIDES)}</div><span class="label">Window tint</span><div class="look-row">${row('tint', TINTS)}</div><span class="label">Spoiler</span><div class="look-row">${row('spoiler', SPOILERS)}</div>`
   const preview = () => (trying ? { ...fullLooks(progress.looks[carId]), [trying.kind]: trying.id } : undefined)
   $('looks')
     .querySelectorAll<HTMLButtonElement>('button[data-kind]')
@@ -887,6 +913,9 @@ async function begin(spec: EventSpec) {
     $('intro-detail').textContent = 'The cars are still downloading.'
     await Promise.race([cars.all, later(20000)])
   }
+  // A career event starts with the damage the car carries, read again on
+  // every start, as a retry after the results screen may carry more.
+  if (spec.careerId && spec.kind !== 'cop') spec = { ...spec, startDamage: carried(progress, settings.car) }
   current = spec
   if (touchScreen) void landscape()
   game.start(spec)
@@ -897,7 +926,8 @@ async function begin(spec: EventSpec) {
   $('intro-title').textContent = spec.title
   const size = spec.kind === 'elimination' ? `${spec.rivals + 1} cars` : spec.kind === 'pursuit' ? `${spec.police} patrol cars` : `${spec.laps} ${spec.laps === 1 ? 'lap' : 'laps'}`
   const patrol = spec.patrols ? ', police on patrol' : ''
-  $('intro-detail').textContent = `${(track.length / 1000).toFixed(2)} km circuit, ${({ day: 'sunny day', clear: 'clear night', rain: 'rainy night', dusk: 'dusk' } as Record<Weather, string>)[game.weather]}, ${size}${patrol}`
+  const worn = spec.startDamage ? `, your car at ${Math.round(spec.startDamage * 100)}% damage` : ''
+  $('intro-detail').textContent = `${(track.length / 1000).toFixed(2)} km circuit, ${({ day: 'sunny day', clear: 'clear night', rain: 'rainy night', dusk: 'dusk' } as Record<Weather, string>)[game.weather]}, ${size}${patrol}${worn}`
 }
 
 // The intro ends itself after a few seconds or on a key press; this keeps
@@ -1001,11 +1031,19 @@ function results(outcome: Outcome) {
     def,
   )
   progress = paid.progress
+  // Career damage stays on the car for the next career event.
+  const wearBefore = wearOf(progress, settings.car)
+  if (def && spec.kind !== 'cop') progress = addWear(progress, settings.car, spec.startDamage ?? 0, me.car.damage)
+  const wearNow = wearOf(progress, settings.car)
   keep()
   report('race_end', spec.kind, Math.round(Math.max(0, race.clock)), { career: Boolean(def), place, fate: me.fate, won: paid.result?.won ?? place === 1, coins: paid.total })
   const head = paid.result ? `<p class="pay-head">${paid.result.won ? 'Event won.' : 'Not won yet.'} ${paid.result.summary}</p>` : ''
   const lines = paid.lines.map((l) => `<li><span>${l.label}</span><b>+${coins(l.coins)}</b></li>`).join('')
-  $('reward').innerHTML = `${head}<ul class="pay-lines">${lines}</ul><p class="pay-total">+${coins(paid.total)} coins</p>`
+  const worn =
+    wearNow > wearBefore
+      ? `<p class="pay-note">The ${carById(settings.car).name} is at ${Math.round(wearNow * 100)}% damage and takes it into the next career event. A repair costs ${coins(repairPrice(progress, settings.car))} coins on the career screen.</p>`
+      : ''
+  $('reward').innerHTML = `${head}<ul class="pay-lines">${lines}</ul><p class="pay-total">+${coins(paid.total)} coins</p>${worn}`
   $('reward').classList.remove('hidden')
   // Beating a crew leader the first time: pick one of the reward cards.
   const tierOf = TIERS.findIndex((t) => t.leader.id === def?.id)

@@ -9,7 +9,11 @@ export type Finish = 'gloss' | 'matte' | 'pearl' | 'chrome'
 export type Glow = 'paint' | 'off' | 'cyan' | 'pink' | 'green' | 'orange' | 'white'
 export type Livery = 'none' | 'twin' | 'centre' | 'flash' | 'number' | 'chequer'
 export type Trim = 'white' | 'black' | 'red' | 'yellow' | 'cyan'
-export type LookKind = 'finish' | 'glow' | 'livery'
+export type Rims = 'stock' | 'split' | 'mesh' | 'deep' | 'turbine'
+export type Ride = 'stock' | 'lowered' | 'slammed'
+export type Tint = 'stock' | 'dark' | 'limo'
+export type Spoiler = 'stock' | 'lip' | 'wing'
+export type LookKind = 'finish' | 'glow' | 'livery' | 'rims' | 'ride' | 'tint' | 'spoiler'
 
 export interface Looks {
   finish: Finish
@@ -17,9 +21,13 @@ export interface Looks {
   livery: Livery
   trim: Trim
   number: number
+  rims: Rims
+  ride: Ride
+  tint: Tint
+  spoiler: Spoiler
 }
 
-export const STOCK_LOOKS: Looks = { finish: 'gloss', glow: 'paint', livery: 'none', trim: 'white', number: 7 }
+export const STOCK_LOOKS: Looks = { finish: 'gloss', glow: 'paint', livery: 'none', trim: 'white', number: 7, rims: 'stock', ride: 'stock', tint: 'stock', spoiler: 'stock' }
 
 export const FINISHES: { id: Finish; name: string; price: number }[] = [
   { id: 'gloss', name: 'Gloss', price: 0 },
@@ -55,7 +63,34 @@ export const TRIMS: { id: Trim; name: string; color: string }[] = [
   { id: 'cyan', name: 'Cyan', color: '#2fd8f0' },
 ]
 
-const LISTS: Record<LookKind, { id: string; name: string; price: number }[]> = { finish: FINISHES, glow: GLOWS, livery: LIVERIES }
+export const RIMS: { id: Rims; name: string; price: number }[] = [
+  { id: 'stock', name: 'Stock', price: 0 },
+  { id: 'split', name: 'Split five', price: 2000 },
+  { id: 'mesh', name: 'Mesh', price: 2500 },
+  { id: 'turbine', name: 'Turbine', price: 2500 },
+  { id: 'deep', name: 'Deep dish', price: 3000 },
+]
+
+export const RIDES: { id: Ride; name: string; price: number }[] = [
+  { id: 'stock', name: 'Stock', price: 0 },
+  { id: 'lowered', name: 'Lowered', price: 1000 },
+  { id: 'slammed', name: 'Slammed', price: 2000 },
+]
+
+export const TINTS: { id: Tint; name: string; price: number }[] = [
+  { id: 'stock', name: 'Stock', price: 0 },
+  { id: 'dark', name: 'Dark', price: 800 },
+  { id: 'limo', name: 'Limo', price: 1500 },
+]
+
+export const SPOILERS: { id: Spoiler; name: string; price: number }[] = [
+  { id: 'stock', name: 'Stock', price: 0 },
+  { id: 'lip', name: 'Ducktail lip', price: 1500 },
+  { id: 'wing', name: 'GT wing', price: 3500 },
+]
+
+export const LOOK_LISTS: Record<LookKind, { id: string; name: string; price: number }[]> = { finish: FINISHES, glow: GLOWS, livery: LIVERIES, rims: RIMS, ride: RIDES, tint: TINTS, spoiler: SPOILERS }
+const LISTS = LOOK_LISTS
 
 // The key a look is saved under once bought, like "finish:matte".
 export const lookKey = (kind: LookKind, id: string) => `${kind}:${id}`
@@ -75,6 +110,10 @@ export function fullLooks(saved?: Partial<Looks> | null): Looks {
     livery: s.livery && isLook('livery', s.livery) ? s.livery : STOCK_LOOKS.livery,
     trim: TRIMS.some((t) => t.id === s.trim) ? (s.trim as Trim) : STOCK_LOOKS.trim,
     number: number >= 1 && number <= 99 ? number : STOCK_LOOKS.number,
+    rims: s.rims && isLook('rims', s.rims) ? s.rims : STOCK_LOOKS.rims,
+    ride: s.ride && isLook('ride', s.ride) ? s.ride : STOCK_LOOKS.ride,
+    tint: s.tint && isLook('tint', s.tint) ? s.tint : STOCK_LOOKS.tint,
+    spoiler: s.spoiler && isLook('spoiler', s.spoiler) ? s.spoiler : STOCK_LOOKS.spoiler,
   }
 }
 

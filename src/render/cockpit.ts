@@ -207,6 +207,8 @@ export class Cockpit {
   private readonly tmpColour = new Color()
 
   constructor() {
+    // Named so the ride height leaves the cabin where the eye is.
+    this.group.name = 'cockpit'
     this.group.visible = false
     this.setCar('vanta')
     // The dials are drawn once per car; draw them again once the game's font

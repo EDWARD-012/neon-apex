@@ -16,6 +16,7 @@ import {
 } from 'three'
 import { type Looks, STOCK_LOOKS, styleCar } from '../looks'
 import { applyLivery } from './livery'
+import { fitParts } from './parts'
 import type { Shape } from '../sim/cars'
 import { type CarModel, createCarModel, WheelBank } from './carModel'
 
@@ -78,6 +79,7 @@ export class Garage {
     this.model = createCarModel(color, this.spot, { shape, bank: this.bank })
     styleCar(this.model, looks, color)
     applyLivery(this.model, looks, plate, shape)
+    fitParts(this.model, looks)
     this.model.group.position.y = 0.12
     this.turntable.add(this.model.group)
     this.ring.color.set(color).multiplyScalar(2.5)

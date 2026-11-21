@@ -304,6 +304,28 @@ test('the garage photo mode turns the camera, saves a picture and gives the gara
   expect(await yaw()).toBeUndefined()
 })
 
+test('career damage stays on the car until it is repaired', async ({ page }) => {
+  // A save with a badly damaged car, put in before each load of the page.
+  await page.addInitScript(() => localStorage.setItem('neon-apex/career', JSON.stringify({ cash: 3000, owned: ['vanta'], won: {}, wear: { vanta: 0.8 } })))
+  await open(page)
+  await page.locator('#go-career').click()
+  await expect(page.locator('#repair')).toContainText('80% damage')
+  await expect(page.locator('#repair')).toContainText('patched up to 50%')
+  await expect(page.locator('#repair-car')).toHaveText('Repair for 1,600')
+  // The car goes into the next event patched up to half damage.
+  await page.locator('.event[data-event="first-night"]').click()
+  await expect(page.locator('#intro-detail')).toContainText('your car at 50% damage')
+  expect(await page.evaluate(() => (window as any).__neon.game.race.player.car.damage)).toBe(0.5)
+  // Back on the career screen, the repair takes the coins and the damage.
+  await forward(page, 3.2)
+  await open(page)
+  await page.locator('#go-career').click()
+  await page.locator('#repair-car').click()
+  await expect(page.locator('#repair')).toBeHidden()
+  await expect(page.locator('#cash')).toHaveText('1,400')
+  expect(await page.evaluate(() => (window as any).__neon.progress().wear)).toEqual({})
+})
+
 test('the career pays coins, which buy a car and its upgrades in the garage', async ({ page }) => {
   await open(page, '&autopilot')
   await page.locator('#go-career').click()
@@ -342,11 +364,12 @@ test('the career pays coins, which buy a car and its upgrades in the garage', as
   await expect(page.locator('#parts .part[data-part="engine"] .pips i.on')).toHaveCount(1)
   await expect(page.locator('#car-action')).toHaveText('Stage 2 needs 1,800 coins')
   await expect(page.locator('#car-action')).toBeDisabled()
-  // The Looks tab: four finishes, seven underglow choices and six
-  // liveries, the free ones already usable. Trying a livery on shows its
-  // colours, and the race number its number too.
+  // The Looks tab: four finishes, seven underglow choices, six liveries,
+  // five wheels, three ride heights, three tints and three spoilers, the
+  // free ones already usable. Trying a livery on shows its colours, and the
+  // race number its number too.
   await page.locator('#garage-tab button[data-value="looks"]').click()
-  await expect(page.locator('#looks button[data-kind]')).toHaveCount(17)
+  await expect(page.locator('#looks button[data-kind]')).toHaveCount(31)
   await expect(page.locator('#looks button[data-look="gloss"]')).toHaveClass(/on/)
   await expect(page.locator('#looks button[data-trim]')).toHaveCount(0)
   await page.locator('#looks button[data-look="number"]').click()

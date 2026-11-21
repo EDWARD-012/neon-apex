@@ -1068,6 +1068,39 @@ kbd {
   font-style: italic;
 }
 
+/* Damage carried between career events, and the button to repair it. */
+.repair {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 16px;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 120, 90, 0.35);
+  border-radius: 10px;
+  background: rgba(255, 90, 60, 0.08);
+}
+
+.repair p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.repair b {
+  color: var(--text);
+}
+
+.repair button {
+  flex: none;
+}
+
+.pay-note {
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+
 .tiers {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
