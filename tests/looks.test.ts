@@ -1,7 +1,7 @@
 import { Group, Mesh, MeshBasicMaterial, MeshPhysicalMaterial, PlaneGeometry } from 'three'
 import { describe, expect, it } from 'vitest'
-import { fitLook, fresh, type Progress } from '../src/career'
-import { styleCar } from '../src/looks'
+import { fitLook, fresh, type Progress, setLiveryDetail } from '../src/career'
+import { fullLooks, STOCK_LOOKS, styleCar } from '../src/looks'
 import type { CarModel } from '../src/render/carModel'
 
 describe('looks', () => {
@@ -28,16 +28,38 @@ describe('looks', () => {
     const group = new Group()
     group.add(new Mesh(new PlaneGeometry(), paint), new Mesh(new PlaneGeometry(), trim), glow)
     const model = { group, glow } as unknown as CarModel
-    styleCar(model, { finish: 'matte', glow: 'cyan' }, '#c8102e')
+    styleCar(model, { ...STOCK_LOOKS, finish: 'matte', glow: 'cyan' }, '#c8102e')
     expect(paint.roughness).toBeGreaterThan(0.7)
     expect(paint.clearcoat).toBe(0)
     expect(trim.roughness).toBe(0.42)
     expect(glow.visible).toBe(true)
     expect((glow.material as MeshBasicMaterial).color.getHexString()).not.toBe('000000')
     // Back to gloss restores the paint as it was made.
-    styleCar(model, { finish: 'gloss', glow: 'off' }, '#c8102e')
+    styleCar(model, { ...STOCK_LOOKS, finish: 'gloss', glow: 'off' }, '#c8102e')
     expect(paint.roughness).toBeCloseTo(0.32, 5)
     expect(paint.clearcoat).toBe(1)
     expect(glow.visible).toBe(false)
+  })
+
+  it('a livery is bought once, and its colour and number are free to change', () => {
+    const rich: Progress = { ...fresh(), cash: 4000, owned: ['vanta', 'kite'] }
+    const striped = fitLook(rich, 'vanta', 'livery', 'twin')!
+    expect(striped.cash).toBe(2000)
+    expect(striped.ownedLooks).toContain('livery:twin')
+    expect(striped.looks.vanta.livery).toBe('twin')
+    // On another car it costs nothing more.
+    expect(fitLook(striped, 'kite', 'livery', 'twin')!.cash).toBe(2000)
+    const red = setLiveryDetail(striped, 'vanta', { trim: 'red', number: 44 })!
+    expect(red.looks.vanta).toMatchObject({ livery: 'twin', trim: 'red', number: 44 })
+    expect(red.cash).toBe(2000)
+    // Numbers stay between 1 and 99, and a car not owned can't be styled.
+    expect(setLiveryDetail(striped, 'vanta', { number: 140 })).toBeNull()
+    expect(setLiveryDetail(striped, 'brute', { trim: 'red' })).toBeNull()
+  })
+
+  it('an older save without liveries gets the stock ones, and bad values are dropped', () => {
+    expect(fullLooks({ finish: 'matte', glow: 'cyan' } as never)).toEqual({ ...STOCK_LOOKS, finish: 'matte', glow: 'cyan' })
+    expect(fullLooks({ finish: 'gold', livery: 'flames', trim: 'mauve', number: 0 } as never)).toEqual(STOCK_LOOKS)
+    expect(fullLooks(undefined)).toEqual(STOCK_LOOKS)
   })
 })

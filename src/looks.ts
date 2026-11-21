@@ -1,19 +1,25 @@
 import { Color, type Material, type Mesh, type MeshBasicMaterial, type MeshPhysicalMaterial } from 'three'
 import type { CarModel } from './render/carModel'
 
-// Looks bought with coins: a paint finish and an underglow colour. Each is
-// bought once and can then go on any car the player owns. The paint
-// colour itself stays free, as it always was.
+// Looks bought with coins: a paint finish, an underglow colour and a
+// livery. Each is bought once and can then go on any car the player owns.
+// The paint colour, the livery's colour and the race number stay free.
 
 export type Finish = 'gloss' | 'matte' | 'pearl' | 'chrome'
 export type Glow = 'paint' | 'off' | 'cyan' | 'pink' | 'green' | 'orange' | 'white'
+export type Livery = 'none' | 'twin' | 'centre' | 'flash' | 'number' | 'chequer'
+export type Trim = 'white' | 'black' | 'red' | 'yellow' | 'cyan'
+export type LookKind = 'finish' | 'glow' | 'livery'
 
 export interface Looks {
   finish: Finish
   glow: Glow
+  livery: Livery
+  trim: Trim
+  number: number
 }
 
-export const STOCK_LOOKS: Looks = { finish: 'gloss', glow: 'paint' }
+export const STOCK_LOOKS: Looks = { finish: 'gloss', glow: 'paint', livery: 'none', trim: 'white', number: 7 }
 
 export const FINISHES: { id: Finish; name: string; price: number }[] = [
   { id: 'gloss', name: 'Gloss', price: 0 },
@@ -32,10 +38,45 @@ export const GLOWS: { id: Glow; name: string; color: string | null; price: numbe
   { id: 'white', name: 'White', color: '#f2f4ff', price: 1500 },
 ]
 
+export const LIVERIES: { id: Livery; name: string; price: number }[] = [
+  { id: 'none', name: 'None', price: 0 },
+  { id: 'twin', name: 'Twin stripes', price: 2000 },
+  { id: 'centre', name: 'Centre stripe', price: 2000 },
+  { id: 'flash', name: 'Side flash', price: 2500 },
+  { id: 'chequer', name: 'Chequer band', price: 2500 },
+  { id: 'number', name: 'Race number', price: 3000 },
+]
+
+export const TRIMS: { id: Trim; name: string; color: string }[] = [
+  { id: 'white', name: 'White', color: '#f2f2ee' },
+  { id: 'black', name: 'Black', color: '#141416' },
+  { id: 'red', name: 'Red', color: '#d81e2a' },
+  { id: 'yellow', name: 'Yellow', color: '#f4c20d' },
+  { id: 'cyan', name: 'Cyan', color: '#2fd8f0' },
+]
+
+const LISTS: Record<LookKind, { id: string; name: string; price: number }[]> = { finish: FINISHES, glow: GLOWS, livery: LIVERIES }
+
 // The key a look is saved under once bought, like "finish:matte".
-export const lookKey = (kind: 'finish' | 'glow', id: string) => `${kind}:${id}`
-export const priceOfLook = (kind: 'finish' | 'glow', id: string) => (kind === 'finish' ? FINISHES : GLOWS).find((l) => l.id === id)?.price ?? 0
-export const isFree = (kind: 'finish' | 'glow', id: string) => priceOfLook(kind, id) === 0
+export const lookKey = (kind: LookKind, id: string) => `${kind}:${id}`
+export const lookName = (kind: LookKind, id: string) => LISTS[kind].find((l) => l.id === id)?.name ?? id
+export const priceOfLook = (kind: LookKind, id: string) => LISTS[kind].find((l) => l.id === id)?.price ?? 0
+export const isFree = (kind: LookKind, id: string) => priceOfLook(kind, id) === 0
+export const isLook = (kind: LookKind, id: string) => LISTS[kind].some((l) => l.id === id)
+
+// A car's looks with every field present and valid, for saves made before
+// liveries or edited by hand.
+export function fullLooks(saved?: Partial<Looks> | null): Looks {
+  const s = saved ?? {}
+  const number = Math.round(Number(s.number))
+  return {
+    finish: s.finish && isLook('finish', s.finish) ? s.finish : STOCK_LOOKS.finish,
+    glow: s.glow && isLook('glow', s.glow) ? s.glow : STOCK_LOOKS.glow,
+    livery: s.livery && isLook('livery', s.livery) ? s.livery : STOCK_LOOKS.livery,
+    trim: TRIMS.some((t) => t.id === s.trim) ? (s.trim as Trim) : STOCK_LOOKS.trim,
+    number: number >= 1 && number <= 99 ? number : STOCK_LOOKS.number,
+  }
+}
 
 // Puts the looks on a model: the finish on every paint material, and the
 // underglow in its colour, the paint's, or off.

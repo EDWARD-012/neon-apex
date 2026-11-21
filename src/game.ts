@@ -11,6 +11,7 @@ import { Cockpit } from './render/cockpit'
 import { Particles, Rain, Skids, Trails } from './render/effects'
 import { Garage } from './render/garage'
 import { type Looks, STOCK_LOOKS, styleCar } from './looks'
+import { applyLivery } from './render/livery'
 import { buzz } from './touch'
 import { tuned } from './upgrades'
 import { createHelicopter, type HelicopterModel } from './render/helicopter'
@@ -162,6 +163,8 @@ export class Game {
   tune: (carId: string) => CarSpec = (carId) => carById(carId).spec
   // The looks on each of the player's cars, set by the menus too.
   looksFor: (carId: string) => Looks = () => STOCK_LOOKS
+  // What the player's number plates say.
+  plateText: () => string = () => 'SKIDLINE'
   // Lets the screenshot script place the camera by hand.
   cameraOverride: ((camera: import('three').PerspectiveCamera) => void) | null = null
   camMode: CameraMode = 'chase'
@@ -391,7 +394,11 @@ export class Game {
       }
       const shape = racer.player ? car.shape : RIVAL_SHAPES[(k + 1) % RIVAL_SHAPES.length]
       const model = createCarModel(racer.color, this.spotTexture, { shape, bank: this.wheelBank })
-      if (racer.player) styleCar(model, this.looksFor(car.id), racer.color)
+      if (racer.player) {
+        const looks = this.looksFor(car.id)
+        styleCar(model, looks, racer.color)
+        applyLivery(model, looks, this.plateText(), shape)
+      }
       this.addView(racer.car, model, racer, false)
     })
     this.race.traffic.forEach((t, k) => this.addView(t.car, createCarModel(t.color, this.spotTexture, { shape: t.shape, glow: false, bank: this.wheelBank, variant: k }), null, false))
@@ -488,7 +495,7 @@ export class Game {
   }
 
   refreshGarage(carId = this.settings.car, looks = this.looksFor(carId)) {
-    this.garage.show(carById(carId).shape, this.settings.color, looks)
+    this.garage.show(carById(carId).shape, this.settings.color, looks, this.plateText())
   }
 
   start(spec: EventSpec) {

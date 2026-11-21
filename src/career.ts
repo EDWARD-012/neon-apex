@@ -1,6 +1,6 @@
 import type { Weather } from './render/atmosphere'
 import { CARS } from './sim/cars'
-import { type Finish, type Glow, isFree, lookKey, type Looks, priceOfLook } from './looks'
+import { fullLooks, isFree, isLook, type LookKind, lookKey, type Looks, priceOfLook, TRIMS, type Trim } from './looks'
 import { type Fitted, type Part, priceOf, STAGES, stageOf } from './upgrades'
 
 // The career: three tiers of events, and the coins that every event pays.
@@ -125,7 +125,7 @@ export function tidy(saved: Partial<Progress>): Progress {
     won: object(saved.won) ? (saved.won as Progress['won']) : {},
     upgrades: object(saved.upgrades) ? (saved.upgrades as Progress['upgrades']) : {},
     ownedLooks: Array.isArray(saved.ownedLooks) ? saved.ownedLooks.filter((k) => typeof k === 'string') : [],
-    looks: object(saved.looks) ? (saved.looks as Progress['looks']) : {},
+    looks: object(saved.looks) ? Object.fromEntries(Object.entries(saved.looks as Record<string, Partial<Looks>>).map(([car, l]) => [car, fullLooks(l)])) : {},
     medals: object(saved.medals) ? (saved.medals as Progress['medals']) : {},
     claimed: Array.isArray(saved.claimed) ? saved.claimed.filter((k) => typeof k === 'string') : [],
     challengeDay: typeof saved.challengeDay === 'string' ? saved.challengeDay : null,
@@ -258,9 +258,9 @@ export function medalFor(event: EventDef, outcome: Outcome): number {
 export type Card = { kind: 'coins'; coins: number } | { kind: 'stage'; part: Part; stage: number } | { kind: 'look'; key: string }
 
 const CARD_LOOKS = [
-  ['glow:cyan', 'glow:pink', 'finish:matte'],
-  ['finish:pearl', 'glow:green', 'glow:orange'],
-  ['finish:chrome', 'finish:pearl', 'glow:white'],
+  ['glow:cyan', 'glow:pink', 'finish:matte', 'livery:twin'],
+  ['finish:pearl', 'glow:green', 'glow:orange', 'livery:flash'],
+  ['finish:chrome', 'finish:pearl', 'glow:white', 'livery:number'],
 ]
 
 export function rewardCards(progress: Progress, tier: number, carId: string): Card[] {
@@ -469,19 +469,29 @@ export function upgrade(progress: Progress, carId: string, part: Part): Progress
 // Puts a look on a car the player owns, buying it first if it is not free
 // and not bought yet. Returns null if the car is not owned or the coins
 // are short.
-export function fitLook(progress: Progress, carId: string, kind: 'finish' | 'glow', id: Finish | Glow): Progress | null {
-  if (!progress.owned.includes(carId)) return null
+export function fitLook(progress: Progress, carId: string, kind: LookKind, id: string): Progress | null {
+  if (!progress.owned.includes(carId) || !isLook(kind, id)) return null
   const key = lookKey(kind, id)
   const have = isFree(kind, id) || progress.ownedLooks.includes(key)
   const price = have ? 0 : priceOfLook(kind, id)
   if (progress.cash < price) return null
-  const current = progress.looks[carId] ?? { finish: 'gloss', glow: 'paint' }
+  const current = fullLooks(progress.looks[carId])
   return {
     ...progress,
     cash: progress.cash - price,
     ownedLooks: have ? progress.ownedLooks : [...progress.ownedLooks, key],
     looks: { ...progress.looks, [carId]: { ...current, [kind]: id } },
   }
+}
+
+// Changes the livery's colour or race number on a car the player owns. Both
+// are free. Returns null for a car not owned or a value out of range.
+export function setLiveryDetail(progress: Progress, carId: string, change: { trim?: Trim; number?: number }): Progress | null {
+  if (!progress.owned.includes(carId)) return null
+  if (change.trim !== undefined && !TRIMS.some((t) => t.id === change.trim)) return null
+  if (change.number !== undefined && !(Number.isInteger(change.number) && change.number >= 1 && change.number <= 99)) return null
+  const current = fullLooks(progress.looks[carId])
+  return { ...progress, looks: { ...progress.looks, [carId]: { ...current, ...change } } }
 }
 
 // Buys a car if there is enough cash, otherwise returns null.
