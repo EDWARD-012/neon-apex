@@ -60,8 +60,9 @@ export interface RaceOptions {
   skill?: number
   // circuit: laps decide it. elimination: last place is out every time the
   // leader finishes a lap, last car running wins. pursuit: no laps, get
-  // away from the police.
-  mode?: 'circuit' | 'elimination' | 'pursuit'
+  // away from the police. cop: the player drives a police car and busts the
+  // racers before they finish.
+  mode?: 'circuit' | 'elimination' | 'pursuit' | 'cop'
   // Police cars at the start of a pursuit. More join as the heat rises.
   police?: number
   // The player's two racer tools in a pursuit.
@@ -97,6 +98,9 @@ export type RaceEvent =
   | { type: 'pulsed' }
   | { type: 'tool'; id: ToolId }
   | { type: 'mineHit'; x: number; z: number }
+  | { type: 'racerBusted'; id: number }
+  | { type: 'backup' }
+  | { type: 'noTarget' }
 
 export interface Pursuit {
   // Both run 0 to 1. Busted fills while the player is slow with a patrol
@@ -176,8 +180,30 @@ export const PULSE_COOLDOWN = 8
 // shockwave shoves every car within SHOCK_RANGE away. The turbo is a big
 // push for TURBO_TIME seconds. A mine dropped behind goes off under the
 // first police car to come within MINE_RANGE once it is armed.
-export type ToolId = 'jammer' | 'shockwave' | 'turbo' | 'mine'
-export const TOOL_IDS: ToolId[] = ['jammer', 'shockwave', 'turbo', 'mine']
+export type RacerToolId = 'jammer' | 'shockwave' | 'turbo' | 'mine'
+export const TOOL_IDS: RacerToolId[] = ['jammer', 'shockwave', 'turbo', 'mine']
+// Playing the cop, the tools are the police's own: a roadblock or a spike
+// strip ahead of the leading racer, a helicopter that follows the leader
+// for HELI_TOOL_TIME seconds dropping spikes in front of it, and a pulse
+// that cuts the power of the racer ahead.
+export type CopToolId = 'roadblock' | 'spikes' | 'helicopter' | 'pulse'
+export const COP_TOOL_IDS: CopToolId[] = ['roadblock', 'spikes', 'helicopter', 'pulse']
+export type ToolId = RacerToolId | CopToolId
+export const HELI_TOOL_TIME = 20
+export const HELI_DROP_EVERY = 6
+export const COP_PULSE_RANGE = 90
+export const COP_PULSE_STUN = 2
+// Playing the cop: the racers get a head start of COP_HOLD seconds, a racer
+// is busted when its damage is full or when it is held under 6 m/s with a
+// police car within BOX_RANGE for BOX_TIME seconds, and the radio brings in
+// a patrol car every BACKUP_EVERY seconds, up to BACKUP_MAX. Racers are
+// less tough than usual, so a few good hits do it.
+export const COP_HOLD = 3
+export const BOX_RANGE = 9
+export const BOX_TIME = 2
+export const BACKUP_EVERY = 30
+export const BACKUP_MAX = 3
+export const RACER_TOUGHNESS = 0.55
 export const TOOL_USES = 2
 export const JAMMER_TIME = 8
 export const SHOCK_RANGE = 18
@@ -237,7 +263,7 @@ export class Race {
   playerInput: CarInput = idle
   brakeHelp = false
   readonly traffic: TrafficCar[]
-  readonly mode: 'circuit' | 'elimination' | 'pursuit'
+  readonly mode: 'circuit' | 'elimination' | 'pursuit' | 'cop'
   readonly police: CarState[] = []
   pursuit: Pursuit = { busted: 0, escape: 0, heat: 1, outcome: null, sinceJoin: 0 }
   // Police in a race: how many can chase at once, the ones still waiting by
@@ -275,6 +301,14 @@ export class Race {
   jammed = 0
   mines: Mine[] = []
   private toolWait = 0
+  // Playing the cop: racers busted so far, how long each has been boxed
+  // in, cars with blown tyres, and the time left on the helicopter tool.
+  busts = 0
+  private boxed = new Map<Racer, number>()
+  private blown = new Set<CarState>()
+  private heliLeft = 0
+  private sinceDrop = 0
+  private backups = 0
   private setupRng: Rng
   // The player's drift: the slide in progress and everything banked.
   drift = { score: 0, total: 0, quiet: 0 }
@@ -326,7 +360,8 @@ export class Race {
     }
     this.autopilot = options.autopilot ? createDriver(0.97) : null
     this.setupRng = createRng(`setup/${options.seed}`)
-    this.tools = (options.mode === 'pursuit' ? options.tools ?? [] : []).slice(0, 2).map((id) => ({ id, left: TOOL_USES }))
+    this.tools = (options.mode === 'pursuit' || options.mode === 'cop' ? options.tools ?? [] : []).slice(0, 2).map((id) => ({ id, left: TOOL_USES }))
+    if (options.mode === 'cop') for (const r of this.racers) if (!r.player) r.car.spec = { ...r.car.spec, toughness: r.car.spec.toughness * RACER_TOUGHNESS }
     this.traffic = spawnTraffic(this.track, options.traffic ?? 0, options.seed)
     this.passing = this.traffic.map(() => ({ ahead: false, touched: -10 }))
     this.mode = options.mode ?? 'circuit'
@@ -376,6 +411,10 @@ export class Race {
     for (const racer of this.racers) {
       if (racer.player || racer.out || racer.finishTime !== null || !recent(racer.car)) continue
       racer.car.damage = 1
+      if (this.mode === 'cop') {
+        this.bust(racer)
+        continue
+      }
       this.knockOut(racer, 'wrecked')
       this.takedowns.rivals++
       this.events.push({ type: 'takedown', id: racer.id })
@@ -485,7 +524,8 @@ export class Race {
     for (const cop of this.police) {
       // Wrecked cars and roadblocks stand still.
       const still = this.wreckedCops.has(cop) || this.blockade.includes(cop)
-      const input = still ? (forwardSpeed(cop) > 1 ? { ...idle, brake: 1 } : idle) : hunting && !this.parked.has(cop) ? chase(cop, this.player.car, this.track, this.line, this.copRole.get(cop)) : idle
+      const prey = this.mode === 'cop' ? this.preyFor(cop) : this.player.car
+      const input = still ? (forwardSpeed(cop) > 1 ? { ...idle, brake: 1 } : idle) : (hunting || this.mode === 'cop') && prey && !this.parked.has(cop) ? chase(cop, prey, this.track, this.line, this.copRole.get(cop)) : idle
       stepCar(cop, input, dt, this.track)
     }
     for (const racer of this.racers) {
@@ -502,6 +542,7 @@ export class Race {
           input = { ...idle, brake: 0.4 }
         } else if (racer.driver) input = drive(racer.car, racer.driver, this.track, this.line, cars, dt)
         else if (this.autopilot) input = drive(racer.car, this.autopilot, this.track, this.line, cars, dt)
+        else if (this.mode === 'cop' && this.clock < COP_HOLD) input = idle
         else input = this.brakeHelp ? brakingAid(racer.car, this.playerInput, this.track, this.line) : this.playerInput
       }
       stepCar(racer.car, input, dt, this.track)
@@ -538,6 +579,7 @@ export class Race {
       this.events.push({ type: 'wrecked', id: me.id })
     }
     if (this.mode === 'pursuit') this.updatePursuit(dt)
+    else if (this.mode === 'cop') this.updateCop(dt)
     else if (this.patrols > 0) this.updatePatrol(dt)
     this.checkSpikes()
     for (const racer of this.racers) if (!racer.out) this.track_(racer, dt)
@@ -691,6 +733,16 @@ export class Race {
     const tool = this.tools[slot]
     const me = this.player.car
     if (!tool || tool.left <= 0 || this.toolWait > 0 || this.phase !== 'racing' || this.pursuit.outcome) return false
+    if (this.mode === 'cop') {
+      if (!this.copTool(tool.id as CopToolId)) {
+        this.events.push({ type: 'noTarget' })
+        return false
+      }
+      tool.left--
+      this.toolWait = 1
+      this.events.push({ type: 'tool', id: tool.id })
+      return true
+    }
     tool.left--
     this.toolWait = 1
     if (tool.id === 'jammer') {
@@ -719,6 +771,44 @@ export class Race {
       }
     }
     this.events.push({ type: 'tool', id: tool.id })
+    return true
+  }
+
+  // The police tools when the player is the cop. Returns false when there is
+  // nobody to use it on, so the use is not spent.
+  private copTool(id: CopToolId): boolean {
+    const me = this.player.car
+    const leader = this.leadingRacer()
+    if (!leader) return false
+    if (id === 'roadblock') {
+      const s = locate(this.track, leader.car.x, leader.car.z, leader.car.hint).s + 260
+      this.placeRoadblock(s, this.setupRng() < 0.5 ? -1 : 1)
+    } else if (id === 'spikes') {
+      this.layOnLine(leader.car, 140)
+    } else if (id === 'helicopter') {
+      this.heli = { x: me.x, z: me.z, heading: me.heading, seeing: false }
+      this.heliLeft = HELI_TOOL_TIME
+      this.sinceDrop = HELI_DROP_EVERY - 1.5
+    } else {
+      // The pulse: the racer most nearly straight ahead within range.
+      const fx = Math.sin(me.heading)
+      const fz = Math.cos(me.heading)
+      let target: CarState | null = null
+      let best = Infinity
+      for (const r of this.racers) {
+        if (r.player || r.out || r.finishTime !== null) continue
+        const dx = r.car.x - me.x
+        const dz = r.car.z - me.z
+        const d = Math.hypot(dx, dz)
+        const ahead = (dx * fx + dz * fz) / Math.max(d, 0.01)
+        if (d < COP_PULSE_RANGE && ahead > Math.cos(0.45) && d < best) {
+          best = d
+          target = r.car
+        }
+      }
+      if (!target) return false
+      target.stunned = COP_PULSE_STUN
+    }
     return true
   }
 
@@ -810,20 +900,125 @@ export class Race {
   // the event. Strips well behind the player are picked up.
   private checkSpikes() {
     if (this.spikes.length === 0) return
-    const me = this.player.car
-    const here = locate(this.track, me.x, me.z, me.hint)
     const L = this.track.length
+    // Spikes are for the player, or for the racers when the player is the cop.
+    const cars = this.mode === 'cop' ? this.racers.filter((r) => !r.player && !r.out).map((r) => r.car) : [this.player.car]
+    const where = cars.map((car) => locate(this.track, car.x, car.z, car.hint))
+    // A strip is picked up once every car it was laid for is well past it.
     this.spikes = this.spikes.filter((strip) => {
-      let ds = here.s - strip.s
-      if (ds > L / 2) ds -= L
-      if (ds < -L / 2) ds += L
-      if (!this.punctured && Math.abs(ds) < 1.6 && Math.abs(here.d - strip.offset) < strip.half + me.spec.halfWidth) {
-        this.punctured = true
-        me.spec = { ...me.spec, topSpeed: me.spec.topSpeed * PUNCTURED.topSpeed, lateralLimit: me.spec.lateralLimit * PUNCTURED.grip, grip: me.spec.grip * PUNCTURED.grip }
-        this.events.push({ type: 'punctured' })
-      }
-      return ds < 80
+      let keep = false
+      cars.forEach((car, k) => {
+        let ds = where[k].s - strip.s
+        if (ds > L / 2) ds -= L
+        if (ds < -L / 2) ds += L
+        if (!this.blown.has(car) && Math.abs(ds) < 1.6 && Math.abs(where[k].d - strip.offset) < strip.half + car.spec.halfWidth) {
+          this.blown.add(car)
+          car.spec = { ...car.spec, topSpeed: car.spec.topSpeed * PUNCTURED.topSpeed, lateralLimit: car.spec.lateralLimit * PUNCTURED.grip, grip: car.spec.grip * PUNCTURED.grip }
+          if (car === this.player.car) this.punctured = true
+          this.events.push({ type: 'punctured' })
+        }
+        if (ds < 80) keep = true
+      })
+      return keep
     })
+  }
+
+  // Playing the cop: racers are busted by damage or by being boxed in,
+  // backup arrives on the radio, the helicopter tool flies over the
+  // leader, and the event ends when no racer is left on the road.
+  private updateCop(dt: number) {
+    if (this.phase !== 'racing') return
+    const me = this.player.car
+    this.toolWait = Math.max(0, this.toolWait - dt)
+    for (const racer of this.racers) {
+      if (racer.player || racer.out || racer.finishTime !== null) continue
+      if (racer.car.damage >= 1) {
+        this.bust(racer)
+        continue
+      }
+      const slow = speedOf(racer.car) < 6
+      const near = [me, ...this.activeCops].some((c) => Math.hypot(c.x - racer.car.x, c.z - racer.car.z) < BOX_RANGE)
+      const t = slow && near ? (this.boxed.get(racer) ?? 0) + dt : 0
+      this.boxed.set(racer, t)
+      if (t >= BOX_TIME) this.bust(racer)
+    }
+    // Backup on the radio.
+    if (this.backups < BACKUP_MAX && this.clock >= BACKUP_EVERY * (this.backups + 1)) {
+      this.backups++
+      this.addCop(60, 'patrol', 'ram')
+      this.events.push({ type: 'backup' })
+    }
+    // The helicopter tool: over the leader, dropping spikes ahead of it.
+    if (this.heliLeft > 0) {
+      this.heliLeft = Math.max(0, this.heliLeft - dt)
+      this.sinceDrop += dt
+      const leader = this.leadingRacer()
+      if (leader) {
+        this.flyOver(leader.car, dt)
+        if (this.sinceDrop >= HELI_DROP_EVERY) {
+          this.sinceDrop = 0
+          this.layOnLine(leader.car, 120)
+        }
+      }
+      if (this.heliLeft === 0) this.heli = null
+    }
+    if (this.racers.every((r) => r.player || r.out || r.finishTime !== null)) {
+      this.player.finishTime = this.clock
+      this.finishOrder.push(this.player.id)
+      this.phase = 'finished'
+    }
+  }
+
+  private bust(racer: Racer) {
+    this.knockOut(racer, 'busted')
+    this.busts++
+    this.events.push({ type: 'racerBusted', id: racer.id })
+  }
+
+  // The racer furthest round the lap still on the road.
+  leadingRacer(): Racer | null {
+    let best: Racer | null = null
+    for (const r of this.racers) if (!r.player && !r.out && r.finishTime === null && (!best || r.distance > best.distance)) best = r
+    return best
+  }
+
+  // For a backup car: the racer still on the road nearest ahead of it.
+  private preyFor(cop: CarState): CarState | null {
+    const n = this.track.n
+    let best: CarState | null = null
+    let bestGap = Infinity
+    for (const r of this.racers) {
+      if (r.player || r.out || r.finishTime !== null) continue
+      const gap = ((r.car.hint - cop.hint + n) % n) * this.track.spacing
+      if (gap < bestGap) {
+        bestGap = gap
+        best = r.car
+      }
+    }
+    return best
+  }
+
+  // A spike strip across the racing line, the given distance ahead of a car.
+  private layOnLine(car: CarState, ahead: number) {
+    const s = locate(this.track, car.x, car.z, car.hint).s + ahead
+    const i = Math.round((((s % this.track.length) + this.track.length) % this.track.length) / this.track.spacing) % this.track.n
+    this.spikes.push({ s, offset: this.line.offset[i], half: 3.2 })
+  }
+
+  // The helicopter towards a point a second ahead of the given car.
+  private flyOver(car: CarState, dt: number) {
+    const h = this.heli
+    if (!h) return
+    const dx = car.x + car.vx - h.x
+    const dz = car.z + car.vz - h.z
+    const d = Math.hypot(dx, dz)
+    const move = Math.min(d, HELI_SPEED * 1.4 * dt)
+    if (d > 0.01) {
+      h.x += (dx / d) * move
+      h.z += (dz / d) * move
+      if (d > 2) h.heading = Math.atan2(dx, dz)
+    }
+    h.seeing = d < HELI_SIGHT
   }
 
   // Police in a race. A waiting patrol car that sees the player go past
@@ -943,7 +1138,8 @@ export class Race {
           this.eliminateLast()
           if (racer.finishTime !== null) return
         }
-        if (this.mode !== 'elimination' && racer.lapTimes.length >= this.laps) {
+        // Playing the cop, only the racers have a finish line.
+        if (this.mode !== 'elimination' && !(this.mode === 'cop' && racer.player) && racer.lapTimes.length >= this.laps) {
           racer.finishTime = this.clock
           this.finishOrder.push(racer.id)
           return

@@ -7,7 +7,7 @@ import { type Fitted, type Part, priceOf, STAGES, stageOf } from './upgrades'
 // the next one. Progress is kept in the browser. In the code and the save
 // the coins are still called cash, the name they had first.
 
-export type EventKind = 'race' | 'elimination' | 'drift' | 'pursuit' | 'trial'
+export type EventKind = 'race' | 'elimination' | 'drift' | 'pursuit' | 'trial' | 'cop'
 
 export interface EventDef {
   id: string
@@ -102,6 +102,9 @@ export interface Outcome {
   escaped?: boolean
   bestLap?: number
   referenceLap?: number
+  // Playing the cop: racers busted, and how many there were.
+  busts?: number
+  racers?: number
 }
 
 export interface Result {
@@ -200,6 +203,8 @@ const round50 = (n: number) => Math.round(n / 50) * 50
 // Getting away from the police pays this much for each heat level, in a
 // pursuit or when losing them in a race.
 export const ESCAPE_PAY = 1000
+// Playing the cop: what each racer busted pays.
+export const BUST_PAY = 1000
 // Wrecking a rival pays a flat amount, a patrol car more for each heat
 // level.
 export const TAKEDOWN_PAY = { rival: 300, cop: 500 }
@@ -225,6 +230,12 @@ function quickPay(run: Run): Line | null {
     }
     case 'pursuit':
       return run.escaped ? { label: `Escaped at heat ${run.heat}`, coins: ESCAPE_PAY * run.heat } : null
+    case 'cop': {
+      // 1,000 a bust, and as much again for busting every racer.
+      const busts = run.busts ?? 0
+      const all = busts > 0 && busts === run.racers
+      return busts > 0 ? { label: all ? `Every racer busted (${busts})` : `${busts} ${busts === 1 ? 'racer' : 'racers'} busted`, coins: BUST_PAY * busts + (all ? BUST_PAY : 0) } : null
+    }
   }
 }
 

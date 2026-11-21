@@ -1,6 +1,6 @@
 import { AdditiveBlending, Color, CylinderGeometry, DoubleSide, type Group, Group as GroupObject, type Material, MathUtils, type Mesh, Mesh as MeshObject, MeshBasicMaterial, MeshStandardMaterial, Object3D, RingGeometry, SphereGeometry, SpotLight, Vector3 } from 'three'
 import { type EngineKind, Sound } from './audio'
-import { type EventKind, ESCAPE_PAY, type Outcome, TAKEDOWN_PAY } from './career'
+import { BUST_PAY, type EventKind, ESCAPE_PAY, type Outcome, TAKEDOWN_PAY } from './career'
 import { bumper, finishOrbit, heli, INTRO_SECONDS, intro, tv, tvCameras } from './cinema'
 import { Input } from './input'
 import { applyWeather, isDay, type Weather, weatherFor } from './render/atmosphere'
@@ -17,8 +17,8 @@ import { buildTrackMeshes } from './render/trackMesh'
 import { type Quality, World } from './render/world'
 import { type Replay, Recorder } from './replay'
 import { CAR, type CarSpec, type CarState, driftTier, forwardSpeed, PHYSICS_VERSION, speedOf } from './sim/car'
-import { carById, CARS, type Shape } from './sim/cars'
-import { type Mine, Race, type Racer, SHOCK_RANGE, type SpikeStrip, STEP, type ToolId } from './sim/race'
+import { carById, CARS, INTERCEPTOR_SPEC, type Shape } from './sim/cars'
+import { type CopToolId, type Mine, Race, type Racer, type RacerToolId, SHOCK_RANGE, type SpikeStrip, STEP, type ToolId } from './sim/race'
 import { pointAt } from './sim/track'
 
 export type Mode = 'menu' | 'garage' | 'intro' | 'race' | 'paused' | 'results' | 'replay'
@@ -55,8 +55,10 @@ export interface Settings {
   driftAssist: boolean
   brakeAssist: boolean
   stability: boolean
-  // The two racer tools taken into a pursuit.
-  tools: ToolId[]
+  // The two racer tools taken into a pursuit, and the two police tools
+  // for playing the cop.
+  tools: RacerToolId[]
+  copTools: CopToolId[]
   weather: Weather | 'auto'
   kind: EventKind
 }
@@ -264,12 +266,13 @@ export class Game {
       police: spec.police,
       // No patrol cars for the AI-driven car of the title screen and tests.
       patrols: attract || this.autopilot ? 0 : spec.patrols,
-      mode: spec.kind === 'elimination' ? 'elimination' : spec.kind === 'pursuit' ? 'pursuit' : 'circuit',
+      mode: spec.kind === 'elimination' ? 'elimination' : spec.kind === 'pursuit' ? 'pursuit' : spec.kind === 'cop' ? 'cop' : 'circuit',
       playerColor: this.settings.color,
-      playerSpec: this.tune(car.id),
+      // Playing the cop, the player drives an interceptor.
+      playerSpec: spec.kind === 'cop' ? INTERCEPTOR_SPEC : this.tune(car.id),
       rivalSpecs: rivalCars.map((c) => c.spec),
       autopilot: attract || this.autopilot,
-      tools: spec.kind === 'pursuit' ? this.settings.tools : undefined,
+      tools: spec.kind === 'pursuit' ? this.settings.tools : spec.kind === 'cop' ? this.settings.copTools : undefined,
     })
     this.race.brakeHelp = this.settings.brakeAssist
     this.weather = spec.weather === 'auto' ? weatherFor(spec.seed) : spec.weather
@@ -328,7 +331,12 @@ export class Game {
     this.passing.clear()
     this.nitroPulse = 0
     this.throttleAt = null
+    const cop = spec.kind === 'cop'
     this.race.racers.forEach((racer, k) => {
+      if (racer.player && cop) {
+        this.addView(racer.car, createCarModel('#14161c', this.spotTexture, { shape: 'police-fast', glow: false, bank: this.wheelBank }), racer, true)
+        return
+      }
       const shape = racer.player ? car.shape : RIVAL_SHAPES[(k + 1) % RIVAL_SHAPES.length]
       this.addView(racer.car, createCarModel(racer.color, this.spotTexture, { shape, bank: this.wheelBank }), racer, false)
     })
@@ -678,6 +686,16 @@ export class Game {
       } else if (e.type === 'mineHit') {
         this.wreckBurst({ x: e.x, z: e.z, vx: 0, vz: 0 } as CarState)
         this.shake = Math.min(1, this.shake + 0.5)
+      } else if (e.type === 'racerBusted') {
+        const r = race.racers[e.id]
+        flash(`${r.name} busted`)
+        popup(`Bust +${BUST_PAY.toLocaleString('en')}`, 'gold')
+        this.shake = Math.min(1, this.shake + 0.3)
+        this.bulletUntil = now + 700
+      } else if (e.type === 'backup') {
+        popup('Backup on the way: a patrol car joins', 'cyan')
+      } else if (e.type === 'noTarget') {
+        popup('No racer in range', 'red')
       } else if (e.type === 'heliJoined') {
         popup('Helicopter overhead: outrun the searchlight', 'red')
       } else if (e.type === 'pulseLock') {
@@ -764,6 +782,8 @@ export class Game {
       escaped: race.pursuit.outcome === 'escaped',
       bestLap: player.lapTimes.length ? Math.min(...player.lapTimes) : undefined,
       referenceLap: race.line.lapTime,
+      busts: race.busts,
+      racers: race.racers.length - 1,
     })
   }
 
@@ -809,7 +829,8 @@ export class Game {
     const blink = Math.floor(this.time * 4) % 2 === 0
     m.beacon.color.set(blink ? '#ff2030' : '#2050ff')
     m.beacon.intensity = 12
-    const me = this.race.player.car
+    // Playing the cop, the light is on the leading racer.
+    const me = (this.event.kind === 'cop' ? this.race.leadingRacer()?.car : null) ?? this.race.player.car
     m.light.target.position.set(me.x, 0, me.z)
     const day = isDay(this.weather)
     m.light.intensity = h.seeing && !day ? 220 : 0
@@ -979,7 +1000,9 @@ export class Game {
       nearest = d
       closing = ((cop.vx - followed.vx) * dx + (cop.vz - followed.vz) * dz) / Math.max(d, 1)
     }
-    this.sound.siren(active && nearest < Infinity ? Math.max(0, 1 - nearest / 260) : 0, MathUtils.clamp(1 + (closing / 343) * 3, 0.75, 1.35))
+    // Playing the cop, the player's own siren is on.
+    const own = active && this.event.kind === 'cop' && this.mode !== 'replay' ? 0.4 : 0
+    this.sound.siren(Math.max(own, active && nearest < Infinity ? Math.max(0, 1 - nearest / 260) : 0), own > 0 ? 1 : MathUtils.clamp(1 + (closing / 343) * 3, 0.75, 1.35))
     this.sound.wind(speedOf(followed), active && this.race.phase !== 'countdown' && this.replayPlaying)
     const heli = this.race.heli
     this.sound.rotor(active && heli && this.mode !== 'replay' ? Math.max(0, 1 - Math.hypot(heli.x - followed.x, heli.z - followed.z) / 400) : 0)
@@ -1321,9 +1344,9 @@ export class Game {
     const running = race.racers.filter((r) => !r.out).length
     $('place').textContent = String(race.position(player))
     $('field').textContent = String(kind === 'elimination' ? running : race.racers.length)
-    $('place-row').classList.toggle('hidden', kind === 'drift' || kind === 'pursuit' || kind === 'trial')
+    $('place-row').classList.toggle('hidden', kind === 'drift' || kind === 'pursuit' || kind === 'trial' || kind === 'cop')
     $('lap').textContent = kind === 'elimination' ? String(race.lapOf(player)) : `${race.lapOf(player)}/${race.laps}`
-    $('lap-row').classList.toggle('hidden', kind === 'pursuit')
+    $('lap-row').classList.toggle('hidden', kind === 'pursuit' || kind === 'cop')
     $('race-time').textContent = formatTime(Math.max(0, player.finishTime ?? race.clock))
     // Progress through the whole race, for events with a set number of laps.
     const laps = kind === 'race' || kind === 'drift' || kind === 'trial'
@@ -1360,6 +1383,15 @@ export class Game {
     else if (kind === 'elimination') goal = `${running} cars left. Last place is out at the end of each lap.`
     else if (kind === 'trial') goal = `Target lap ${formatTime(race.line.lapTime * (this.event.target ?? 1.12))}`
     else if (kind === 'pursuit') goal = `Heat ${race.pursuit.heat}. Get ${300} m clear of every patrol car.${race.heli?.seeing ? ' The helicopter has you in its light.' : ''}${race.pulseLock > 0 ? ' Interceptor locking on!' : ''}`
+    else if (kind === 'cop') {
+      // The racer to go after: the nearest one ahead, with its damage.
+      const left = race.racers.filter((r) => !r.player && !r.out && r.finishTime === null)
+      const fx = Math.sin(car.heading)
+      const fz = Math.cos(car.heading)
+      const ahead = left.map((r) => ({ r, d: Math.hypot(r.car.x - car.x, r.car.z - car.z), front: (r.car.x - car.x) * fx + (r.car.z - car.z) * fz })).filter((t) => t.front > 0).sort((a, b) => a.d - b.d)[0]
+      const leader = race.leadingRacer()
+      goal = `Busted ${race.busts} of ${race.racers.length - 1}.${leader ? ` Leader on lap ${Math.min(race.laps, race.lapOf(leader))} of ${race.laps}.` : ''}${ahead ? ` ${ahead.r.name} ${Math.round(ahead.d)} m ahead, damage ${Math.round(ahead.r.car.damage * 100)}%.` : ''}${race.clock < 3 ? ' The racers have a head start.' : ''}`
+    }
     // Police after the player in a race: the same meters as a pursuit.
     const chased = kind === 'pursuit' || race.chasing
     if (race.chasing) goal = `Police on you, heat ${race.pursuit.heat}. Get ${300} m clear to lose them.`
@@ -1567,6 +1599,10 @@ export const TOOL_INFO: Record<ToolId, { name: string; does: string; used: strin
   shockwave: { name: 'Shockwave', does: 'Throws every car within 18 m away from you. A police car it sends into a wall is a takedown.', used: 'Shockwave' },
   turbo: { name: 'Turbo', does: 'A big push for 2.5 seconds, up to a quarter past your top speed.', used: 'Turbo' },
   mine: { name: 'Mine', does: 'Dropped behind you, it goes off under the first police car to reach it and can wreck it.', used: 'Mine dropped' },
+  roadblock: { name: 'Roadblock', does: 'Two heavy units park across the road 260 m ahead of the leading racer, with a gap on one side.', used: 'Roadblock going up ahead of the leader' },
+  spikes: { name: 'Spike strip', does: 'A strip across the racing line 140 m ahead of the leading racer. Blown tyres cost a racer 28% of its top speed.', used: 'Spike strip laid ahead of the leader' },
+  helicopter: { name: 'Helicopter', does: 'For 20 seconds it follows the leading racer and drops a spike strip in front of it every 6 seconds.', used: 'Helicopter on the leader' },
+  pulse: { name: 'Pulse', does: 'Cuts the power of the racer most nearly straight ahead within 90 m for 2 seconds.', used: 'Pulse fired' },
 }
 
 // A ring of light for the shockwave, flat on the road.

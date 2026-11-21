@@ -154,6 +154,18 @@ test('a pursuit puts police on the road and shows the meters', async ({ page }) 
   await expect(page.locator('#tools-hud .tool')).toHaveCount(2)
 })
 
+test('playing the cop: the player drives a police car and busts the racers', async ({ page }) => {
+  await open(page)
+  await quickRace(page, 'cop')
+  await forward(page, 5)
+  await expect(page.locator('#goal')).toContainText('Busted 0 of 4', { timeout: 15000 })
+  await expect(page.locator('#tools-hud .tool')).toHaveCount(2)
+  // A racer with its damage bar full is busted, and the count goes up.
+  await page.evaluate(() => ((window as any).__neon.game.race.racers[0].car.damage = 1))
+  await forward(page, 0.2)
+  await expect(page.locator('#goal')).toContainText('Busted 1 of 4', { timeout: 15000 })
+})
+
 test('a patrol car waits by the road in a race and chases a car that flies past', async ({ page }) => {
   await open(page)
   await page.locator('#go-career').click()

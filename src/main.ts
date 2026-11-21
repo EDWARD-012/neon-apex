@@ -9,7 +9,7 @@ import { loadCarAssets } from './render/carAssets'
 import { AccountError, type Account, chooseLogin, cloudEnabled, currentAccount, googleButton, signIn, signInWithGoogle, signOut, uploadProgress } from './cloud'
 import { ALL_EVENTS, buy, type EventDef, type EventKind, loadProgress, type Outcome, type Progress, saveProgress, settle, TIERS, tidy, tierOpen, upgrade, WINS_TO_UNLOCK, winsIn } from './career'
 import { type EventSpec, formatTime, Game, ordinal, REPLAY_CAMERAS, type Settings, TOOL_INFO } from './game'
-import { TOOL_IDS, type ToolId } from './sim/race'
+import { COP_TOOL_IDS, type CopToolId, type RacerToolId, TOOL_IDS, type ToolId } from './sim/race'
 import type { Weather } from './render/atmosphere'
 import type { Quality } from './render/world'
 import { carById, CARS, type Rating, ratings } from './sim/cars'
@@ -22,15 +22,16 @@ const params = new URLSearchParams(location.search)
 // daylight.
 const COLORS = ['#f2a900', '#c8102e', '#0d47a1', '#ff5a1f', '#1f6f4a', '#e9e9ec', '#111316', '#6a1b9a']
 const STORE = 'neon-apex/settings'
-const KINDS: EventKind[] = ['race', 'elimination', 'drift', 'pursuit', 'trial']
+const KINDS: EventKind[] = ['race', 'elimination', 'drift', 'pursuit', 'trial', 'cop']
 const KIND_NOTES: Record<EventKind, string> = {
   race: 'Five rivals. First across the line after the last lap wins. With police on, a patrol car waits by the road.',
   elimination: 'Last place is out at the end of every lap. Be the last car running. With police on, a patrol car waits by the road.',
   drift: 'On your own. Score as many drift points as you can before the laps run out.',
   pursuit: 'Police are on you. Get 300 m clear of every patrol car and stay there.',
   trial: 'On your own against a ghost of your best lap on this track.',
+  cop: 'You drive the police car. Four racers get a 3 second start: bust them before they finish, by ramming until their damage is full or by boxing them in. Backup comes on the radio.',
 }
-const KIND_COLORS: Record<EventKind, string> = { race: '#3df5ff', elimination: '#ff6a3d', drift: '#ffd23d', pursuit: '#ff3d5a', trial: '#a66bff' }
+const KIND_COLORS: Record<EventKind, string> = { race: '#3df5ff', elimination: '#ff6a3d', drift: '#ffd23d', pursuit: '#ff3d5a', trial: '#a66bff', cop: '#4d7cff' }
 
 function loadSettings(): Settings {
   let saved: Partial<Settings> = {}
@@ -53,6 +54,7 @@ function loadSettings(): Settings {
     brakeAssist: saved.brakeAssist ?? false,
     stability: saved.stability ?? true,
     tools: Array.isArray(saved.tools) && saved.tools.length === 2 && saved.tools.every((t) => TOOL_IDS.includes(t)) ? saved.tools : ['shockwave', 'turbo'],
+    copTools: Array.isArray(saved.copTools) && saved.copTools.length === 2 && saved.copTools.every((t) => COP_TOOL_IDS.includes(t)) ? saved.copTools : ['spikes', 'pulse'],
     // 'auto' was the old default; it now means the mountain road by day.
     weather: (params.get('weather') as Weather) ?? (saved.weather === 'auto' || !saved.weather ? 'day' : saved.weather),
     kind: saved.kind && KINDS.includes(saved.kind) ? saved.kind : 'race',
@@ -161,25 +163,35 @@ function quickKind(kind: EventKind) {
   settings.kind = kind
   $('kind-note').textContent = KIND_NOTES[kind]
   $('laps-row').classList.toggle('hidden', kind === 'elimination' || kind === 'pursuit')
-  $('tools-row').classList.toggle('hidden', kind !== 'pursuit')
-  $('tools-note').classList.toggle('hidden', kind !== 'pursuit')
+  $('tools-row').classList.toggle('hidden', kind !== 'pursuit' && kind !== 'cop')
+  $('tools-note').classList.toggle('hidden', kind !== 'pursuit' && kind !== 'cop')
+  drawTools()
 }
 
-// Two racer tools for pursuits, quick or career. Picking a third drops the
-// one picked longest ago.
+// Two tools: racer tools for pursuits, quick or career, and police tools
+// for playing the cop. Picking a third drops the one picked longest ago.
 function drawTools() {
-  document.querySelectorAll<HTMLButtonElement>('#tools-pick button').forEach((b) => b.classList.toggle('on', settings.tools.includes(b.dataset.tool as ToolId)))
-  $('tools-note').textContent = settings.tools.map((t) => `${TOOL_INFO[t].name}: ${TOOL_INFO[t].does}`).join(' ') + ' Keys 1 and 2, or Q and E. Each works twice in a pursuit.'
+  const cop = settings.kind === 'cop'
+  const ids: ToolId[] = cop ? COP_TOOL_IDS : TOOL_IDS
+  const chosen: ToolId[] = cop ? settings.copTools : settings.tools
+  const box = $('tools-pick')
+  box.innerHTML = ''
+  for (const id of ids) {
+    const b = document.createElement('button')
+    b.dataset.tool = id
+    b.textContent = TOOL_INFO[id].name
+    b.classList.toggle('on', chosen.includes(id))
+    b.addEventListener('click', () => {
+      if (chosen.includes(id)) return
+      if (cop) settings.copTools = [settings.copTools[1], id as CopToolId]
+      else settings.tools = [settings.tools[1], id as RacerToolId]
+      saveSettings(settings)
+      drawTools()
+    })
+    box.appendChild(b)
+  }
+  $('tools-note').textContent = chosen.map((t) => `${TOOL_INFO[t].name}: ${TOOL_INFO[t].does}`).join(' ') + ` Keys 1 and 2, or Q and E. Each works twice${cop ? '' : ' in a pursuit'}.`
 }
-document.querySelectorAll<HTMLButtonElement>('#tools-pick button').forEach((b) =>
-  b.addEventListener('click', () => {
-    const id = b.dataset.tool as ToolId
-    if (settings.tools.includes(id)) return
-    settings.tools = [settings.tools[1], id]
-    saveSettings(settings)
-    drawTools()
-  }),
-)
 drawTools()
 
 function quick() {
@@ -211,10 +223,10 @@ function quickSpec(kind: EventKind = settings.kind): EventSpec {
   const solo = kind === 'drift' || kind === 'trial' || kind === 'pursuit'
   return {
     kind,
-    title: kind === 'race' ? 'Quick race' : kind === 'trial' ? 'Time trial' : `Quick ${kind}`,
+    title: kind === 'race' ? 'Quick race' : kind === 'trial' ? 'Time trial' : kind === 'cop' ? 'Playing the cop' : `Quick ${kind}`,
     seed: settings.seed,
     laps: settings.laps,
-    rivals: solo ? 0 : 5,
+    rivals: solo ? 0 : kind === 'cop' ? 4 : 5,
     skill: 1,
     traffic: settings.traffic && kind !== 'trial' && kind !== 'drift' ? 8 : 0,
     police: kind === 'pursuit' ? 2 : undefined,
@@ -603,6 +615,7 @@ function results(outcome: Outcome) {
     else if (kind === 'race') title = place === 1 ? 'You won' : `You finished ${ordinal(place)}`
     else if (kind === 'elimination') title = player.out ? `Out in ${ordinal(place)}` : 'Last car running'
     else if (kind === 'pursuit') title = race.pursuit.outcome === 'escaped' ? 'Escaped' : 'Busted'
+    else if (kind === 'cop') title = race.busts === race.racers.length - 1 ? 'Every racer busted' : `${race.busts} of ${race.racers.length - 1} racers busted`
     else if (kind === 'drift') title = `${race.drift.total.toLocaleString('en')} drift points`
     else title = 'Time trial'
     if (kind === 'drift') summary = race.drift.total >= (spec.target ?? 0) ? `Target of ${(spec.target ?? 0).toLocaleString('en')} reached.` : `The target was ${(spec.target ?? 0).toLocaleString('en')}.`

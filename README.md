@@ -59,7 +59,7 @@ The game is original. It borrows the street racing genre, not any particular gam
   </tr>
 </table>
 
-Events. Races against five rivals. Elimination, where the last car is knocked out every time the leader finishes a lap. Drift events with a points target. Pursuits, where patrol cars chase you and you have to get 300 m clear of every one and stay there. Time trials against a ghost. Each one can be played on its own from Quick race, and the career strings twelve of them together.
+Events. Races against five rivals. Elimination, where the last car is knocked out every time the leader finishes a lap. Drift events with a points target. Pursuits, where patrol cars chase you and you have to get 300 m clear of every one and stay there. Time trials against a ghost. And playing the cop: you drive a police interceptor after four racers with a 3 second start, and bust them by ramming until their damage is full or by boxing them in, with a patrol car of backup every 30 seconds and two police tools (a roadblock or spike strip ahead of the leader, a helicopter that drops spikes in front of the leader, or a pulse that cuts a racer's power). Each one can be played on its own from Quick race, and the career strings twelve of them together.
 
 Cars. Four, each the same physics with different numbers: a balanced coupe, a light hatch with sticky tyres, a muscle car that slides, and an electric car with instant pull and a long-lasting nitro tank. The garage shows each on a turntable with its ratings and lets you buy, upgrade and paint them.
 
