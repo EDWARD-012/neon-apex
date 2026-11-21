@@ -59,6 +59,10 @@ export class Sound {
   private windFilter!: BiquadFilterNode
   private rotorGain!: GainNode
   private rotorDepth!: GainNode
+  private rumbleGain!: GainNode
+  private rumbleDepth!: GainNode
+  private rumbleChop!: OscillatorNode
+  private sprayGain!: GainNode
   private volume = 0.55
   enabled = true
 
@@ -151,6 +155,19 @@ export class Sound {
     this.rotorDepth.gain.value = 0
     blades.connect(this.rotorDepth).connect(this.rotorGain.gain)
     blades.start()
+
+    // Kerb rumble: low noise chopped on and off as each block of the kerb
+    // passes under the tyres, the same way as the rotor.
+    this.rumbleGain = this.loop('lowpass', 120, 0.9)
+    this.rumbleChop = ctx.createOscillator()
+    this.rumbleChop.type = 'square'
+    this.rumbleChop.frequency.value = 20
+    this.rumbleDepth = ctx.createGain()
+    this.rumbleDepth.gain.value = 0
+    this.rumbleChop.connect(this.rumbleDepth).connect(this.rumbleGain.gain)
+    this.rumbleChop.start()
+    // Spray: the hiss of tyres on a wet road.
+    this.sprayGain = this.loop('highpass', 2400, 0.5)
   }
 
   // The police helicopter overhead, level 0 to 1 from how close it is.
@@ -159,6 +176,21 @@ export class Sound {
     const t = this.ctx.currentTime
     this.rotorGain.gain.setTargetAtTime(level * 0.32, t, 0.3)
     this.rotorDepth.gain.setTargetAtTime(level * 0.26, t, 0.3)
+  }
+
+  // Running over a kerb: level 0 to 1, and the rate the kerb's blocks pass
+  // under the tyres, per second.
+  rumble(level: number, rate: number) {
+    if (!this.ctx) return
+    const t = this.ctx.currentTime
+    this.rumbleGain.gain.setTargetAtTime(level * 0.3, t, 0.04)
+    this.rumbleDepth.gain.setTargetAtTime(level * 0.3, t, 0.04)
+    this.rumbleChop.frequency.setTargetAtTime(Math.min(45, Math.max(6, rate)), t, 0.05)
+  }
+
+  // Tyres on a wet road, level 0 to 1 from the car's speed.
+  spray(level: number) {
+    if (this.ctx) this.sprayGain.gain.setTargetAtTime(level * 0.09, this.ctx.currentTime, 0.2)
   }
 
   setRain(on: boolean) {

@@ -20,6 +20,7 @@ import { createRng } from '../sim/rng'
 import type { Track } from '../sim/track'
 import { pbr } from './assets'
 import { asphalt, banner, checker, spot } from './textures'
+import { KERB_IN, KERB_OUT, kerbSide } from '../sim/kerbs'
 
 // A ribbon along the track between two lateral offsets, at a height, with
 // one row of vertices per sample and a closing row back at the start.
@@ -120,12 +121,10 @@ export function buildTrackMeshes(track: Track, day = false): Group {
   const red = new Color('#e8303a')
   const white = new Color('#f0f0f0')
   for (let i = 0; i < track.n; i += 2) {
-    const k = track.curvature[i]
-    if (Math.abs(k) < 1 / 55) continue
-    // Positive curvature bends left, and left is the negative offset side.
-    const side = k > 0 ? -1 : 1
+    const side = kerbSide(track, i)
+    if (side === 0) continue
     const color = (i / 2) % 2 === 0 ? red : white
-    kerbs.push({ from: i, to: i + 2, inner: side * (half - 0.05), outer: side * (half + 0.9), y: 0.03, color })
+    kerbs.push({ from: i, to: i + 2, inner: side * (half - KERB_IN), outer: side * (half + KERB_OUT), y: 0.03, color })
   }
   if (kerbs.length) group.add(new Mesh(quads(track, kerbs), new MeshStandardMaterial({ vertexColors: true, roughness: 0.5 })))
 

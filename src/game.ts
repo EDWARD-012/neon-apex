@@ -25,7 +25,8 @@ import { type Replay, Recorder } from './replay'
 import { CAR, type CarSpec, type CarState, driftTier, forwardSpeed, PHYSICS_VERSION, speedOf } from './sim/car'
 import { carById, CARS, INTERCEPTOR_SPEC, type Shape } from './sim/cars'
 import { type CopToolId, type Mine, Race, type Racer, type RacerToolId, SHOCK_RANGE, type SpikeStrip, STEP, type ToolId } from './sim/race'
-import { pointAt } from './sim/track'
+import { onKerb } from './sim/kerbs'
+import { locate, pointAt } from './sim/track'
 
 export type Mode = 'menu' | 'garage' | 'intro' | 'race' | 'paused' | 'results' | 'replay'
 
@@ -243,6 +244,8 @@ export class Game {
   private camLook = new Vector3()
   private fov = 62
   private shake = 0
+  // How much of the followed car was on a kerb last frame, 0 to 1.
+  private kerbBefore = 0
   private follow = 0
   private introTime = 0
   private lastCount = 0
@@ -1125,7 +1128,21 @@ export class Game {
     // Playing the cop, the player's own siren is on.
     const own = active && this.event.kind === 'cop' && this.mode !== 'replay' ? 0.4 : 0
     this.sound.siren(Math.max(own, active && nearest < Infinity ? Math.max(0, 1 - nearest / 260) : 0), own > 0 ? 1 : MathUtils.clamp(1 + (closing / 343) * 3, 0.75, 1.35))
-    this.sound.wind(speedOf(followed), active && this.race.phase !== 'countdown' && this.replayPlaying)
+    const moving = active && this.race.phase !== 'countdown' && this.replayPlaying
+    this.sound.wind(speedOf(followed), moving)
+    // Kerbs rumble under the tyres, chopped faster the faster the car goes,
+    // with a slight shake and, on a phone, a tap as the car gets on one.
+    const speed = speedOf(followed)
+    const where = locate(this.race.track, followed.x, followed.z, followed.hint)
+    const kerb = moving ? onKerb(this.race.track, where.i, where.d) * MathUtils.clamp(speed / 20, 0, 1) : 0
+    this.sound.rumble(kerb, speed / (2 * this.race.track.spacing))
+    if (this.mode === 'race') {
+      this.shake = Math.max(this.shake, kerb * 0.1)
+      if (kerb > 0.3 && this.kerbBefore <= 0.3) buzz(12)
+    }
+    this.kerbBefore = kerb
+    // Tyres hiss on a wet road.
+    this.sound.spray(moving && this.raining ? Math.min(1, speed / 60) : 0)
     const heli = this.race.heli
     this.sound.rotor(active && heli && this.mode !== 'replay' ? Math.max(0, 1 - Math.hypot(heli.x - followed.x, heli.z - followed.z) / 400) : 0)
     const boost = followed.nitroOn ? 0.85 : MathUtils.clamp((speedOf(followed) - 55) / 30, 0, 0.35)
