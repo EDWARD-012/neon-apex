@@ -158,6 +158,10 @@ The server is a set of Vercel functions in [api/](api) with a Neon Postgres data
 
 The game also sends a few anonymous play events to [api/event.ts](api/event.ts): when it is opened, when a race starts and ends, and a ping for each minute of play, each with a random ID made in the browser and no account, name or email. The server keeps only known fields and drops anything else. `npm run analytics` prints them day by day from the database in `.env.local`: visitors, sessions, minutes a session, races started and finished, and how many of a day's visitors came back the next day. Events are off in the browser tests and on localhost.
 
+## First load
+
+The loading screen shows the step it is on (Getting things ready, Downloading the cars, Loading the sky, Warming up the graphics, Ready) and a bar of the megabytes downloaded, counted from the response streams in `src/loader.ts`. Only the player's own car and the daytime sky are waited for; the other car models and the traffic pack download behind the menu, and the title screen is rebuilt when they arrive. A race started before then waits for them, for up to 20 seconds, with the intro saying "Getting things ready". Each download is tried twice more after a failure, and a car whose model never arrives is drawn in code, with a note on the menu. Shaders for the title screen are compiled before the loading screen goes. A service worker (`public/sw.js`) keeps the models, textures, built code and fonts in the browser, serving them from its cache and refreshing them in the background; the page itself and `/api` always go to the network.
+
 ## Run it locally
 
 Needs Node 22 or newer.

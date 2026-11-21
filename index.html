@@ -212,6 +212,7 @@
           <a href="/coins.html">Coins</a>
           <a href="/updates.html">Updates</a>
         </nav>
+        <p id="load-note" class="note small hidden"></p>
         <p class="credit">Built by Ravi Kumar Gupta. <a href="/about.html">About the game</a>. Support, feedback or licensing: <a href="mailto:ravi5258p@gmail.com">ravi5258p@gmail.com</a></p>
       </div>
     </section>
@@ -501,7 +502,14 @@
       <button id="go-landscape" class="primary hidden">Play full screen</button>
     </section>
 
-    <div id="loading">Building the city</div>
+    <div id="loading" role="status" aria-live="polite">
+      <div class="load-box">
+        <p class="load-name">Skidline</p>
+        <p id="load-step">Getting things ready</p>
+        <div class="load-bar"><i id="load-fill"></i></div>
+        <p id="load-bytes"></p>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
