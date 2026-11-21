@@ -7,8 +7,11 @@ import {
   DirectionalLight,
   FogExp2,
   HemisphereLight,
+  type Line,
+  type Material,
   Mesh,
   MeshBasicMaterial,
+  type Object3D,
   PerspectiveCamera,
   PMREMGenerator,
   Scene,
@@ -16,12 +19,14 @@ import {
   HalfFloatType,
   PCFSoftShadowMap,
   PlaneGeometry,
+  type Points,
   Vector2,
   WebGLRenderer,
   WebGLRenderTarget,
 } from 'three'
 import { Reflector } from 'three/addons/objects/Reflector.js'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js'
 import { daySky } from './assets'
 import { sky } from './textures'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
@@ -159,6 +164,37 @@ const SpeedShader = {
 const query = new URLSearchParams(location.search)
 const NO_DRAW = query.has('test') && query.has('nodraw')
 
+// Ambient occlusion for the cockpit: the soft darkening where parts meet,
+// round the dials in their cowls and under the hands on the wheel. It works
+// at half resolution, and leaves out glass, light beams and anything else
+// that does not write depth, which would otherwise darken the view behind
+// them.
+class CabinAO extends GTAOPass {
+  constructor(scene: Scene, camera: PerspectiveCamera, width: number, height: number) {
+    super(scene, camera, width / 2, height / 2)
+    this.updateGtaoMaterial({ radius: 0.06, distanceExponent: 1.2, thickness: 0.3, scale: 1, samples: 16, distanceFallOff: 1 })
+    this.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 5, radiusExponent: 1, rings: 2, samples: 16 })
+    this.blendIntensity = 1
+  }
+
+  setSize(width: number, height: number) {
+    super.setSize(Math.max(1, Math.round(width / 2)), Math.max(1, Math.round(height / 2)))
+  }
+
+  _overrideVisibility() {
+    const self = this as unknown as { _visibilityCache: Object3D[]; scene: Scene }
+    self.scene.traverse((o) => {
+      if (!o.visible) return
+      const m = (o as Mesh).material as Material | Material[] | undefined
+      const see = (x: Material) => x.transparent || !x.depthWrite
+      if ((o as Points).isPoints || (o as Line).isLine || (m && (Array.isArray(m) ? m.some(see) : see(m)))) {
+        o.visible = false
+        self._visibilityCache.push(o)
+      }
+    })
+  }
+}
+
 export class World {
   readonly renderer: WebGLRenderer
   readonly scene = new Scene()
@@ -255,9 +291,13 @@ export class World {
       this.speed = new ShaderPass(SpeedShader)
       this.composer.addPass(this.speed)
       this.composer.addPass(new OutputPass())
+      this.ao = null
+      this.syncAO()
+      this.applyBloom()
     } else {
       this.composer?.dispose()
       this.composer = null
+      this.ao = null
       this.bloom = null
       this.speed = null
       this.renderPass = null
@@ -296,11 +336,9 @@ export class World {
     this.day = on
     this.moon.color.set(on ? '#fff1dc' : '#8ea2ff')
     this.moon.castShadow = on && this.quality === 'high'
-    this.fill.intensity = on ? 0.25 : 0.9
-    if (this.bloom) {
-      this.bloom.strength = on ? 0.32 : 0.8
-      this.bloom.threshold = on ? 2.4 : 0.86
-    }
+    this.fillBase = on ? 0.25 : 0.9
+    this.fill.intensity = this.fillBase * (this.interior ? 0.08 : 1)
+    this.applyBloom()
     if (this.speed) this.speed.uniforms.look.value = on ? 0 : 1
     if (!on) {
       this.scene.environment = this.environment
@@ -343,6 +381,7 @@ export class World {
   show(scene: Scene) {
     this.active = scene
     if (this.renderPass) this.renderPass.scene = scene
+    if (this.ao) this.ao.scene = scene
     // The camera carries the fill light, so it moves with it.
     scene.add(this.camera)
   }
@@ -375,12 +414,52 @@ export class World {
     return this.reflector
   }
 
+  // Runs just before each frame is drawn, for extra views such as the
+  // cockpit's rear-view mirror.
+  beforeDraw: (() => void) | null = null
+
+  // Inside the car: the light that rides with the camera, there to light
+  // cars at night, would light the dashboard straight on and flatten it,
+  // so it nearly goes out, and the cabin gets ambient occlusion on high
+  // quality.
+  private interior = false
+  private fillBase = 0.9
+  private ao: CabinAO | null = null
+
+  setInterior(on: boolean) {
+    if (on === this.interior) return
+    this.interior = on
+    this.fill.intensity = this.fillBase * (on ? 0.08 : 1)
+    this.applyBloom()
+    this.syncAO()
+  }
+
+  // A softer bloom by day. Inside the car by day only real light sources
+  // bloom: a sun glint on a metal trim or the glass stays a glint instead
+  // of spreading into a haze over the cabin.
+  private applyBloom() {
+    if (!this.bloom) return
+    this.bloom.strength = this.day ? 0.32 : 0.8
+    this.bloom.threshold = this.day ? (this.interior ? 8 : 2.4) : 0.86
+  }
+
+  private syncAO() {
+    if (!this.composer) return
+    if (this.interior && !this.ao) {
+      const size = this.renderer.getDrawingBufferSize(new Vector2())
+      this.ao = new CabinAO(this.active, this.camera, size.x, size.y)
+      this.composer.insertPass(this.ao, 1)
+    }
+    if (this.ao) this.ao.enabled = this.interior
+  }
+
   render() {
     this.hemi.intensity = this.ambient + this.flash * 6
     this.flash *= 0.86
     // For the browser tests on machines without a graphics card: everything
     // but the drawing itself still runs every frame.
     if (NO_DRAW) return
+    this.beforeDraw?.()
     if (this.composer) this.composer.render()
     else this.renderer.render(this.active, this.camera)
   }
