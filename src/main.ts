@@ -27,6 +27,9 @@ import { classOf, kmh, type Part, PARTS, partById, priceOf, ratingOf, setTune, S
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement
 const params = new URLSearchParams(location.search)
+// Free roam on the open map's test map: a prototype opened only from the
+// address bar with ?roam, kept away from the menus, career and analytics.
+const roam = params.has('roam')
 // The graphics a device starts on: low on phones and tablets, high elsewhere.
 const deviceQuality: Quality = matchMedia('(pointer: coarse)').matches ? 'low' : 'high'
 // On a game portal the links that leave the game are hidden (see portal.ts).
@@ -145,11 +148,14 @@ try {
   $('loading').textContent = 'This game needs WebGL, and your browser could not start it. Turning on hardware acceleration usually fixes this.'
   throw new Error('WebGL is not available')
 }
+// Free roam has no race behind the title screen: hold the game's frames
+// until it takes them over.
+if (roam) game.takeover = () => undefined
 game.input.bindTouch($('touch'))
 // When the other cars arrive, the title screen is rebuilt with them, and a
 // car that never came is named in a note on the menu.
 void cars.all.then(() => {
-  if (game.mode === 'menu') game.showMenu()
+  if (game.mode === 'menu' && !roam) game.showMenu()
   const missing = loadReport().failed.length
   if (missing) {
     $('load-note').textContent = 'Some car models did not download, so simpler drawn cars stand in for them. Reloading the page tries again.'
@@ -1375,11 +1381,18 @@ $('rp-exit').addEventListener('click', () => {
 window.addEventListener('pointerdown', () => game.sound.start(), { once: true })
 window.addEventListener('keydown', () => game.sound.start(), { once: true })
 
-game.showMenu()
-menu()
+if (roam) {
+  setScreen('race')
+  const { startRoam } = await import('./roam')
+  const free = startRoam(game, settings)
+  if (params.has('test')) Object.assign(window, { __roam: free })
+} else {
+  game.showMenu()
+  menu()
+}
 // Shaders for the title screen, so its first frame does not stall.
 setStep('Warming up the graphics')
-if (!params.has('test')) await Promise.race([game.warmUp(), later(8000)])
+if (!params.has('test') && !roam) await Promise.race([game.warmUp(), later(8000)])
 setStep('Ready')
 $('loading').classList.add('done')
 
@@ -1388,7 +1401,7 @@ $('loading').classList.add('done')
 if ('serviceWorker' in navigator && import.meta.env.PROD && !params.has('test')) {
   navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => undefined)
 }
-report('visit', null, null, { touch: matchMedia('(pointer: coarse)').matches, quality: settings.quality, width: Math.round(innerWidth / 100) * 100 })
+if (!roam) report('visit', null, null, { touch: matchMedia('(pointer: coarse)').matches, quality: settings.quality, width: Math.round(innerWidth / 100) * 100 })
 startClock()
 
 // Hooks for the browser tests and the screenshot script.
