@@ -657,6 +657,9 @@ export class Game {
         const out = race.racers[e.id]
         if (out.player) flash('Eliminated', 'warn')
         else popup(`${out.name} is out`, 'red')
+      } else if (e.type === 'crashReported') {
+        if (e.sent) flash('Crash reported: police on the way', 'warn')
+        else popup('Another crash: the heat is rising', 'red')
       } else if (e.type === 'spotted') {
         flash('Police on your tail', 'warn')
         this.shake = Math.min(1, this.shake + 0.2)
