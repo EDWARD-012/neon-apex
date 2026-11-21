@@ -12,13 +12,13 @@
 </p>
 
 <p align="center">
-  <a href="https://apex.edward7780.com/"><b>Play it in your browser</b></a>
+  <a href="https://skidline.edward7780.com/"><b>Play it in your browser</b></a>
   &nbsp;&nbsp;
-  <a href="https://apex.edward7780.com/trailer.webm"><b>Watch the 31-second trailer</b></a>
+  <a href="https://skidline.edward7780.com/trailer.webm"><b>Watch the 31-second trailer</b></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/EDWARD-012/neon-apex/actions/workflows/ci.yml"><img src="https://github.com/EDWARD-012/neon-apex/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+  <a href="https://github.com/EDWARD-012/skidline/actions/workflows/ci.yml"><img src="https://github.com/EDWARD-012/skidline/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
 </p>
 
 <p align="center">
@@ -148,7 +148,7 @@ Settings has three driving aids. Drift assist is the brake-tap drift and is on b
 
 Progress always lives in the browser's local storage. Signing in also keeps it on a server, so it follows you to another device. The first sign-in is with Google; the game then asks you to choose a username and a password, and after that you can sign in with those on a computer where you are not signed in to Google.
 
-The server is a set of Vercel functions in [api/](api) with a Neon Postgres database behind them. A Google sign-in is checked against Google's published keys for this app's client ID, a verified email address is required, and the session is a signed, HTTP-only cookie that lasts 90 days. Passwords are stored as salted scrypt hashes. A save is checked for shape and size before it is stored. When you sign in on a device, the account's save replaces the one on that device; an account with no save yet takes the device's progress. What is stored is listed on the [privacy page](https://apex.edward7780.com/privacy.html).
+The server is a set of Vercel functions in [api/](api) with a Neon Postgres database behind them. A Google sign-in is checked against Google's published keys for this app's client ID, a verified email address is required, and the session is a signed, HTTP-only cookie that lasts 90 days. Passwords are stored as salted scrypt hashes. A save is checked for shape and size before it is stored. When you sign in on a device, the account's save replaces the one on that device; an account with no save yet takes the device's progress. What is stored is listed on the [privacy page](https://skidline.edward7780.com/privacy.html).
 
 The game also sends a few anonymous play events to [api/event.ts](api/event.ts): when it is opened, when a race starts and ends, and a ping for each minute of play, each with a random ID made in the browser and no account, name or email. The server keeps only known fields and drops anything else. `npm run analytics` prints them day by day from the database in `.env.local`: visitors, sessions, minutes a session, races started and finished, and how many of a day's visitors came back the next day. Events are off in the browser tests and on localhost.
 
@@ -157,7 +157,7 @@ The game also sends a few anonymous play events to [api/event.ts](api/event.ts):
 Needs Node 22 or newer.
 
 ```bash
-git clone https://github.com/EDWARD-012/neon-apex.git
+git clone https://github.com/EDWARD-012/skidline.git
 cd neon-apex
 npm ci
 npm run dev
@@ -181,9 +181,9 @@ npx playwright install
 npm run e2e
 ```
 
-The browser tests play the built game through its menus in Playwright's Chromium, Firefox and WebKit, and at a phone-sized landscape viewport with touch controls. They check that the city renders, that the car responds to the keyboard or the touch buttons, that a race with traffic runs to the results table and its replay plays and changes camera, that a time trial saves a ghost and shows it on the next run, that a pursuit puts police on the road with the meters showing, that a patrol car waits by the road in a race and chases a car that flies past, that the race screen shows the standings with gaps, the time, the map and the speed, that the driving aids in Settings are kept and used in the race, that pause freezes the race clock, that a random track's seed goes into the address bar, that a career event pays coins which then buy a car and an engine upgrade in the garage, and that the next race is driven with that engine, and, on the phone, that holding it upright brings up the turn-sideways screen and pauses the race. Any console error fails a test.
+The browser tests play the built game through its menus in Playwright's Chromium, Firefox and WebKit, and at a phone-sized landscape viewport with touch controls. They check that the city renders, that the car responds to the keyboard or the touch buttons, that a race with traffic runs to the results table and its replay plays and changes camera, that a time trial saves a ghost and shows it on the next run, that a pursuit puts police on the road with the meters showing, that a patrol car waits by the road in a race and chases a car that flies past, that the race screen shows the standings with gaps, the time, the map and the speed, that saves carried over from the old address are kept without overwriting newer ones, that the driving aids in Settings are kept and used in the race, that pause freezes the race clock, that a random track's seed goes into the address bar, that a career event pays coins which then buy a car and an engine upgrade in the garage, and that the next race is driven with that engine, and, on the phone, that holding it upright brings up the turn-sideways screen and pauses the race. Any console error fails a test.
 
-The game is hosted on Vercel at apex.edward7780.com, and Vercel builds and publishes every push to `main`. CI runs the unit tests and the browser tests on the same push, against the same commit. The old GitHub Pages address now forwards to Vercel, keeping any track seed in the link. CI runs every browser test except the Firefox ones: GitHub's machines have no graphics card, and headless Firefox finds no way to start WebGL there, so Firefox runs on a local machine only.
+The game is hosted on Vercel at skidline.edward7780.com, and Vercel builds and publishes every push to `main`. The old address, apex.edward7780.com, forwards there; a small script in `index.html` hands the old address's saves over in the link first, because browsers keep saves per address. CI runs the unit tests and the browser tests on the same push, against the same commit. The old GitHub Pages address now forwards to Vercel, keeping any track seed in the link. CI runs every browser test except the Firefox ones: GitHub's machines have no graphics card, and headless Firefox finds no way to start WebGL there, so Firefox runs on a local machine only.
 
 `npm run shots` retakes the screenshots and the GIF in this README by playing the game in a headless browser, `npm run trailer` records the trailer the same way, and `npm run diagram` redraws the racing line picture. The GIF step needs Python with Pillow, and the trailer needs a machine with a graphics card to record at full frame rate.
 
