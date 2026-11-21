@@ -1,4 +1,5 @@
 import type { Progress } from './career'
+import { PORTAL } from './portal'
 
 // Accounts and cloud saves. Signing in with Google creates the account; the
 // first time, the player also picks a username and password for signing in
@@ -13,8 +14,9 @@ export interface Account {
   progress: Progress | null
 }
 
-// Off in tests and in the plain Vite preview, which have no /api.
-export const cloudEnabled = !new URLSearchParams(location.search).has('test')
+// Off in tests and in the plain Vite preview, which have no /api, and in
+// the portal build, which has none either.
+export const cloudEnabled = !PORTAL && !new URLSearchParams(location.search).has('test')
 
 async function call(path: string, method = 'GET', data?: unknown): Promise<{ ok: boolean; body: Record<string, unknown> }> {
   try {
