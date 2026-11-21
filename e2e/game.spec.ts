@@ -25,11 +25,15 @@ type State = {
 }
 const state = (page: Page) => page.evaluate(() => (window as any).__neon.state() as State)
 const forward = (page: Page, seconds: number) => page.evaluate((s) => (window as any).__neon.game.fastForward(s), seconds)
-// Low graphics on CI, where every frame is drawn in software, and no 3D
-// drawing at all unless the test looks at the picture: the frame loop, the
-// HUD and the menus still run, so the tests don't wait on a slow GPU-less
-// first frame. Only the title screen test draws.
-const open = (page: Page, query = '', draw = false) => page.goto(`./?test${process.env.CI ? `&quality=low${draw ? '' : '&nodraw'}` : ''}${query}`)
+// Low graphics on CI, where every frame is drawn in software. Chromium on
+// CI also skips the 3D drawing unless the test looks at the picture: its
+// software WebGL can take minutes over a first frame. The frame loop, the
+// HUD and the menus still run. WebKit and the phone draw every test there,
+// so drawing errors still fail a test.
+const open = (page: Page, query = '', draw = false) => {
+  const skip = Boolean(process.env.CI) && !draw && test.info().project.name === 'chromium'
+  return page.goto(`./?test${process.env.CI ? '&quality=low' : ''}${skip ? '&nodraw' : ''}${query}`)
+}
 
 // Main menu, then Quick race, pick the event, Start, and skip the fly-in.
 async function quickRace(page: Page, kind = 'race', police = true) {
