@@ -88,6 +88,7 @@ export type RaceEvent =
   | { type: 'busted' }
   | { type: 'escaped' }
   | { type: 'spotted' }
+  | { type: 'crashReported'; sent: boolean }
   | { type: 'lostPolice'; heat: number }
   | { type: 'wrecked'; id: number }
   // The player pushed a rival (id) or a patrol car (cop) into a wall hard
@@ -144,6 +145,15 @@ export const ESCAPE_DISTANCE = 300
 // A waiting patrol car sees the player go past this close and this fast.
 export const SPOT_RANGE = 30
 export const SPOT_SPEED = 30
+// In a race with police on, a crash is reported: a hit on a traffic car of
+// CRASH_HIT or more on the contact scale (a hard ram), or a wall at
+// CRASH_WALL m/s or more, which does real damage. A patrol car is sent in from CRASH_BEHIND metres back, out
+// of sight. A crash during a chase brings the next heat level CRASH_HEAT
+// seconds sooner.
+export const CRASH_HIT = 5
+export const CRASH_WALL = 10
+export const CRASH_BEHIND = 220
+export const CRASH_HEAT = 15
 // A takedown: a car the player hit in the last TAKEDOWN_WINDOW seconds
 // meets a barrier at more than TAKEDOWN_HIT m/s, about 45 km/h, straight
 // into it.
@@ -562,11 +572,13 @@ export class Race {
           }
           const other = cars[a] === playerCar ? cars[b] : cars[a]
           if (hit > 2) this.hitByPlayer.set(other, this.clock)
+          if (hit >= CRASH_HIT && this.traffic.some((t) => t.car === other)) this.reportCrash()
           const k = this.traffic.findIndex((t) => t.car === other)
           if (k >= 0) this.passing[k].touched = this.clock
         }
       }
     }
+    if (playerCar.wallHit >= CRASH_WALL) this.reportCrash()
     this.nearMisses()
     this.scoreDrift(dt)
     this.takedownCheck()
@@ -1029,6 +1041,42 @@ export class Race {
   // 300 m clear for long enough loses them, and they go back to waiting by
   // the road further on. While the chase lasts, the heat rises and more
   // patrol cars join, up to the race's limit.
+  // A crash in a race with police on. With nobody after the player yet, a
+  // patrol car is sent in from behind, out of sight: one that was waiting by
+  // the road if there is one, or a new one within the race's limit. During
+  // a chase, the heat climbs sooner instead. One report per crash: hits in
+  // the same second count once.
+  private lastCrash = -Infinity
+  private reportCrash() {
+    if (this.mode !== 'circuit' && this.mode !== 'elimination') return
+    if (this.patrols === 0 || this.phase !== 'racing' || this.player.out || this.player.finishTime !== null) return
+    if (this.clock - this.lastCrash < 1) return
+    this.lastCrash = this.clock
+    const p = this.pursuit
+    if (this.chasing) {
+      p.sinceJoin += CRASH_HEAT
+      this.events.push({ type: 'crashReported', sent: false })
+      return
+    }
+    const me = this.player.car
+    const where = locate(this.track, me.x, me.z, me.hint)
+    const parked = [...this.parked][0]
+    if (parked) {
+      const at = pointAt(this.track, where.s - CRASH_BEHIND, 3)
+      const fresh = createCar(at.x, at.z, at.heading, this.track, parked.spec)
+      fresh.nitro = 0
+      const v = Math.max(20, forwardSpeed(me))
+      fresh.vx = Math.sin(at.heading) * v
+      fresh.vz = Math.cos(at.heading) * v
+      Object.assign(parked, fresh)
+      this.parked.delete(parked)
+    } else if (this.activeCops.length < this.patrols) this.addCop(CRASH_BEHIND)
+    else return
+    Object.assign(p, { busted: 0, escape: 0, heat: 1, sinceJoin: 0 })
+    this.chasing = true
+    this.events.push({ type: 'crashReported', sent: true })
+  }
+
   private updatePatrol(dt: number) {
     const me = this.player.car
     if (this.phase !== 'racing' || this.player.out || this.player.finishTime !== null) return
