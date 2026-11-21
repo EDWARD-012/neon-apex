@@ -2,19 +2,47 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // The game moved from apex.edward7780.com to skidline.edward7780.com on
+      // 21 November 2026. Browsers keep saves per address, so the old one
+      // hands its saves (not ghost laps, which are big) to the new one in the
+      // link and forwards; the new one keeps any it does not have yet.
+      ;(function () {
+        var PREFIX = 'neon-apex/'
+        try {
+          if (location.hostname === 'apex.edward7780.com') {
+            var carry = {}
+            for (var i = 0; i < localStorage.length; i++) {
+              var key = localStorage.key(i)
+              if (key && key.indexOf(PREFIX) === 0 && key.indexOf(PREFIX + 'ghost/') !== 0) carry[key] = localStorage.getItem(key)
+            }
+            var hash = Object.keys(carry).length ? '#carry=' + encodeURIComponent(JSON.stringify(carry)) : location.hash
+            location.replace('https://skidline.edward7780.com/' + location.search + hash)
+            return
+          }
+          if (location.hash.indexOf('#carry=') === 0) {
+            var data = JSON.parse(decodeURIComponent(location.hash.slice(7)))
+            for (var k in data) if (k.indexOf(PREFIX) === 0 && typeof data[k] === 'string' && localStorage.getItem(k) === null) localStorage.setItem(k, data[k])
+            history.replaceState(null, '', location.pathname + location.search)
+          }
+        } catch (e) {
+          // Storage blocked or a bad link: the game starts with what it has.
+        }
+      })()
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Skidline is a free 3D web racing game you play online in your browser, with no download. Race AI rivals on a mountain road by day or through a neon city at night, drift, escape the police and drive from the cockpit." />
     <meta name="theme-color" content="#05060c" />
-    <link rel="canonical" href="https://apex.edward7780.com/" />
+    <link rel="canonical" href="https://skidline.edward7780.com/" />
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://apex.edward7780.com/" />
+    <meta property="og:url" content="https://skidline.edward7780.com/" />
     <meta property="og:site_name" content="Skidline" />
     <meta property="og:title" content="Skidline: free online racing game in your browser" />
     <meta property="og:description" content="Race AI rivals on a mountain road or through a neon city, drift, outrun the police and drive from the cockpit. Free, no download, in any modern browser." />
-    <meta property="og:image" content="https://apex.edward7780.com/og.jpg" />
+    <meta property="og:image" content="https://skidline.edward7780.com/og.jpg" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Skidline: free online racing game in your browser" />
-    <meta name="twitter:image" content="https://apex.edward7780.com/og.jpg" />
+    <meta name="twitter:image" content="https://skidline.edward7780.com/og.jpg" />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <title>Skidline: free online racing game in your browser</title>
     <script type="application/ld+json">
@@ -22,8 +50,8 @@
         "@context": "https://schema.org",
         "@type": ["VideoGame", "SoftwareApplication"],
         "name": "Skidline",
-        "url": "https://apex.edward7780.com/",
-        "image": "https://apex.edward7780.com/og.jpg",
+        "url": "https://skidline.edward7780.com/",
+        "image": "https://skidline.edward7780.com/og.jpg",
         "description": "A free 3D web racing game you play in the browser: a career, AI rivals on a computed racing line, police pursuits, drift and elimination events, crash damage, a cockpit camera, and a mountain road by day or a neon city at night.",
         "genre": ["Racing", "Driving"],
         "gamePlatform": ["Web browser", "PC", "Mobile"],
@@ -36,21 +64,21 @@
         "isAccessibleForFree": true,
         "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
         "screenshot": [
-          "https://apex.edward7780.com/screens/day.jpg",
-          "https://apex.edward7780.com/screens/cockpit.jpg",
-          "https://apex.edward7780.com/screens/pursuit.jpg",
-          "https://apex.edward7780.com/screens/nitro.jpg",
-          "https://apex.edward7780.com/screens/damage.jpg",
-          "https://apex.edward7780.com/screens/garage.jpg",
-          "https://apex.edward7780.com/screens/drift.jpg",
-          "https://apex.edward7780.com/screens/career.jpg"
+          "https://skidline.edward7780.com/screens/day.jpg",
+          "https://skidline.edward7780.com/screens/cockpit.jpg",
+          "https://skidline.edward7780.com/screens/pursuit.jpg",
+          "https://skidline.edward7780.com/screens/nitro.jpg",
+          "https://skidline.edward7780.com/screens/damage.jpg",
+          "https://skidline.edward7780.com/screens/garage.jpg",
+          "https://skidline.edward7780.com/screens/drift.jpg",
+          "https://skidline.edward7780.com/screens/career.jpg"
         ],
         "trailer": {
           "@type": "VideoObject",
           "name": "Skidline trailer",
           "description": "Half a minute of Skidline: a race in the rain, the fly-in before a race, racing in the pack, a police pursuit at dusk and the garage.",
-          "thumbnailUrl": "https://apex.edward7780.com/og.jpg",
-          "contentUrl": "https://apex.edward7780.com/trailer.webm",
+          "thumbnailUrl": "https://skidline.edward7780.com/og.jpg",
+          "contentUrl": "https://skidline.edward7780.com/trailer.webm",
           "encodingFormat": "video/webm",
           "uploadDate": "2026-11-20T18:22:06+05:30",
           "duration": "PT32S",
@@ -124,14 +152,29 @@
 
     <div id="touch" class="hidden">
       <div class="touch-left">
-        <button data-touch="left" aria-label="Steer left">&#9664;</button>
-        <button data-touch="right" aria-label="Steer right">&#9654;</button>
+        <div id="touch-wheel" class="touch-wheel" role="slider" aria-label="Steering wheel: drag left and right" aria-valuemin="-1" aria-valuemax="1">
+          <svg viewBox="-100 -100 200 200" aria-hidden="true">
+            <circle r="84" class="rim" />
+            <path class="spoke" d="M -84 0 L -20 6 M 84 0 L 20 6 M 0 22 L 0 84" />
+            <circle r="22" class="hub" />
+            <path class="mark" d="M 0 -96 L 0 -72" />
+          </svg>
+        </div>
+        <div class="touch-arrows">
+          <button data-touch="left" aria-label="Steer left">&#9664;</button>
+          <button data-touch="right" aria-label="Steer right">&#9654;</button>
+        </div>
+        <p class="tilt-note">Tilt to steer</p>
       </div>
       <div class="touch-right">
-        <button data-touch="nitro" class="small">Nitro</button>
-        <button data-touch="drift" class="small">Drift</button>
-        <button data-touch="brake">Brake</button>
-        <button data-touch="gas" class="gas">Gas</button>
+        <div class="touch-buttons">
+          <button data-touch="nitro" id="touch-nitro" class="small">Nitro</button>
+          <button data-touch="drift" id="touch-drift" class="small">Drift</button>
+        </div>
+        <div id="touch-pedals" class="touch-pedals">
+          <div data-pedal="brake" class="pedal-touch brake" aria-label="Brake"><span>Brake</span></div>
+          <div data-pedal="gas" class="pedal-touch gas" aria-label="Accelerator: press higher for more"><span>Gas</span></div>
+        </div>
       </div>
       <div id="touch-tools" class="touch-tools hidden">
         <button id="touch-tool-1" class="small">Tool 1</button>
@@ -353,6 +396,21 @@
             </div>
           </div>
           <div class="setting">
+            <span class="label">Phone steering</span>
+            <div class="segmented" id="touch-steer">
+              <button data-value="wheel">Wheel</button>
+              <button data-value="arrows">Arrows</button>
+              <button data-value="tilt">Tilt</button>
+            </div>
+          </div>
+          <div class="setting">
+            <span class="label">Phone layout</span>
+            <div class="segmented" id="hand">
+              <button data-value="right">Right-handed</button>
+              <button data-value="left">Left-handed</button>
+            </div>
+          </div>
+          <div class="setting">
             <span class="label">Stability</span>
             <div class="segmented" id="stability">
               <button data-value="on">On</button>
@@ -361,15 +419,26 @@
           </div>
         </div>
         <p class="note small">Drift assist is the brake-tap drift. Braking assist brakes for you before corners. Stability off leaves the raw tyre model.</p>
-        <table class="keys">
-          <tr><td>Drive</td><td><kbd>&uarr;</kbd><kbd>&darr;</kbd><kbd>&larr;</kbd><kbd>&rarr;</kbd> or <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></td></tr>
-          <tr><td>Drift</td><td>Tap the brake while steering hard at speed, or <kbd>Space</kbd>. Keep steering in and on the gas to hold it; straighten up to end it. Drifting fills the nitro tank</td></tr>
-          <tr><td>Nitro</td><td><kbd>Shift</kbd>; near misses in traffic top it up</td></tr>
-          <tr><td>Look back</td><td><kbd>V</kbd> or <kbd>B</kbd>, held</td></tr>
-          <tr><td>Camera</td><td><kbd>C</kbd> cycles chase, far chase, cockpit, bonnet, bumper and drone</td></tr>
-          <tr><td>Reset, pause</td><td><kbd>R</kbd> <kbd>Esc</kbd></td></tr>
-          <tr><td>Perfect start</td><td>Press the throttle just as the light turns green</td></tr>
-        </table>
+        <h3 class="chart-title">Controls</h3>
+        <div class="chart-wrap">
+          <table class="controls-chart">
+            <thead><tr><th scope="col">Action</th><th scope="col">Keyboard</th><th scope="col">Gamepad</th><th scope="col">Phone</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">Accelerate</th><td><kbd>&uarr;</kbd> or <kbd>W</kbd></td><td>Right trigger</td><td>Gas pedal, higher for more</td></tr>
+              <tr><th scope="row">Brake, reverse</th><td><kbd>&darr;</kbd> or <kbd>S</kbd></td><td>Left trigger</td><td>Brake pedal</td></tr>
+              <tr><th scope="row">Steer</th><td><kbd>&larr;</kbd> <kbd>&rarr;</kbd> or <kbd>A</kbd> <kbd>D</kbd></td><td>Left stick</td><td>Drag the wheel, or arrows or tilt</td></tr>
+              <tr><th scope="row">Drift</th><td>Tap <kbd>&darr;</kbd> while steering hard, or <kbd>Space</kbd></td><td>Tap left trigger while steering, or B</td><td>Drift</td></tr>
+              <tr><th scope="row">Nitro</th><td><kbd>Shift</kbd> or <kbd>N</kbd></td><td>A</td><td>Nitro</td></tr>
+              <tr><th scope="row">Pursuit tools</th><td><kbd>1</kbd> <kbd>2</kbd> or <kbd>Q</kbd> <kbd>E</kbd></td><td>D-pad left and right</td><td>Tool buttons</td></tr>
+              <tr><th scope="row">Camera</th><td><kbd>C</kbd></td><td>X</td><td>Camera button</td></tr>
+              <tr><th scope="row">Look back</th><td><kbd>V</kbd> or <kbd>B</kbd>, held</td><td>Left bumper</td><td>Pause, Look back</td></tr>
+              <tr><th scope="row">Back on the road</th><td><kbd>R</kbd></td><td>Y</td><td>Pause, Back on the road</td></tr>
+              <tr><th scope="row">Restart</th><td><kbd>T</kbd></td><td>Back</td><td>Pause, Restart</td></tr>
+              <tr><th scope="row">Pause</th><td><kbd>Esc</kbd> or <kbd>P</kbd></td><td>Start</td><td>Pause button</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="note small">Perfect start: press the throttle just as the light turns green. Drifting and near misses fill the nitro tank.</p>
         <p class="credits">
           Car models, CC BY 4.0 via Sketchfab:
           <a href="https://sketchfab.com/3d-models/fictional-supercar-v12-goblin-0a20e49ad5774d778567cb5c3f345786" target="_blank" rel="noreferrer">V12 Goblin</a> by ollitei,
@@ -390,6 +459,8 @@
         <div class="menu-actions column">
           <button id="resume" class="primary">Resume</button>
           <button id="restart">Restart</button>
+          <button id="pause-look" class="touch-only">Look back</button>
+          <button id="pause-reset" class="touch-only">Back on the road</button>
           <button id="quit">Quit to menu</button>
         </div>
       </div>

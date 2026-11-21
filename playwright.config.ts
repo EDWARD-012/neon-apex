@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test'
 
 // E2E_URL runs the same tests against a deployed copy, for example
-// E2E_URL=https://apex.edward7780.com/ npm run e2e
+// E2E_URL=https://skidline.edward7780.com/ npm run e2e
 const deployed = process.env.E2E_URL
 const ci = Boolean(process.env.CI)
 
