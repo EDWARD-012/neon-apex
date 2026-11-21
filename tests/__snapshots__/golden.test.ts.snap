@@ -1,0 +1,120 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`handling guards > golden laps: every car round three tracks 1`] = `
+{
+  "golden-1": {
+    "brute": [
+      44.62,
+      0,
+    ],
+    "finch": [
+      44.72,
+      0,
+    ],
+    "granite": [
+      46.66,
+      0,
+    ],
+    "kestrel": [
+      44.23,
+      0,
+    ],
+    "kite": [
+      44.51,
+      0,
+    ],
+    "marten": [
+      44.41,
+      0,
+    ],
+    "moraine": [
+      45.82,
+      0,
+    ],
+    "vanta": [
+      44.55,
+      0,
+    ],
+    "volt": [
+      44.15,
+      0,
+    ],
+  },
+  "golden-2": {
+    "brute": [
+      35.67,
+      0,
+    ],
+    "finch": [
+      35.8,
+      0,
+    ],
+    "granite": [
+      37.3,
+      0,
+    ],
+    "kestrel": [
+      35.3,
+      0,
+    ],
+    "kite": [
+      35.6,
+      0,
+    ],
+    "marten": [
+      35.49,
+      0,
+    ],
+    "moraine": [
+      36.67,
+      0,
+    ],
+    "vanta": [
+      35.64,
+      0,
+    ],
+    "volt": [
+      35.21,
+      0,
+    ],
+  },
+  "golden-3": {
+    "brute": [
+      50.18,
+      0,
+    ],
+    "finch": [
+      50.26,
+      0,
+    ],
+    "granite": [
+      52.18,
+      0,
+    ],
+    "kestrel": [
+      49.74,
+      0,
+    ],
+    "kite": [
+      50.06,
+      0,
+    ],
+    "marten": [
+      49.95,
+      0,
+    ],
+    "moraine": [
+      51.37,
+      0,
+    ],
+    "vanta": [
+      50.12,
+      0,
+    ],
+    "volt": [
+      49.66,
+      0,
+    ],
+  },
+}
+`;
