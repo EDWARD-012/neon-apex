@@ -39,7 +39,7 @@ import {
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { Shape } from '../sim/cars'
-import { cabinTextures } from './cabinTextures'
+import { cabinTextures, PHOTO_TILE, photoTextures } from './cabinTextures'
 
 // The inside of the player's car for the cockpit camera, built in code
 // from layered panels with real seams, stitching, vents, switches and glass,
@@ -314,6 +314,30 @@ export class Cockpit {
     // Casts the car's shadow into the cabin but draws nothing.
     const shade = mat(new MeshBasicMaterial({ colorWrite: false, depthWrite: false }))
     const projected = new Set<Material>([leather, pad, suede, perforated, carbon, brushed, soft, glove, glovePanel, suit])
+    // The photographed grain for the leather and the suede, once it has
+    // loaded. The box-projected coordinates are in metres, so each map
+    // repeats once per tile of the real material it was scanned from.
+    const build = this.built
+    photoTextures().then((photo) => {
+      if (!photo || this.built !== build) return
+      const use = (m: MeshPhysicalMaterial, normal: Texture, rough: Texture, tile: number, depth: number) => {
+        m.normalMap = rep(normal, 1 / tile)
+        m.roughnessMap = rep(rough, 1 / tile)
+        m.normalScale.set(depth, depth)
+        m.roughness = 1
+        m.needsUpdate = true
+      }
+      const asLeather = (m: MeshPhysicalMaterial, scale = 1, depth = 0.9) => use(m, photo.leatherNormal, photo.leatherRough, PHOTO_TILE.leather * scale, depth)
+      const asSuede = (m: MeshPhysicalMaterial, scale = 1, depth = 1) => use(m, photo.suedeNormal, photo.suedeRough, PHOTO_TILE.suede * scale, depth)
+      asLeather(leather)
+      if (s.top === 'suede') asSuede(pad)
+      else asLeather(pad)
+      asSuede(suede)
+      // Glove leather is finer than the seats'.
+      asLeather(glove, 0.6, 0.8)
+      asSuede(glovePanel, 0.6)
+      asSuede(suit, 0.8, 0.8)
+    })
 
     // Fixed parts are merged by material after the build; stitches are one
     // instanced mesh for the cabin and one for the wheel.

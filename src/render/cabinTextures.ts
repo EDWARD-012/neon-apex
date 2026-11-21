@@ -1,10 +1,11 @@
-import { CanvasTexture, RepeatWrapping, SRGBColorSpace, type Texture } from 'three'
+import { CanvasTexture, RepeatWrapping, SRGBColorSpace, type Texture, TextureLoader } from 'three'
 
-// Surface detail for the cockpit, drawn once in the browser rather than
-// downloaded: height fields for leather grain, suede, perforated grips,
-// carbon weave, brushed metal and soft-touch plastic, turned into normal
-// and roughness maps, plus the carbon weave's colour and the windscreen's
-// dust. All of them tile.
+// Surface detail for the cockpit. Most of it is drawn once in the browser:
+// height fields for leather grain, suede, perforated grips, carbon weave,
+// brushed metal and soft-touch plastic, turned into normal and roughness
+// maps, plus the carbon weave's colour and the windscreen's dust. The
+// leather and the suede also have photographed maps (photoTextures, below)
+// that replace the drawn ones once they have loaded. All of them tile.
 
 let seed = 1
 const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647
@@ -122,6 +123,29 @@ function leatherHeight(n: number, cells: number) {
     }
   }
   return h
+}
+
+// Normal and roughness maps scanned from real leather and suede: CC0 from
+// Poly Haven, shrunk to 512 px (about 310 KB for the four). They load only
+// when a cockpit is first built; until then, or if they never arrive, the
+// drawn grain stays.
+export interface PhotoTextures {
+  leatherNormal: Texture
+  leatherRough: Texture
+  suedeNormal: Texture
+  suedeRough: Texture
+}
+
+// How big one tile of each scan is on the real material, in metres.
+export const PHOTO_TILE = { leather: 0.3, suede: 0.285 }
+
+let photos: Promise<PhotoTextures | null> | null = null
+
+export function photoTextures(): Promise<PhotoTextures | null> {
+  photos ??= Promise.all(['leather-normal', 'leather-rough', 'suede-normal', 'suede-rough'].map((name) => new TextureLoader().loadAsync(`/textures/cabin-${name}.jpg`).then(tiled)))
+    .then(([leatherNormal, leatherRough, suedeNormal, suedeRough]) => ({ leatherNormal, leatherRough, suedeNormal, suedeRough }))
+    .catch(() => null)
+  return photos
 }
 
 export interface CabinTextures {
