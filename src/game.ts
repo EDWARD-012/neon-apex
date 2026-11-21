@@ -9,6 +9,7 @@ import { buildCity, type City } from './render/city'
 import { buildLandscape } from './render/landscape'
 import { Cockpit } from './render/cockpit'
 import { Particles, Rain, Skids, Trails } from './render/effects'
+import { barrierContact, Scrapes } from './render/marks'
 import { Garage } from './render/garage'
 import { type Looks, STOCK_LOOKS, styleCar } from './looks'
 import { applyLivery } from './render/livery'
@@ -24,7 +25,7 @@ import { type Quality, World } from './render/world'
 import { FrameSampler, type Level, type QualityMode } from './autoQuality'
 import { type Replay, Recorder } from './replay'
 import { NEAR_MISS_NITRO, type Run, RunRecorder, StartWatch } from './replay-check'
-import { CAR, type CarSpec, type CarState, driftTier, forwardSpeed, PHYSICS_VERSION, speedOf } from './sim/car'
+import { barrierOffset, CAR, type CarSpec, type CarState, driftTier, forwardSpeed, PHYSICS_VERSION, speedOf } from './sim/car'
 import { carById, CARS, INTERCEPTOR_SPEC, type Shape } from './sim/cars'
 import { type CopToolId, type Mine, Race, type Racer, type RacerToolId, SHOCK_RANGE, type SpikeStrip, STEP, type ToolId } from './sim/race'
 import { onKerb } from './sim/kerbs'
@@ -96,6 +97,9 @@ interface View {
   brakeHeat: number
   brakeGlow: Sprite[]
   barPool: Mesh | null
+  // A patrol car's light bar on the barriers either side of it at night,
+  // on medium and high graphics.
+  wallWash: Mesh[]
   prev: { x: number; z: number; heading: number }
   racer: Racer | null
   police: boolean
@@ -235,6 +239,7 @@ export class Game {
   // small one, pink for the big one.
   private readonly driftSparks: [Particles, Particles]
   private readonly skids = new Skids()
+  private readonly scrapes = new Scrapes()
   private readonly trails = new Trails(64)
   private readonly rain = new Rain()
   private raining = false
@@ -297,7 +302,7 @@ export class Game {
       new Particles(300, this.spotTexture, '#3fb8ff', { additive: true, gravity: 9, brightness: 3.5 }),
       new Particles(300, this.spotTexture, '#ff4fd8', { additive: true, gravity: 9, brightness: 3.5 }),
     ]
-    this.world.scene.add(this.shards.points, this.smoke.points, this.spray.points, this.darkSmoke.points, this.sparks.points, this.fire.points, this.driftSparks[0].points, this.driftSparks[1].points, this.skids.mesh, this.trails.mesh, this.rain.lines, this.wheelBank.tyres, this.wheelBank.rims)
+    this.world.scene.add(this.shards.points, this.smoke.points, this.spray.points, this.darkSmoke.points, this.sparks.points, this.fire.points, this.driftSparks[0].points, this.driftSparks[1].points, this.skids.mesh, this.scrapes.mesh, this.trails.mesh, this.rain.lines, this.wheelBank.tyres, this.wheelBank.rims)
     this.headlight = new SpotLight('#dfe9ff', 70, 90, 0.4, 0.6, 1)
     this.headlight.target = new Object3D()
     window.addEventListener('resize', () => this.world.resize())
@@ -457,6 +462,7 @@ export class Game {
     playerModel.add(this.headlight, this.headlight.target)
 
     this.skids.clear()
+    this.scrapes.clear()
     this.trails.clear()
     this.acc = 0
     this.lastCount = 0
@@ -504,7 +510,17 @@ export class Game {
       barPool.visible = !isDay(this.weather)
       model.group.add(barPool)
     }
-    this.views.push({ car, model, prev: { x: car.x, z: car.z, heading: car.heading }, racer, police, dmg: { left: 0, right: 0, front: 0, rear: 0 }, wasBraking: false, brakeHeat: 0, brakeGlow, barPool })
+    // ...and on the barriers either side, where it is close enough to reach.
+    const wallWash: Mesh[] = []
+    if (model.siren && this.world.quality !== 'low') {
+      for (let k = 0; k < 2; k++) {
+        const wash = new MeshObject(new PlaneGeometry(10, 2.2), new MeshBasicMaterial({ map: this.spotTexture, color: '#000000', transparent: true, blending: AdditiveBlending, depthWrite: false, side: DoubleSide }))
+        wash.visible = false
+        model.group.add(wash)
+        wallWash.push(wash)
+      }
+    }
+    this.views.push({ car, model, prev: { x: car.x, z: car.z, heading: car.heading }, racer, police, dmg: { left: 0, right: 0, front: 0, rear: 0 }, wasBraking: false, brakeHeat: 0, brakeGlow, barPool, wallWash })
   }
 
   // Racers, then traffic, then police: the same order the views use.
@@ -727,6 +743,7 @@ export class Game {
     this.replayCamera = 'tv'
     this.replayFollow = this.race.racers.length - 1
     this.skids.clear()
+    this.scrapes.clear()
     this.trails.clear()
   }
 
@@ -1178,6 +1195,7 @@ export class Game {
         v.model.siren.blue.color.copy(BLUE).multiplyScalar((phase ? 0.4 : 5) * on)
         // The light bar's colour on the road around the car.
         if (v.barPool) (v.barPool.material as MeshBasicMaterial).color.copy(phase ? RED : BLUE).multiplyScalar(0.55 * on)
+        if (v.wallWash.length) this.washWalls(v, phase ? RED : BLUE, on)
       }
       // Tail light streaks once a car is properly moving.
       const c = Math.cos(g.rotation.y)
@@ -1383,12 +1401,51 @@ export class Game {
     }
   }
 
+  // A patrol car's light bar on the barriers either side of it at night,
+  // fading with the distance to each.
+  private washWalls(v: View, colour: Color, on: number) {
+    const night = !isDay(this.weather)
+    const track = this.race.track
+    const car = v.car
+    const where = locate(track, car.x, car.z, car.hint)
+    const wall = barrierOffset(track)
+    const g = v.model.group
+    const ry = g.rotation.y
+    const facing = Math.atan2(-track.tz[where.i], track.tx[where.i])
+    for (let k = 0; k < 2; k++) {
+      const side = k === 0 ? -1 : 1
+      const wash = v.wallWash[k]
+      const gap = wall - side * where.d
+      const strength = night ? Math.max(0, 1 - gap / 8) * on : 0
+      wash.visible = strength > 0.02
+      if (!wash.visible) continue
+      // The wash rides in the car's group, so it is placed in the group's
+      // own frame: the point on the barrier beside the car, turned to lie
+      // along it.
+      const dx = car.x + track.nx[where.i] * side * (gap - 0.03) - g.position.x
+      const dz = car.z + track.nz[where.i] * side * (gap - 0.03) - g.position.z
+      wash.position.set(dx * Math.cos(ry) - dz * Math.sin(ry), 0.75 - g.position.y, dx * Math.sin(ry) + dz * Math.cos(ry))
+      wash.rotation.set(0, facing - ry, 0)
+      ;(wash.material as MeshBasicMaterial).color.copy(colour).multiplyScalar(0.7 * strength)
+    }
+  }
+
+  // Scrapes on the barrier where a car grinds along it: on the steel rail
+  // by day, on the wall in the city.
+  private scrape(v: View, speed: number) {
+    const car = v.car
+    const at = barrierContact(this.race.track, car.x, car.z, car.hint, car.spec.halfWidth, speed)
+    const day = isDay(this.weather)
+    this.scrapes.mark(String(this.views.indexOf(v)), at, day ? 0.6 : 0.3, day ? 0.76 : 0.52, v.racer?.color ?? (v.police ? '#e6e8ec' : '#6a6e76'))
+  }
+
   // Smoke, spray, skid marks and sparks for one car.
   private tyres(v: View, dt: number) {
     const car = v.car
     const fx = Math.sin(car.heading)
     const fz = Math.cos(car.heading)
     const speed = speedOf(car)
+    this.scrape(v, speed)
     const skidding = car.drifting || (car.braking && speed > 28)
     for (const side of [-1, 1]) {
       const wx = car.x - fx * 1.38 + -fz * 0.86 * side
