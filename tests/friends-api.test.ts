@@ -21,10 +21,11 @@ vi.mock('../api/_lib.js', () => ({
     const rows = (r: unknown[]) => Promise.resolve(r)
     if (text.startsWith('select id from players')) return rows(db.players[String(values[0])] ? [{ id: db.players[String(values[0])] }] : [])
     if (text.startsWith('select count(*)::int as n from friends')) return rows([{ n: db.friendCount }])
-    if (text.startsWith('select 1 from friends')) return rows(db.isFriend ? [{ '?column?': 1 }] : [])
+    if (text.startsWith('select 1 from friends a join friends b')) return rows(db.isFriend ? [{ '?column?': 1 }] : [])
     if (text.startsWith('select time from laps')) return rows(db.myLap === null ? [] : [{ time: db.myLap }])
     if (text.startsWith('select count(*)::int as n from challenges')) return rows([{ n: db.sentToday }])
-    if (text.startsWith('select p.username as name from friends')) return rows([{ name: 'selin' }])
+    if (text.startsWith('select p.username as name, exists')) return rows([{ name: 'kade', mutual: true }, { name: 'selin', mutual: false }])
+    if (text.startsWith('select p.username as name from friends')) return rows([{ name: 'halvard' }])
     if (text.startsWith('select c.id')) return rows([{ id: 4, name: 'kade', seed: 'night-2026-11-21', time: 45.5, sent_at: 'x', mine: null, ghost: true }])
     if (text.startsWith('select p.username as name, t.seed')) return rows([{ name: 'selin', seed: 'week-2026-W47', time: 50.1, mine: 51.2, set_at: 'y', ghost: false }])
     return rows([])
@@ -67,7 +68,9 @@ describe('the friends endpoint', () => {
   it('returns friends, challenges and the rivals feed', async () => {
     const response = await GET(new Request('https://skidline.test/api/friends'))
     expect(await response.json()).toEqual({
-      friends: ['selin'],
+      friends: ['kade', 'selin'],
+      mutual: ['kade'],
+      addedYou: ['halvard'],
       challenges: [{ id: '4', name: 'kade', seed: 'night-2026-11-21', time: 45.5, mine: null, ghost: true, at: 'x' }],
       feed: [{ name: 'selin', seed: 'week-2026-W47', time: 50.1, mine: 51.2, ghost: false, at: 'y' }],
     })
@@ -88,7 +91,7 @@ describe('the friends endpoint', () => {
     expect(ran('delete from friends')[0].values).toEqual(['7', '9'])
   })
 
-  it('sends a challenge only to a friend, only with a checked lap, and not too many a day', async () => {
+  it('sends a challenge only to a friend who added you back, only with a checked lap, and not too many a day', async () => {
     const send = () => post({ action: 'challenge', to: 'selin', seed: 'night-2026-11-21' })
     expect((await send()).status).toBe(403)
     db.isFriend = true
@@ -101,9 +104,10 @@ describe('the friends endpoint', () => {
     expect((await post({ action: 'challenge', to: 'selin', seed: '../x' })).status).toBe(400)
   })
 
-  it('dismisses only a challenge sent to you', async () => {
+  it('deletes a challenge sent to you when you dismiss it, and old ones on any visit', async () => {
     expect((await post({ action: 'dismiss', id: '4' })).status).toBe(200)
-    expect(ran('update challenges set dismissed')[0].values).toEqual(['4', '7'])
+    expect(ran('delete from challenges where id')[0].values).toEqual(['4', '7'])
+    expect(ran('delete from challenges where sent_at').length).toBeGreaterThan(0)
     expect((await post({ action: 'dismiss', id: 'drop' })).status).toBe(404)
     expect((await post({ action: 'wave' })).status).toBe(400)
   })

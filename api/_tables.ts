@@ -27,9 +27,11 @@ export function lapsTable() {
 }
 
 let social: Promise<unknown> | null = null
-// Friends are one-way: adding someone by username follows their laps, and
-// they are not asked or told. A challenge sends one of your checked laps on
-// a track, by its time, to someone you have added.
+// Friends: adding someone by username follows their laps on the boards.
+// They are not asked, but they see that you added them, so they can add
+// you back. A challenge sends one of your checked laps on a track, by its
+// time, to a friend who has added you back; it is deleted when they
+// dismiss it, or after 30 days.
 export function socialTables() {
   social ??= lapsTable()
     .then(
@@ -49,7 +51,6 @@ export function socialTables() {
         physics integer not null,
         time double precision not null,
         sent_at timestamptz not null default now(),
-        dismissed boolean not null default false,
         unique (from_id, to_id, seed, physics)
       )`,
     )

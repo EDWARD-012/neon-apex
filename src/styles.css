@@ -2884,6 +2884,10 @@ kbd {
 .feed-list b {
   color: var(--text);
 }
+.feed-list small {
+  font-size: 12px;
+  color: var(--muted);
+}
 .feed-list li.empty {
   display: block;
   font-size: 13px;

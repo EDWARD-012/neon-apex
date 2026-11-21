@@ -1039,6 +1039,7 @@ function drawFriendsScreen() {
     raceRival,
     (id) => void dismiss(id).then(adoptSocial),
     (name) => void removeFriend(name).then(adoptSocial),
+    (name) => void addFriend(name).then(adoptSocial),
   )
 }
 
@@ -1050,7 +1051,12 @@ function adoptSocial(done: Awaited<ReturnType<typeof fetchSocial>>) {
   social = done.social
   $('friend-error').textContent = ''
   const open = social.challenges.filter((c) => c.mine === null || c.mine >= c.time).length
-  $('friends-note').textContent = open ? `${open} ${open === 1 ? 'challenge' : 'challenges'} waiting` : `${social.friends.length} ${social.friends.length === 1 ? 'friend' : 'friends'}`
+  const asks = social.addedYou.length
+  $('friends-note').textContent = open
+    ? `${open} ${open === 1 ? 'challenge' : 'challenges'} waiting`
+    : asks
+      ? `${asks} ${asks === 1 ? 'driver' : 'drivers'} added you`
+      : `${social.friends.length} ${social.friends.length === 1 ? 'friend' : 'friends'}`
   drawFeed($('rivals'), social, formatTime, raceRival)
   if (!$('friends').classList.contains('hidden')) drawFriendsScreen()
 }
@@ -1086,7 +1092,7 @@ function lapChallenge(seed: string) {
   const on = friendsEnabled && Boolean(boardName())
   el.classList.toggle('hidden', !on)
   if (!on) return
-  const draw = () => social && drawChallenge(el, social.friends, seed)
+  const draw = () => social && drawChallenge(el, social.mutual, seed)
   if (social) draw()
   else void fetchSocial().then((done) => {
     if (done.ok) social = done.social

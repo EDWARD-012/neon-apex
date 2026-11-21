@@ -35,7 +35,7 @@ async function pruneGhosts(seed: string) {
       and not exists (select 1 from friends f join laps m on m.player_id = f.player_id
         where f.friend_id = laps.player_id and m.seed = laps.seed and m.physics = laps.physics)
       and not exists (select 1 from challenges c
-        where c.from_id = laps.player_id and c.seed = laps.seed and c.physics = laps.physics and not c.dismissed)`
+        where c.from_id = laps.player_id and c.seed = laps.seed and c.physics = laps.physics)`
   const now = Date.now()
   await sql`update laps set ghost = null
     where ghost is not null and (physics <> ${PHYSICS_VERSION}

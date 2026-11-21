@@ -9,6 +9,10 @@ export const friendsEnabled = cloudEnabled
 
 export interface Social {
   friends: string[]
+  // Friends who have added you too: the ones you can challenge.
+  mutual: string[]
+  // Drivers who added you and whom you haven't added back.
+  addedYou: string[]
   // Sent to you: a friend's lap on a track, and your own best there.
   challenges: { id: string; name: string; seed: string; time: number; mine: number | null; ghost: boolean }[]
   // Friends whose lap beat yours on a board in the last 14 days.
@@ -60,7 +64,7 @@ function wire(el: HTMLElement, race: Race, extra?: (b: HTMLButtonElement) => voi
   el.querySelectorAll<HTMLButtonElement>('button[data-race]').forEach((b) =>
     b.addEventListener('click', () => race(b.dataset.seed as string, b.dataset.race as string, b.dataset.ghost === '1', b)),
   )
-  if (extra) el.querySelectorAll<HTMLButtonElement>('button[data-id], button[data-remove]').forEach(extra)
+  if (extra) el.querySelectorAll<HTMLButtonElement>('button[data-id], button[data-remove], button[data-add]').forEach(extra)
 }
 
 const raceButton = (seed: string, name: string, ghost: boolean, label: string) =>
@@ -79,9 +83,12 @@ export function drawFeed(el: HTMLElement, social: Social | null, format: Format,
   wire(el, race)
 }
 
-// The Friends screen: challenges sent to you, the rivals feed in full, and
-// your friends, each with a button to remove them.
-export function drawSocial(el: HTMLElement, social: Social, format: Format, race: Race, onDismiss: (id: string) => void, onRemove: (name: string) => void) {
+// The Friends screen: drivers who added you, challenges sent to you, the
+// rivals feed in full, and your friends, each with a button to remove them.
+export function drawSocial(el: HTMLElement, social: Social, format: Format, race: Race, onDismiss: (id: string) => void, onRemove: (name: string) => void, onAdd: (name: string) => void) {
+  const added = social.addedYou.length
+    ? `<h3>Added you</h3><ul class="feed-list">${social.addedYou.map((n) => `<li><span><b>${escape(n)}</b> added you. Add them back to send each other challenges.</span><button class="board-race" data-add="${escape(n)}">Add back</button></li>`).join('')}</ul>`
+    : ''
   const challenges = social.challenges.length
     ? social.challenges
         .map((c) => {
@@ -94,23 +101,26 @@ export function drawSocial(el: HTMLElement, social: Social, format: Format, race
     ? social.feed.map((f) => `<li><span><b>${escape(f.name)}</b> beat you on ${escape(trackName(f.seed))}: ${format(f.time)} to your ${format(f.mine)}</span>${raceButton(f.seed, f.name, f.ghost, 'Race')}</li>`).join('')
     : '<li class="empty">Nobody has beaten your laps lately.</li>'
   const friends = social.friends.length
-    ? social.friends.map((n) => `<li><span>${escape(n)}</span><button class="ghost-button" data-remove="${escape(n)}">Remove</button></li>`).join('')
+    ? social.friends
+        .map((n) => `<li><span>${escape(n)} <small>${social.mutual.includes(n) ? 'added you too' : 'has not added you back yet'}</small></span><button class="ghost-button" data-remove="${escape(n)}">Remove</button></li>`)
+        .join('')
     : '<li class="empty">No friends yet. Add a driver by their username.</li>'
-  el.innerHTML = `<h3>Challenges</h3><ul class="feed-list">${challenges}</ul><h3>Rivals</h3><ul class="feed-list">${feed}</ul><h3>Your friends</h3><ul class="feed-list">${friends}</ul>`
+  el.innerHTML = `${added}<h3>Challenges</h3><ul class="feed-list">${challenges}</ul><h3>Rivals</h3><ul class="feed-list">${feed}</ul><h3>Your friends</h3><ul class="feed-list">${friends}</ul>`
   wire(el, race, (b) =>
     b.addEventListener('click', () => {
       b.disabled = true
       if (b.dataset.id) onDismiss(b.dataset.id)
+      else if (b.dataset.add) onAdd(b.dataset.add)
       else onRemove(b.dataset.remove as string)
     }),
   )
 }
 
 // Under a time trial's board, once your lap is checked: send that track
-// and your time to a friend.
+// and your time to a friend who has added you back.
 export function drawChallenge(el: HTMLElement, friends: string[], seed: string) {
   if (friends.length === 0) {
-    el.innerHTML = '<p class="board-note">Add friends on the Friends screen to send them this track as a challenge.</p>'
+    el.innerHTML = '<p class="board-note">Challenges go to friends who have added you back. Add friends on the Friends screen.</p>'
     return
   }
   el.innerHTML = `<div class="challenge-send"><label>Challenge a friend <select>${friends.map((n) => `<option value="${escape(n)}">${escape(n)}</option>`).join('')}</select></label><button class="board-race">Send</button></div><p class="board-note" aria-live="polite"></p>`
