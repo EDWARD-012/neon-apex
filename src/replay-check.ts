@@ -48,7 +48,9 @@ export interface Run {
   best: number
 }
 
-const round = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(v * 1000)))
+// Adding 0 turns -0 into 0: JSON writes -0 as 0, and the browser must drive
+// the same number the server reads back.
+const round = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(v * 1000))) + 0
 
 function decode(throttle: number, brake: number, steer: number, flags: number): CarInput {
   return {

@@ -52,6 +52,11 @@ describe('checked leaderboard laps', () => {
     expect(run.inputs[0]).toBeGreaterThan(300)
   })
 
+  it('records no -0, which JSON would turn into 0', () => {
+    expect(run.inputs.some((v) => Object.is(v, -0))).toBe(false)
+    expect(JSON.parse(JSON.stringify(run))).toEqual(run)
+  })
+
   it('replays to exactly the same lap, as the server will', () => {
     const sent = JSON.parse(JSON.stringify(run))
     const checked = checkRun(sent)
