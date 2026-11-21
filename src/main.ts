@@ -8,7 +8,7 @@ import { report, startClock } from './analytics'
 import { carAssetsPending, loadCarAssets } from './render/carAssets'
 import { fetchBytes, onLoadProgress, report as loadReport, setStep } from './loader'
 import { AccountError, type Account, chooseLogin, cloudEnabled, currentAccount, googleButton, signIn, signInWithGoogle, signOut, uploadProgress } from './cloud'
-import { ALL_EVENTS, buy, type Card, CHALLENGE_PAY, challengeFor, fitLook, WEEKLY_PAY, leaderOpen, MEDAL_NAMES, rewardCards, takeCard, type EventDef, type EventKind, loadProgress, type Outcome, type Progress, saveProgress, settle, TIERS, tidy, tierOpen, upgrade, WINS_TO_UNLOCK, winsIn } from './career'
+import { ALL_EVENTS, buy, type Card, CHALLENGE_PAY, challengeFor, fitLook, setLiveryDetail, WEEKLY_PAY, leaderOpen, MEDAL_NAMES, rewardCards, takeCard, type EventDef, type EventKind, loadProgress, type Outcome, type Progress, saveProgress, settle, TIERS, tidy, tierOpen, upgrade, WINS_TO_UNLOCK, winsIn } from './career'
 import { type EventSpec, formatTime, Game, ordinal, REPLAY_CAMERAS, type Settings, TOOL_INFO } from './game'
 import { COP_TOOL_IDS, type CopToolId, type RacerToolId, TOOL_IDS, type ToolId } from './sim/race'
 import type { Weather } from './render/atmosphere'
@@ -16,7 +16,7 @@ import type { Quality } from './render/world'
 import { carById, CARS, type Rating, ratings } from './sim/cars'
 import { bindPedals, bindWheel, startTilt, stopTilt } from './touch'
 import { dailySeed, weeklySeed } from './sim/track'
-import { FINISHES, type Finish, type Glow, GLOWS, isFree, lookKey, type Looks, priceOfLook, STOCK_LOOKS } from './looks'
+import { FINISHES, fullLooks, GLOWS, isFree, LIVERIES, type LookKind, lookKey, lookName, type Looks, priceOfLook, TRIMS, type Trim } from './looks'
 import { classOf, kmh, type Part, PARTS, partById, priceOf, ratingOf, STAGES, stageOf, tuned } from './upgrades'
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement
@@ -148,7 +148,10 @@ function touchLayout() {
 touchLayout()
 if (settings.touchSteer === 'tilt') window.addEventListener('pointerdown', () => void startTilt(game.input), { once: true })
 game.tune = specFor
-game.looksFor = (carId) => progress.looks[carId] ?? STOCK_LOOKS
+game.looksFor = (carId) => fullLooks(progress.looks[carId])
+// The player's number plates carry their username, or the game's name for
+// a guest.
+game.plateText = () => (signedIn?.username ?? 'Skidline').toUpperCase()
 
 type Screen = 'menu' | 'quick' | 'career' | 'garage' | 'settings-screen' | 'account' | 'intro' | 'race' | 'results' | 'replay'
 const SCREENS = ['menu', 'quick', 'career', 'garage', 'settings-screen', 'account', 'results', 'pause']
@@ -347,7 +350,7 @@ function careerSpec(e: EventDef): EventSpec {
 let viewing = settings.car
 let tab: 'cars' | 'upgrades' | 'looks' = 'cars'
 // A look being tried on in the garage before it is bought.
-let trying: { kind: 'finish' | 'glow'; id: Finish | Glow } | null = null
+let trying: { kind: LookKind; id: string } | null = null
 // The part picked on the upgrade tab, whose next stage the bars preview.
 let picked: Part = 'engine'
 function garage() {
@@ -439,9 +442,9 @@ const STAT_NAMES: Record<Rating, string> = { speed: 'Top speed', acceleration: '
 // or bought look goes straight on the car; one not bought yet is tried on
 // the turntable first, and the main button buys it.
 function drawLooks(carId: string, owned: boolean, action: HTMLButtonElement) {
-  const current = progress.looks[carId] ?? STOCK_LOOKS
+  const current = fullLooks(progress.looks[carId])
   const shown: Looks = trying ? { ...current, [trying.kind]: trying.id } : current
-  const row = (kind: 'finish' | 'glow', items: { id: string; name: string; price: number }[]) =>
+  const row = (kind: LookKind, items: { id: string; name: string; price: number }[]) =>
     items
       .map((l) => {
         const have = l.price === 0 || progress.ownedLooks.includes(lookKey(kind, l.id))
@@ -450,13 +453,26 @@ function drawLooks(carId: string, owned: boolean, action: HTMLButtonElement) {
         return `<button data-kind="${kind}" data-look="${l.id}" class="${shown[kind] === l.id ? 'on' : ''}">${l.name}<small>${status}</small></button>`
       })
       .join('')
-  $('looks').innerHTML = `<span class="label">Finish</span><div class="look-row">${row('finish', FINISHES)}</div><span class="label">Underglow, seen at night</span><div class="look-row">${row('glow', GLOWS)}</div>`
+  // The livery's colour and race number are free, so they change at once
+  // on a car the player owns.
+  const trims =
+    shown.livery === 'none'
+      ? ''
+      : `<span class="label">Livery colour</span><div class="look-row swatches">${TRIMS.map(
+          (t) => `<button data-trim="${t.id}" class="${shown.trim === t.id ? 'on' : ''}" ${owned ? '' : 'disabled'} title="${t.name}" aria-label="${t.name}"><i style="background:${t.color}"></i></button>`,
+        ).join('')}</div>`
+  const number =
+    shown.livery === 'number'
+      ? `<span class="label">Race number</span><div class="look-row number-row"><button data-number="-1" ${owned ? '' : 'disabled'} aria-label="Lower number">−</button><b>${shown.number}</b><button data-number="1" ${owned ? '' : 'disabled'} aria-label="Higher number">+</button></div>`
+      : ''
+  $('looks').innerHTML = `<span class="label">Finish</span><div class="look-row">${row('finish', FINISHES)}</div><span class="label">Underglow, seen at night</span><div class="look-row">${row('glow', GLOWS)}</div><span class="label">Livery, with your name on the plates</span><div class="look-row">${row('livery', LIVERIES)}</div>${trims}${number}`
+  const preview = () => (trying ? { ...fullLooks(progress.looks[carId]), [trying.kind]: trying.id } : undefined)
   $('looks')
-    .querySelectorAll<HTMLButtonElement>('button')
+    .querySelectorAll<HTMLButtonElement>('button[data-kind]')
     .forEach((b) =>
       b.addEventListener('click', () => {
-        const kind = b.dataset.kind as 'finish' | 'glow'
-        const id = b.dataset.look as Finish | Glow
+        const kind = b.dataset.kind as LookKind
+        const id = b.dataset.look as string
         const have = isFree(kind, id) || progress.ownedLooks.includes(lookKey(kind, id))
         if (have && owned) {
           const next = fitLook(progress, carId, kind, id)
@@ -466,17 +482,31 @@ function drawLooks(carId: string, owned: boolean, action: HTMLButtonElement) {
           }
           trying = null
         } else trying = { kind, id }
-        game.refreshGarage(carId, trying ? { ...(progress.looks[carId] ?? STOCK_LOOKS), [kind]: id } : undefined)
+        game.refreshGarage(carId, preview())
         drawGarage()
       }),
     )
+  const detail = (change: { trim?: Trim; number?: number }) => {
+    const next = setLiveryDetail(progress, carId, change)
+    if (!next) return
+    progress = next
+    keep()
+    game.refreshGarage(carId, preview())
+    drawGarage()
+  }
+  $('looks')
+    .querySelectorAll<HTMLButtonElement>('button[data-trim]')
+    .forEach((b) => b.addEventListener('click', () => detail({ trim: b.dataset.trim as Trim })))
+  $('looks')
+    .querySelectorAll<HTMLButtonElement>('button[data-number]')
+    .forEach((b) => b.addEventListener('click', () => detail({ number: ((current.number - 1 + Number(b.dataset.number) + 99) % 99) + 1 })))
   if (!trying) {
     action.textContent = owned ? 'Pick a look to try it' : 'Buy this car to style it'
     action.disabled = true
     return
   }
   const price = priceOfLook(trying.kind, trying.id)
-  const name = (trying.kind === 'finish' ? FINISHES : GLOWS).find((l) => l.id === trying?.id)?.name ?? ''
+  const name = lookName(trying.kind, trying.id)
   action.textContent = !owned ? 'Buy this car to style it' : progress.cash >= price ? `Buy ${name} for ${coins(price)}` : `${name} needs ${coins(price)} coins`
   action.disabled = !owned || progress.cash < price
 }
@@ -837,9 +867,9 @@ const cardText = (card: Card) =>
     : card.kind === 'stage'
       ? `A free stage ${card.stage} ${partById(card.part).name.toLowerCase()} for the ${carById(settings.car).name}`
       : (() => {
-          const [kind, id] = card.key.split(':') as ['finish' | 'glow', string]
-          const look = (kind === 'finish' ? FINISHES : GLOWS).find((l) => l.id === id)
-          return `${look?.name ?? id} ${kind === 'finish' ? 'finish' : 'underglow'}, free on every car`
+          const [kind, id] = card.key.split(':') as [LookKind, string]
+          const what = kind === 'finish' ? ' finish' : kind === 'glow' ? ' underglow' : ' livery'
+          return `${lookName(kind, id)}${what}, free on every car`
         })()
 
 function showCards(tier: number, leaderId: string) {
