@@ -1,11 +1,14 @@
 // Anonymous play events, so we can see how the game is played: how long
 // people stay, which events they race, and whether they come back. A
 // random id is kept in this browser; no name, email or account is sent.
-// Off in the browser tests and on a local machine, which have no server.
+// Off in the browser tests, on a local machine and in the portal build,
+// none of which has the server.
+
+import { PORTAL } from './portal'
 
 const STORE = 'neon-apex/visitor'
 const local = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)
-const enabled = !new URLSearchParams(location.search).has('test') && !local
+const enabled = !PORTAL && !new URLSearchParams(location.search).has('test') && !local
 
 function randomId(): string {
   const bytes = new Uint8Array(10)

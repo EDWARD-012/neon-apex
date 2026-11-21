@@ -1672,6 +1672,11 @@ kbd {
   }
 }
 
+/* The portal build (see portal.ts) hides the links to the guide pages. */
+.portal .guides {
+  display: none;
+}
+
 /* Phones held upright: ask for the phone to be turned. */
 #rotate {
   display: none;
@@ -1701,6 +1706,18 @@ kbd {
   }
   #rotate button {
     margin-top: 10px;
+  }
+  /* What the game is, and the guides, for anyone (or any search engine)
+     that only ever sees the game held upright. */
+  #rotate .rotate-about {
+    max-width: 32ch;
+    margin-top: 26px;
+    font-size: 15px;
+  }
+  #rotate .guides {
+    justify-content: center;
+    max-width: 340px;
+    margin: 0;
   }
 }
 .rotate-phone {

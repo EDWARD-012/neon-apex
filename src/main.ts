@@ -5,6 +5,7 @@ import '@fontsource/chakra-petch/600-italic.css'
 import '@fontsource/chakra-petch/500-italic.css'
 import './styles.css'
 import { report, startClock } from './analytics'
+import { PORTAL } from './portal'
 import { carAssetsPending, loadCarAssets } from './render/carAssets'
 import { fetchBytes, onLoadProgress, report as loadReport, setStep } from './loader'
 import { AccountError, type Account, chooseLogin, cloudEnabled, currentAccount, googleButton, signIn, signInWithGoogle, signOut, uploadProgress } from './cloud'
@@ -21,6 +22,12 @@ import { classOf, kmh, type Part, PARTS, partById, priceOf, ratingOf, STAGES, st
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement
 const params = new URLSearchParams(location.search)
+// On a game portal the links that leave the game are hidden (see portal.ts).
+if (PORTAL) {
+  document.body.classList.add('portal')
+  const credit = document.querySelector('.credit')
+  if (credit) credit.textContent = 'Built by Ravi Kumar Gupta.'
+}
 // Paint: deep, saturated car colours rather than neon, so they hold up in
 // daylight.
 const COLORS = ['#f2a900', '#c8102e', '#0d47a1', '#ff5a1f', '#1f6f4a', '#e9e9ec', '#111316', '#6a1b9a']
