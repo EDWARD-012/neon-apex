@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { ALL_EVENTS, fresh, judge, leaderOpen, MEDAL_PAY, medalFor, type Progress, record, rewardCards, type Run, settle, takeCard, TIERS, WINS_TO_UNLOCK } from '../src/career'
+import { ALL_EVENTS, CHALLENGE_PAY, challengeFor, fresh, judge, leaderOpen, MEDAL_PAY, medalFor, type Progress, record, rewardCards, type Run, settle, takeCard, TIERS, WINS_TO_UNLOCK } from '../src/career'
 import { Race } from '../src/sim/race'
+import { weeklySeed } from '../src/sim/track'
 
 const run = (changes: Partial<Run> = {}): Run => ({ kind: 'race', laps: 3, finished: true, place: 1, heat: 1, nearMisses: 0, cleanLaps: 0, closeWin: false, daily: false, ...changes })
 
@@ -80,5 +81,35 @@ describe('reward cards', () => {
     expect(stage.upgrades.vanta.engine).toBe(1)
     const look = takeCard(p, cards[2], 'vanta', 'leader-street')
     expect(look.ownedLooks).toContain('glow:cyan')
+  })
+})
+
+describe('the weekly track and the daily challenge', () => {
+  it('the weekly seed follows ISO weeks', () => {
+    expect(weeklySeed(new Date('2026-11-21T12:00:00Z'))).toBe('week-2026-W47')
+    expect(weeklySeed(new Date('2026-11-16T00:00:00Z'))).toBe('week-2026-W47')
+    expect(weeklySeed(new Date('2026-11-23T00:00:00Z'))).toBe('week-2026-W48')
+    // 1 January 2027 is a Friday, still in the last week of 2026.
+    expect(weeklySeed(new Date('2027-01-01T00:00:00Z'))).toBe('week-2026-W53')
+  })
+
+  it("this week's track pays for the first finished run of the week only", () => {
+    const week = 'week-2026-W47'
+    const first = settle(fresh(), run({ weekly: week, place: 4 }), '2026-11-21')
+    expect(first.lines.map((l) => l.label)).toContain("This week's track")
+    expect(first.progress.weekPaid).toBe(week)
+    const again = settle(first.progress, run({ weekly: week, place: 4 }), '2026-11-22')
+    expect(again.lines.map((l) => l.label)).not.toContain("This week's track")
+  })
+
+  it('the daily challenge changes by the day and pays once a day', () => {
+    const days = ['2026-11-21', '2026-11-22', '2026-11-23']
+    expect(new Set(days.map((d) => challengeFor(d).id)).size).toBe(3)
+    // Find a day whose challenge a quick race win meets.
+    let day = '2026-11-21'
+    for (let k = 0; challengeFor(day).id !== 'win'; k++) day = new Date(Date.parse(`2026-11-21T00:00:00Z`) + k * 86400000).toISOString().slice(0, 10)
+    const done = settle(fresh(), run({ place: 1, challenge: true }), day)
+    expect(done.lines.some((l) => l.label.startsWith('Daily challenge') && l.coins === CHALLENGE_PAY)).toBe(true)
+    expect(settle(done.progress, run({ place: 1, challenge: true }), day).lines.some((l) => l.label.startsWith('Daily challenge'))).toBe(false)
   })
 })

@@ -7,13 +7,13 @@ import './styles.css'
 import { report, startClock } from './analytics'
 import { loadCarAssets } from './render/carAssets'
 import { AccountError, type Account, chooseLogin, cloudEnabled, currentAccount, googleButton, signIn, signInWithGoogle, signOut, uploadProgress } from './cloud'
-import { ALL_EVENTS, buy, type Card, fitLook, leaderOpen, MEDAL_NAMES, rewardCards, takeCard, type EventDef, type EventKind, loadProgress, type Outcome, type Progress, saveProgress, settle, TIERS, tidy, tierOpen, upgrade, WINS_TO_UNLOCK, winsIn } from './career'
+import { ALL_EVENTS, buy, type Card, CHALLENGE_PAY, challengeFor, fitLook, WEEKLY_PAY, leaderOpen, MEDAL_NAMES, rewardCards, takeCard, type EventDef, type EventKind, loadProgress, type Outcome, type Progress, saveProgress, settle, TIERS, tidy, tierOpen, upgrade, WINS_TO_UNLOCK, winsIn } from './career'
 import { type EventSpec, formatTime, Game, ordinal, REPLAY_CAMERAS, type Settings, TOOL_INFO } from './game'
 import { COP_TOOL_IDS, type CopToolId, type RacerToolId, TOOL_IDS, type ToolId } from './sim/race'
 import type { Weather } from './render/atmosphere'
 import type { Quality } from './render/world'
 import { carById, CARS, type Rating, ratings } from './sim/cars'
-import { dailySeed } from './sim/track'
+import { dailySeed, weeklySeed } from './sim/track'
 import { FINISHES, type Finish, type Glow, GLOWS, isFree, lookKey, type Looks, priceOfLook, STOCK_LOOKS } from './looks'
 import { classOf, kmh, type Part, PARTS, partById, priceOf, ratingOf, STAGES, stageOf, tuned } from './upgrades'
 
@@ -152,9 +152,15 @@ document.querySelectorAll('.back').forEach((b) => b.addEventListener('click', ()
 
 function trackLabel() {
   const daily = settings.seed === dailySeed()
+  const weekly = settings.seed === weeklySeed()
   const random = settings.seed.startsWith('random-')
-  $('track-name').textContent = daily ? `Today's track` : random ? `Track ${settings.seed.replace(/^random-/, '#')}` : `Track "${settings.seed}"`
+  $('track-name').textContent = daily ? `Today's track` : weekly ? `This week's track` : random ? `Track ${settings.seed.replace(/^random-/, '#')}` : `Track "${settings.seed}"`
   $('tonight').classList.toggle('hidden', daily)
+  $('weekly').classList.toggle('hidden', weekly)
+  // Today's challenge, the same for everyone, once a day.
+  const today = dailySeed().slice('night-'.length)
+  const done = progress.challengeDay === today
+  $('challenge-note').textContent = `Today's challenge: ${challengeFor(today).text}. ${done ? 'Done today.' : `${coins(CHALLENGE_PAY)} coins, once a day.`} This week's track pays ${coins(WEEKLY_PAY)} for your first finished run of the week.`
   const url = new URL(location.href)
   if (daily) url.searchParams.delete('seed')
   else url.searchParams.set('seed', settings.seed)
@@ -217,6 +223,11 @@ $('new-track').addEventListener('click', () => {
 })
 $('tonight').addEventListener('click', () => {
   settings.seed = dailySeed()
+  trackLabel()
+  game.showMenu()
+})
+$('weekly').addEventListener('click', () => {
+  settings.seed = weeklySeed()
   trackLabel()
   game.showMenu()
 })
@@ -708,6 +719,8 @@ function results(outcome: Outcome) {
       escapes: race.escapes,
       takedowns: race.takedowns,
       daily: !def && spec.seed === today,
+      weekly: !def && spec.seed === weeklySeed() ? spec.seed : undefined,
+      challenge: true,
     },
     today.slice(today.indexOf('-') + 1),
     def,

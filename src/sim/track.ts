@@ -255,3 +255,15 @@ export function pointAt(track: Track, s: number, d = 0): { x: number; z: number;
 export function dailySeed(date: Date = new Date()): string {
   return `night-${date.toISOString().slice(0, 10)}`
 }
+
+// The track for an ISO week (Monday to Sunday, UTC), the same for everyone,
+// like "week-2026-W47".
+export function weeklySeed(date: Date = new Date()): string {
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()))
+  const day = d.getUTCDay() || 7
+  // The Thursday of this week decides which year the week belongs to.
+  d.setUTCDate(d.getUTCDate() + 4 - day)
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
+  const week = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7)
+  return `week-${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`
+}

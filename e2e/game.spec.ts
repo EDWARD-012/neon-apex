@@ -251,6 +251,11 @@ test('a new random track goes into the address bar', async ({ page }) => {
   expect(new URL(page.url()).searchParams.get('seed')).toMatch(/^random-/)
   await page.locator('#tonight').click()
   await expect(page.locator('#track-name')).toHaveText("Today's track")
+  // This week's track has its own seed, and today's challenge is shown.
+  await page.locator('#weekly').click()
+  await expect(page.locator('#track-name')).toHaveText("This week's track")
+  expect(new URL(page.url()).searchParams.get('seed')).toMatch(/^week-\d{4}-W\d{2}$/)
+  await expect(page.locator('#challenge-note')).toContainText("Today's challenge")
 })
 
 test('the career pays coins, which buy a car and its upgrades in the garage', async ({ page }) => {

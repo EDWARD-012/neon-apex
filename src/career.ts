@@ -107,9 +107,13 @@ export interface Progress {
   // the crew leaders whose reward card has been taken.
   medals: Record<string, number>
   claimed: string[]
+  // The last day the daily challenge was done, and the last week a run on
+  // the weekly track was paid.
+  challengeDay: string | null
+  weekPaid: string | null
 }
 
-export const fresh = (): Progress => ({ cash: 0, owned: [CARS[0].id], won: {}, upgrades: {}, daily: null, ownedLooks: [], looks: {}, medals: {}, claimed: [] })
+export const fresh = (): Progress => ({ cash: 0, owned: [CARS[0].id], won: {}, upgrades: {}, daily: null, ownedLooks: [], looks: {}, medals: {}, claimed: [], challengeDay: null, weekPaid: null })
 
 // Fills in what an older or damaged save is missing.
 export function tidy(saved: Partial<Progress>): Progress {
@@ -124,6 +128,8 @@ export function tidy(saved: Partial<Progress>): Progress {
     looks: object(saved.looks) ? (saved.looks as Progress['looks']) : {},
     medals: object(saved.medals) ? (saved.medals as Progress['medals']) : {},
     claimed: Array.isArray(saved.claimed) ? saved.claimed.filter((k) => typeof k === 'string') : [],
+    challengeDay: typeof saved.challengeDay === 'string' ? saved.challengeDay : null,
+    weekPaid: typeof saved.weekPaid === 'string' ? saved.weekPaid : null,
     daily: daily && typeof daily.day === 'string' && Number.isInteger(daily.streak) ? daily : null,
   }
 }
@@ -296,8 +302,11 @@ export interface Run extends Outcome {
   escapes?: number[]
   // Rivals wrecked, and the heat at each patrol car wrecked.
   takedowns?: { rivals: number; cops: number[] }
-  // Run on today's daily track.
+  // Run on today's daily track, or on this week's track (its seed).
   daily: boolean
+  weekly?: string
+  // Whether the daily challenge counts this run. The game always sets it.
+  challenge?: boolean
 }
 
 export interface Line {
@@ -344,6 +353,35 @@ function quickPay(run: Run): Line | null {
       return busts > 0 ? { label: all ? `Every racer busted (${busts})` : `${busts} ${busts === 1 ? 'racer' : 'racers'} busted`, coins: BUST_PAY * busts + (all ? BUST_PAY : 0) } : null
     }
   }
+}
+
+// The weekly track pays for the first finished run each week, and the
+// daily challenge 1,500 once a day, the plan's figures. The weekly prizes
+// for the top of a leaderboard wait for the online phase.
+export const WEEKLY_PAY = 1000
+export const CHALLENGE_PAY = 1500
+
+export interface Challenge {
+  id: string
+  text: string
+  met: (run: Run) => boolean
+}
+
+// One challenge a day, the same for everyone, taken in turn from this list
+// by the date.
+export const CHALLENGES: Challenge[] = [
+  { id: 'win', text: 'win a quick race', met: (r) => r.kind === 'race' && r.finished && r.place === 1 },
+  { id: 'drift', text: 'score 2,500 drift points in one event', met: (r) => (r.points ?? 0) >= 2500 },
+  { id: 'escape', text: 'escape a pursuit at heat 2 or more', met: (r) => r.kind === 'pursuit' && r.escaped === true && r.heat >= 2 },
+  { id: 'misses', text: 'make 10 near misses in one event', met: (r) => r.nearMisses >= 10 },
+  { id: 'busts', text: 'bust 3 racers as the cop', met: (r) => r.kind === 'cop' && (r.busts ?? 0) >= 3 },
+  { id: 'clean', text: 'finish a race of 3 laps or more without a scratch', met: (r) => r.kind === 'race' && r.finished && r.laps >= 3 && r.cleanLaps >= r.laps },
+  { id: 'podium', text: 'finish on the podium in an elimination', met: (r) => r.kind === 'elimination' && (r.place ?? 99) <= 3 },
+]
+
+export function challengeFor(day: string): Challenge {
+  const days = Math.floor(Date.parse(`${day}T00:00:00Z`) / 86400000)
+  return CHALLENGES[((days % CHALLENGES.length) + CHALLENGES.length) % CHALLENGES.length]
 }
 
 function dayBefore(day: string): string {
@@ -397,9 +435,22 @@ export function settle(progress: Progress, run: Run, today: string, event?: Even
     lines.push({ label: streak > 1 ? `Today's track, day ${streak} in a row` : `First run on today's track`, coins: 1000 + 250 * (Math.min(streak, 7) - 1) })
     daily = { day: today, streak }
   }
+  // The weekly track: the first finished run of the week pays.
+  let weekPaid = progress.weekPaid
+  if (run.weekly && !out && !busted && run.finished && weekPaid !== run.weekly) {
+    lines.push({ label: "This week's track", coins: WEEKLY_PAY })
+    weekPaid = run.weekly
+  }
+  // The daily challenge, once a day.
+  let challengeDay = progress.challengeDay
+  const challenge = challengeFor(today)
+  if (run.challenge && challengeDay !== today && !out && challenge.met(run)) {
+    lines.push({ label: `Daily challenge: ${challenge.text}`, coins: CHALLENGE_PAY })
+    challengeDay = today
+  }
   const total = lines.reduce((sum, l) => sum + l.coins, 0)
   const won = event && result ? { ...progress.won, [event.id]: progress.won[event.id] || result.won } : progress.won
-  return { progress: { ...progress, cash: progress.cash + total, won, daily, medals }, lines, total, result }
+  return { progress: { ...progress, cash: progress.cash + total, won, daily, medals, weekPaid, challengeDay }, lines, total, result }
 }
 
 // Fits the next stage of a part to a car the player owns, if there is
