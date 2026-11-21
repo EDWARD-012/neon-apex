@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Time trial leaderboards and ghost racing in Skidline, a free browser racing game</title>
+    <meta name="description" content="How Skidline's time-trial leaderboards work: a board for every track, laps checked by the server before they count, racing other drivers' ghosts in your browser, and friends and challenges." />
+    <link rel="canonical" href="https://skidline.edward7780.com/leaderboards.html" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="Skidline" />
+    <meta property="og:url" content="https://skidline.edward7780.com/leaderboards.html" />
+    <meta property="og:title" content="Time trial leaderboards and ghost racing in Skidline" />
+    <meta property="og:description" content="How Skidline's time-trial leaderboards work: a board for every track, laps checked by the server before they count, racing other drivers' ghosts in your browser, and friends and challenges." />
+    <meta property="og:image" content="https://skidline.edward7780.com/og.jpg" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#07080e" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="/pages.css" />
+  </head>
+  <body>
+    <header class="top">
+      <nav aria-label="Site">
+        <a class="brand" href="/">Skid<span>line</span></a>
+        <a href="/how-to-play.html">How to play</a>
+        <a href="/cars.html">Cars</a>
+        <a href="/customise.html">Customise</a>
+        <a href="/modes.html">Modes</a>
+        <a href="/leaderboards.html" aria-current="page">Leaderboards</a>
+        <a href="/drift-guide.html">Drifting</a>
+        <a href="/police-chase.html">Police chases</a>
+        <a href="/coins.html">Coins</a>
+        <a href="/updates.html">Updates</a>
+        <a href="/about.html">About</a>
+        <a class="go" href="/">Play free</a>
+      </nav>
+    </header>
+    <main>
+      <h1>Time trial leaderboards and ghost racing</h1>
+      <p class="lead">Every track in Skidline has a leaderboard of the fastest time-trial laps. A lap only goes on it after the game's server has driven it again itself, so the times are real. Laps on a board can be raced as ghosts, right in your browser, and friends can send each other laps to beat.</p>
+      <a class="play" href="/">Set a lap</a>
+      <figure>
+        <img src="/screens/day.jpg" width="960" height="540" alt="A gold hypercar leading rivals along the mountain road by day, between steel guard rails" />
+        <figcaption>Time trials run on the same generated tracks as every other event.</figcaption>
+      </figure>
+
+      <h2 id="boards">Where the boards are</h2>
+      <p>The menu has a Fastest laps card with two boards: today's track, which is new every day and the same for every player, and this week's track, new every Monday (UTC). Each shows the top ten, how many drivers have set a lap, and your own place if you are further down. After any time trial, the results screen shows the board for that track, so random tracks and the career's time trial have boards too.</p>
+      <p>To set a lap, pick Time trial on the Quick race screen and choose the track. You drive alone against a ghost of your own best lap. Each board keeps your best lap on that track; a slower one leaves it as it was.</p>
+
+      <h2 id="checked">How a lap is checked</h2>
+      <p>While you drive a time trial, the game writes down what you pressed on every step of the physics, 120 a second, along with your car, its upgrades and tuning, and any damage it started with. When you finish signed in, it sends that to the server. The server starts the same track from the grid and drives it again with your inputs, through the same simulation as the game. The lap it times itself is the one that goes on the board.</p>
+      <p>Browsers can differ in the last digit of the maths the physics uses, so the server accepts a lap if its own time is within a tenth of a second, or 1% of the lap, of the time you saw. A lap it can't match isn't counted, and the results screen says why. You can race signed out, but only laps by signed-in players with a username go on the boards.</p>
+      <p>When the handling changes in an update, the boards start again empty, since a lap from the old physics wouldn't be a fair comparison.</p>
+
+      <h2 id="ghosts">Racing a ghost</h2>
+      <p>A lap on a board with a Race button next to it can be raced as a ghost. Press it and the game downloads that driver's lap, drives it again in your browser with the same replay the server used, and starts a time trial on that track with their car on the road beside you, drawn see-through in its own shape. The ghost row on the race screen shows their time and name. Your own best lap on the track still saves when you beat your own time.</p>
+      <p>Ghosts take room, so the game keeps them for the laps people are most likely to race: those in a board's top ten, laps by a driver whom someone with a lap on the same track has added as a friend, and laps in a challenge. A daily track's ghosts go after 7 days and a weekly track's after 5 weeks. The times stay on the boards; only the Race button goes.</p>
+
+      <h2 id="friends">Friends and challenges</h2>
+      <p>Signed in, open Friends from the menu and add drivers by their username. Adding someone doesn't need their yes, but they see that you added them, so they can add you back. When a friend's lap beats yours on a board, the menu's card shows it under Rivals for 14 days, with a button to race their ghost or, if it isn't kept, their track.</p>
+      <p>Once two of you have added each other, you can challenge one another. After a checked time-trial lap, the results screen has Challenge a friend: pick one and send them that track with your best time. It waits on their Friends screen with Race and Dismiss, until they dismiss it or for 30 days. You can send up to 30 challenges a day. The <a href="/privacy.html">privacy page</a> says what is stored.</p>
+
+      <h2 id="faster">Getting faster</h2>
+      <ul>
+        <li>Start every lap well: put the throttle down in the last 0.45 seconds before the green light for a <a href="/how-to-play.html#start">perfect start</a> and 30% more nitro.</li>
+        <li>Drift through slow corners. A held slide <a href="/drift-guide.html#boost">charges a boost</a> and fills the nitro tank.</li>
+        <li>Race the ghost of the lap just above yours, and watch where it brakes and turns in.</li>
+        <li>Try the <a href="/customise.html#tuning">tuning sliders</a>: longer gearing for a track with long straights, more steering lock for a twisty one.</li>
+        <li>Pick the right car. The <a href="/cars.html">cars page</a> lists every car's top speed and class.</li>
+      </ul>
+
+      <footer>
+        <a href="/">Play Skidline</a> · <a href="/about.html">About</a> · <a href="/privacy.html">Privacy</a> · <a href="/terms.html">Terms</a> · © 2026 Ravi Kumar Gupta. All rights reserved.
+      </footer>
+    </main>
+  </body>
+</html>

@@ -225,6 +225,15 @@ test('graphics start on Auto, and picking a level keeps it', async ({ page }) =>
   expect(await page.evaluate(() => (window as any).__neon.game.settings.quality)).toBe('low')
 })
 
+test('Low quality loads the half-size road textures', async ({ page }) => {
+  await open(page, '&quality=low&weather=day')
+  await expect.poll(() => page.evaluate(() => Boolean((window as any).__neon)), { timeout: 60_000 }).toBe(true)
+  await page.evaluate(() => (window as any).__neon.start('race'))
+  const textures = () => page.evaluate(() => performance.getEntriesByType('resource').map((e) => new URL(e.name).pathname).filter((p) => p.startsWith('/textures/')))
+  await expect.poll(textures, { timeout: 30_000 }).toContain('/textures/small/road-color.jpg')
+  expect(await textures()).not.toContain('/textures/road-color.jpg')
+})
+
 test('the driving aids in Settings are kept and used in the race', async ({ page }) => {
   await open(page)
   await page.locator('#go-settings').click()

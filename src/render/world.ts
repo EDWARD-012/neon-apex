@@ -27,7 +27,7 @@ import {
 import { Reflector } from 'three/addons/objects/Reflector.js'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js'
-import { daySky } from './assets'
+import { daySky, useSmallTextures } from './assets'
 import { sky } from './textures'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
@@ -279,6 +279,7 @@ export class World {
 
   setQuality(quality: Quality) {
     this.quality = quality
+    useSmallTextures(quality === 'low')
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality === 'high' ? 2 : 1) * this.scale)
     if (quality === 'high') {
       const size = this.renderer.getSize(new Vector2())

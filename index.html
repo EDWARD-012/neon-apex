@@ -52,7 +52,7 @@
         "name": "Skidline",
         "url": "https://skidline.edward7780.com/",
         "image": "https://skidline.edward7780.com/og.jpg",
-        "description": "A free 3D web racing game you play in the browser: a career, AI rivals on a computed racing line, police pursuits, drift and elimination events, crash damage, a cockpit camera, and a mountain road by day or a neon city at night.",
+        "description": "A free 3D web racing game you play in the browser: a career against three street crews, AI rivals on a computed racing line, police pursuits and playing the cop, drift and elimination events, nine cars with upgrades, tuning and customisation, time-trial leaderboards checked by the server with ghosts to race, friends and challenges, crash damage, a cockpit camera, and a mountain road by day or a neon city at night.",
         "genre": ["Racing", "Driving"],
         "gamePlatform": ["Web browser", "PC", "Mobile"],
         "applicationCategory": "GameApplication",
@@ -70,6 +70,7 @@
           "https://skidline.edward7780.com/screens/nitro.jpg",
           "https://skidline.edward7780.com/screens/damage.jpg",
           "https://skidline.edward7780.com/screens/garage.jpg",
+          "https://skidline.edward7780.com/screens/looks.jpg",
           "https://skidline.edward7780.com/screens/drift.jpg",
           "https://skidline.edward7780.com/screens/career.jpg"
         ],
@@ -204,11 +205,14 @@
           <button id="go-garage">Garage <small id="garage-note">Vanta GT</small></button>
           <button id="go-settings">Settings <small>Graphics, sound, controls</small></button>
           <button id="go-account">Account <small id="account-note">Sign in to save on every device</small></button>
+          <button id="go-friends" class="hidden">Friends <small id="friends-note">Challenges and rivals</small></button>
         </nav>
         <nav class="guides" aria-label="Guides">
           <a href="/how-to-play.html">How to play</a>
           <a href="/cars.html">Cars</a>
+          <a href="/customise.html">Customise</a>
           <a href="/modes.html">Modes</a>
+          <a href="/leaderboards.html">Leaderboards</a>
           <a href="/drift-guide.html">Drifting</a>
           <a href="/police-chase.html">Police chases</a>
           <a href="/coins.html">Coins</a>
@@ -218,6 +222,7 @@
         <p class="credit">Built by Ravi Kumar Gupta. <a href="/about.html">About the game</a>. Support, feedback or licensing: <a href="mailto:ravi5258p@gmail.com">ravi5258p@gmail.com</a></p>
       </div>
       <aside id="menu-boards" class="board-card hidden" aria-label="Fastest time-trial laps">
+        <div id="rivals" class="rivals hidden" aria-live="polite"></div>
         <div class="board-head">
           <h2>Fastest laps</h2>
           <div class="segmented" id="board-pick">
@@ -351,6 +356,22 @@
       <button id="photo-save" class="primary">Save picture</button>
       <button id="photo-done">Done</button>
     </div>
+
+    <section id="friends" class="screen hidden">
+      <div class="menu-card">
+        <h2>Friends</h2>
+        <p class="note">Add drivers by their username to see when they beat your time-trial laps, race their ghosts, and send them laps to beat.</p>
+        <form id="friend-form" class="acct-form friend-form">
+          <input id="friend-name" name="friend" autocomplete="off" placeholder="Username" required />
+          <button class="primary" type="submit">Add</button>
+        </form>
+        <p id="friend-error" class="acct-error" role="alert"></p>
+        <div id="social" class="social"></div>
+        <div class="menu-actions">
+          <button class="back">Back</button>
+        </div>
+      </div>
+    </section>
 
     <section id="account" class="screen hidden">
       <div class="menu-card">
@@ -498,6 +519,7 @@
         <p id="result-note" class="note"></p>
         <div id="reward" class="reward hidden"></div>
         <div id="lap-board" class="lap-board hidden" aria-live="polite"></div>
+        <div id="lap-challenge" class="lap-challenge hidden"></div>
         <div class="menu-actions">
           <button id="again" class="primary">Race again</button>
           <button id="watch">Watch replay</button>
@@ -530,6 +552,7 @@
         <a href="/how-to-play.html">How to play</a>
         <a href="/cars.html">Cars</a>
         <a href="/modes.html">Modes</a>
+        <a href="/leaderboards.html">Leaderboards</a>
         <a href="/drift-guide.html">Drifting</a>
         <a href="/police-chase.html">Police chases</a>
         <a href="/coins.html">Coins</a>
