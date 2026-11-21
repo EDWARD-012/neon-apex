@@ -2,19 +2,47 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // The game moved from apex.edward7780.com to skidline.edward7780.com on
+      // 21 November 2026. Browsers keep saves per address, so the old one
+      // hands its saves (not ghost laps, which are big) to the new one in the
+      // link and forwards; the new one keeps any it does not have yet.
+      ;(function () {
+        var PREFIX = 'neon-apex/'
+        try {
+          if (location.hostname === 'apex.edward7780.com') {
+            var carry = {}
+            for (var i = 0; i < localStorage.length; i++) {
+              var key = localStorage.key(i)
+              if (key && key.indexOf(PREFIX) === 0 && key.indexOf(PREFIX + 'ghost/') !== 0) carry[key] = localStorage.getItem(key)
+            }
+            var hash = Object.keys(carry).length ? '#carry=' + encodeURIComponent(JSON.stringify(carry)) : location.hash
+            location.replace('https://skidline.edward7780.com/' + location.search + hash)
+            return
+          }
+          if (location.hash.indexOf('#carry=') === 0) {
+            var data = JSON.parse(decodeURIComponent(location.hash.slice(7)))
+            for (var k in data) if (k.indexOf(PREFIX) === 0 && typeof data[k] === 'string' && localStorage.getItem(k) === null) localStorage.setItem(k, data[k])
+            history.replaceState(null, '', location.pathname + location.search)
+          }
+        } catch (e) {
+          // Storage blocked or a bad link: the game starts with what it has.
+        }
+      })()
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Skidline is a free 3D web racing game you play online in your browser, with no download. Race AI rivals on a mountain road by day or through a neon city at night, drift, escape the police and drive from the cockpit." />
     <meta name="theme-color" content="#05060c" />
-    <link rel="canonical" href="https://apex.edward7780.com/" />
+    <link rel="canonical" href="https://skidline.edward7780.com/" />
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://apex.edward7780.com/" />
+    <meta property="og:url" content="https://skidline.edward7780.com/" />
     <meta property="og:site_name" content="Skidline" />
     <meta property="og:title" content="Skidline: free online racing game in your browser" />
     <meta property="og:description" content="Race AI rivals on a mountain road or through a neon city, drift, outrun the police and drive from the cockpit. Free, no download, in any modern browser." />
-    <meta property="og:image" content="https://apex.edward7780.com/og.jpg" />
+    <meta property="og:image" content="https://skidline.edward7780.com/og.jpg" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Skidline: free online racing game in your browser" />
-    <meta name="twitter:image" content="https://apex.edward7780.com/og.jpg" />
+    <meta name="twitter:image" content="https://skidline.edward7780.com/og.jpg" />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <title>Skidline: free online racing game in your browser</title>
     <script type="application/ld+json">
@@ -22,8 +50,8 @@
         "@context": "https://schema.org",
         "@type": ["VideoGame", "SoftwareApplication"],
         "name": "Skidline",
-        "url": "https://apex.edward7780.com/",
-        "image": "https://apex.edward7780.com/og.jpg",
+        "url": "https://skidline.edward7780.com/",
+        "image": "https://skidline.edward7780.com/og.jpg",
         "description": "A free 3D web racing game you play in the browser: a career, AI rivals on a computed racing line, police pursuits, drift and elimination events, crash damage, a cockpit camera, and a mountain road by day or a neon city at night.",
         "genre": ["Racing", "Driving"],
         "gamePlatform": ["Web browser", "PC", "Mobile"],
@@ -36,21 +64,21 @@
         "isAccessibleForFree": true,
         "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
         "screenshot": [
-          "https://apex.edward7780.com/screens/day.jpg",
-          "https://apex.edward7780.com/screens/cockpit.jpg",
-          "https://apex.edward7780.com/screens/pursuit.jpg",
-          "https://apex.edward7780.com/screens/nitro.jpg",
-          "https://apex.edward7780.com/screens/damage.jpg",
-          "https://apex.edward7780.com/screens/garage.jpg",
-          "https://apex.edward7780.com/screens/drift.jpg",
-          "https://apex.edward7780.com/screens/career.jpg"
+          "https://skidline.edward7780.com/screens/day.jpg",
+          "https://skidline.edward7780.com/screens/cockpit.jpg",
+          "https://skidline.edward7780.com/screens/pursuit.jpg",
+          "https://skidline.edward7780.com/screens/nitro.jpg",
+          "https://skidline.edward7780.com/screens/damage.jpg",
+          "https://skidline.edward7780.com/screens/garage.jpg",
+          "https://skidline.edward7780.com/screens/drift.jpg",
+          "https://skidline.edward7780.com/screens/career.jpg"
         ],
         "trailer": {
           "@type": "VideoObject",
           "name": "Skidline trailer",
           "description": "Half a minute of Skidline: a race in the rain, the fly-in before a race, racing in the pack, a police pursuit at dusk and the garage.",
-          "thumbnailUrl": "https://apex.edward7780.com/og.jpg",
-          "contentUrl": "https://apex.edward7780.com/trailer.webm",
+          "thumbnailUrl": "https://skidline.edward7780.com/og.jpg",
+          "contentUrl": "https://skidline.edward7780.com/trailer.webm",
           "encodingFormat": "video/webm",
           "uploadDate": "2026-11-20T18:22:06+05:30",
           "duration": "PT32S",

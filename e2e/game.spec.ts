@@ -265,6 +265,21 @@ test('a new random track goes into the address bar', async ({ page }) => {
   await expect(page.locator('#challenge-note')).toContainText("Today's challenge")
 })
 
+test('saves carried over from the old address are kept, and the link is tidied', async ({ page }) => {
+  // The old address hands its saves over in the link (see the script at the
+  // top of index.html). The new one keeps them when it has none of its own.
+  const career = JSON.stringify({ cash: 4321, owned: ['vanta', 'kite'], won: {} })
+  const carry = encodeURIComponent(JSON.stringify({ 'neon-apex/career': career, 'other/key': 'ignored' }))
+  await open(page, `#carry=${carry}`)
+  await expect.poll(() => page.evaluate(() => (window as any).__neon?.progress().cash), { timeout: 60_000 }).toBe(4321)
+  expect(await page.evaluate(() => location.hash)).toBe('')
+  expect(await page.evaluate(() => localStorage.getItem('other/key'))).toBeNull()
+  // A second carry does not overwrite saves the new address already has.
+  const newer = encodeURIComponent(JSON.stringify({ 'neon-apex/career': JSON.stringify({ cash: 5, owned: ['vanta'], won: {} }) }))
+  await open(page, `#carry=${newer}`)
+  await expect.poll(() => page.evaluate(() => (window as any).__neon?.progress().cash), { timeout: 60_000 }).toBe(4321)
+})
+
 test('the career pays coins, which buy a car and its upgrades in the garage', async ({ page }) => {
   await open(page, '&autopilot')
   await page.locator('#go-career').click()

@@ -2,4 +2,4 @@ User-agent: *
 Allow: /
 Disallow: /api/
 
-Sitemap: https://apex.edward7780.com/sitemap.xml
+Sitemap: https://skidline.edward7780.com/sitemap.xml
