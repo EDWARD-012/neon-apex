@@ -111,9 +111,12 @@ export interface Progress {
   // the weekly track was paid.
   challengeDay: string | null
   weekPaid: string | null
+  // Damage from career events that each car still carries, 0 to 1, until
+  // it is repaired.
+  wear: Record<string, number>
 }
 
-export const fresh = (): Progress => ({ cash: 0, owned: [CARS[0].id], won: {}, upgrades: {}, daily: null, ownedLooks: [], looks: {}, medals: {}, claimed: [], challengeDay: null, weekPaid: null })
+export const fresh = (): Progress => ({ cash: 0, owned: [CARS[0].id], won: {}, upgrades: {}, daily: null, ownedLooks: [], looks: {}, medals: {}, claimed: [], challengeDay: null, weekPaid: null, wear: {} })
 
 // Fills in what an older or damaged save is missing.
 export function tidy(saved: Partial<Progress>): Progress {
@@ -130,6 +133,13 @@ export function tidy(saved: Partial<Progress>): Progress {
     claimed: Array.isArray(saved.claimed) ? saved.claimed.filter((k) => typeof k === 'string') : [],
     challengeDay: typeof saved.challengeDay === 'string' ? saved.challengeDay : null,
     weekPaid: typeof saved.weekPaid === 'string' ? saved.weekPaid : null,
+    wear: object(saved.wear)
+      ? Object.fromEntries(
+          Object.entries(saved.wear as Record<string, unknown>)
+            .filter((e): e is [string, number] => typeof e[1] === 'number' && Number.isFinite(e[1]) && e[1] > 0)
+            .map(([car, w]) => [car, Math.min(1, w)]),
+        )
+      : {},
     daily: daily && typeof daily.day === 'string' && Number.isInteger(daily.streak) ? daily : null,
   }
 }
@@ -520,3 +530,42 @@ export function saveProgress(progress: Progress) {
     // Storage blocked: progress lasts for this visit only.
   }
 }
+
+// Repairs. Damage from a career event stays on the car for the next career
+// event, until the player pays to fix it. However bad it got, the crew
+// patches a car up enough to race, so it starts an event with at most half
+// damage. Quick races and the daily and weekly tracks always start with a
+// fresh car, and playing the cop uses the police's own interceptor.
+export const REPAIR_FULL = 2000
+export const MAX_CARRY = 0.5
+
+export const wearOf = (progress: Progress, carId: string) => progress.wear[carId] ?? 0
+
+// The damage a car starts its next career event with.
+export const carried = (progress: Progress, carId: string) => Math.min(MAX_CARRY, wearOf(progress, carId))
+
+// A full repair, from wrecked to new, costs REPAIR_FULL; less damage costs
+// its share of that, never under 50.
+export function repairPrice(progress: Progress, carId: string): number {
+  const wear = wearOf(progress, carId)
+  return wear > 0 ? Math.max(50, round50(wear * REPAIR_FULL)) : 0
+}
+
+export function repair(progress: Progress, carId: string): Progress | null {
+  const price = repairPrice(progress, carId)
+  if (price === 0 || progress.cash < price) return null
+  const wear = { ...progress.wear }
+  delete wear[carId]
+  return { ...progress, cash: progress.cash - price, wear }
+}
+
+// After a career event: the damage the car took in it adds to what it had.
+// The car started with `start` damage (at most MAX_CARRY), so only what came
+// on top of that is new.
+export function addWear(progress: Progress, carId: string, start: number, end: number): Progress {
+  const taken = Math.max(0, end - start)
+  if (taken < 0.005) return progress
+  const wear = Math.min(1, Math.round((wearOf(progress, carId) + taken) * 100) / 100)
+  return { ...progress, wear: { ...progress.wear, [carId]: wear } }
+}
+
