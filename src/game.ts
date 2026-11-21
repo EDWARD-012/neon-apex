@@ -11,6 +11,7 @@ import { Cockpit, DRIVER } from './render/cockpit'
 import { Particles, Rain, Skids, Trails } from './render/effects'
 import { Garage } from './render/garage'
 import { type Looks, STOCK_LOOKS, styleCar } from './looks'
+import { buzz } from './touch'
 import { tuned } from './upgrades'
 import { createHelicopter, type HelicopterModel } from './render/helicopter'
 import { disposeStrip, spikeStrip } from './render/spikes'
@@ -62,6 +63,9 @@ export interface Settings {
   driftAssist: boolean
   brakeAssist: boolean
   stability: boolean
+  // Phones: how to steer, and which side the steering goes.
+  touchSteer: 'wheel' | 'arrows' | 'tilt'
+  leftHanded: boolean
   // The two racer tools taken into a pursuit, and the two police tools
   // for playing the cop.
   tools: RacerToolId[]
@@ -145,6 +149,8 @@ export class Game {
   timeScale = 1
   onResults: ((outcome: Outcome) => void) | null = null
   onRestart: (() => void) | null = null
+  // Whether the phone controls are on screen, so the HUD can update them.
+  private readonly touchShown = matchMedia('(pointer: coarse)').matches
   // The player's car with its upgrades. Set by the menus, which know the
   // save; until then a car drives as it left the factory.
   tune: (carId: string) => CarSpec = (carId) => carById(carId).spec
@@ -590,6 +596,7 @@ export class Game {
       this.nitroPulse = 1
       this.shake = Math.min(1, this.shake + 0.3)
       this.sound.ignite()
+      buzz(20)
     }
     this.nitroWas = player.car.nitroOn
 
@@ -657,6 +664,7 @@ export class Game {
         flash('Lost them')
         popup(`Lost the police +${(ESCAPE_PAY * e.heat).toLocaleString('en')}`, 'gold')
       } else if (e.type === 'takedown') {
+        buzz([40, 30, 60])
         const car = e.cop ?? race.racers[e.id ?? 0].car
         this.wreckBurst(car)
         flash('Takedown')
@@ -1194,6 +1202,7 @@ export class Game {
       if (v.racer?.player && this.mode === 'race') {
         this.sound.hit(car.impact)
         this.shake = Math.min(1, this.shake + car.impact * 0.06)
+        if (car.impact > 6) buzz(Math.min(80, Math.round(car.impact * 4)))
       }
     }
     car.impact = 0
@@ -1383,10 +1392,17 @@ export class Game {
     $('gear').textContent = String(gearOf(speed, car.spec).gear)
     $('gauge-fill').style.strokeDashoffset = String(1 - Math.min(1, speed / (car.spec.topSpeed * car.spec.nitroTop)))
     $('nitro-fill').style.transform = `scaleX(${car.nitro})`
+    // The phone's Nitro ring, Drift tier colour and the gas pedal's glow.
+    if (this.touchShown) {
+      $('touch-nitro').style.setProperty('--tank', car.nitro.toFixed(2))
+      const tier = car.driftDir !== 0 || car.drifting ? driftTier(car.driftCharge) : 0
+      $('touch-drift').dataset.tier = String(tier)
+      $('touch-pedals').style.setProperty('--revs', gearOf(Math.abs(forwardSpeed(car)), car.spec).rpm.toFixed(2))
+    }
     // Driver inputs, shown in the first-person views.
     const input = this.race.playerInput
-    $('pedal-gas').style.transform = `scaleY(${input.throttle})`
-    $('pedal-brake').style.transform = `scaleY(${Math.max(input.brake, input.handbrake ? 0.6 : 0)})`
+    $('pedal-gas').style.setProperty('--press', input.throttle.toFixed(2))
+    $('pedal-brake').style.setProperty('--press', Math.max(input.brake, input.handbrake ? 0.6 : 0).toFixed(2))
     $('wheel-icon').style.transform = `rotate(${(car.steer * 6 * 180) / Math.PI}deg)`
     $('nitro-row').classList.toggle('full', car.nitro > 0.98)
     const damage = $('damage-fill')
