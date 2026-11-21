@@ -80,6 +80,23 @@ button {
   opacity: 1;
 }
 
+/* A big hit: the view goes white for a moment, with red round the edges.
+   Its opacity is set every frame from the game. */
+#hit-flash {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(ellipse 75% 70% at 50% 50%, rgba(255, 250, 240, 0.5) 0, rgba(255, 235, 220, 0.25) 45%, rgba(210, 30, 20, 0.7) 100%);
+}
+
+/* With reduced motion asked for, only the red at the edges. */
+@media (prefers-reduced-motion: reduce) {
+  #hit-flash {
+    background: radial-gradient(ellipse 75% 70% at 50% 50%, transparent 55%, rgba(210, 30, 20, 0.45) 100%);
+  }
+}
+
 /* Garage photo mode: only the car and a small bar of buttons. */
 body.photo #garage {
   display: none;
