@@ -80,6 +80,35 @@ button {
   opacity: 1;
 }
 
+/* Garage photo mode: only the car and a small bar of buttons. */
+body.photo #garage {
+  display: none;
+}
+
+body.photo #view {
+  touch-action: none;
+  cursor: grab;
+}
+
+.photo-bar {
+  position: fixed;
+  left: 50%;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  z-index: 6;
+  align-items: center;
+  margin: 0;
+  padding: 10px 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--glass);
+  backdrop-filter: blur(14px);
+  transform: translateX(-50%);
+}
+
+.photo-bar .note {
+  margin: 0;
+}
+
 /* HUD */
 
 #hud {

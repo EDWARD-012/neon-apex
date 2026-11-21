@@ -200,9 +200,77 @@ function menu() {
 $('go-career').addEventListener('click', () => career())
 $('go-quick').addEventListener('click', () => quick())
 $('go-garage').addEventListener('click', () => garage())
+
+// Photo mode in the garage: the menu goes, the car stops turning, and the
+// camera orbits it with a drag, zooms with the wheel or a pinch, and saves
+// a picture.
+function enterPhoto() {
+  document.body.classList.add('photo')
+  $('photo-bar').classList.remove('hidden')
+  game.enterPhoto()
+}
+function leavePhoto() {
+  if (!document.body.classList.contains('photo')) return
+  document.body.classList.remove('photo')
+  $('photo-bar').classList.add('hidden')
+  game.leavePhoto()
+}
+$('photo-mode').addEventListener('click', enterPhoto)
+$('photo-done').addEventListener('click', leavePhoto)
+$('photo-save').addEventListener('click', async () => {
+  const car = carById(viewing)
+  const blob = await game.snapshot(car.name)
+  if (!blob) return
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `skidline-${car.id}.png`
+  document.body.append(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+})
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') leavePhoto()
+})
+const touching = new Map<number, { x: number; y: number }>()
+const spread = () => {
+  const [a, b] = [...touching.values()]
+  return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : 0
+}
+$('view').addEventListener('pointerdown', (e) => {
+  if (!game.garage.photo) return
+  touching.set(e.pointerId, { x: e.clientX, y: e.clientY })
+  $('view').setPointerCapture(e.pointerId)
+})
+$('view').addEventListener('pointermove', (e) => {
+  const was = touching.get(e.pointerId)
+  if (!was || !game.garage.photo) return
+  const before = spread()
+  touching.set(e.pointerId, { x: e.clientX, y: e.clientY })
+  if (touching.size === 1) game.orbit(e.clientX - was.x, e.clientY - was.y)
+  else if (before > 0) game.zoom(before / Math.max(1, spread()))
+})
+const lift = (e: PointerEvent) => touching.delete(e.pointerId)
+$('view').addEventListener('pointerup', lift)
+$('view').addEventListener('pointercancel', lift)
+$('view').addEventListener(
+  'wheel',
+  (e) => {
+    if (!game.garage.photo) return
+    e.preventDefault()
+    game.zoom(Math.exp(e.deltaY * 0.0012))
+  },
+  { passive: false },
+)
 $('go-settings').addEventListener('click', () => setScreen('settings-screen'))
 $('go-account').addEventListener('click', () => openAccount())
-document.querySelectorAll('.back').forEach((b) => b.addEventListener('click', () => menu()))
+document.querySelectorAll('.back').forEach((b) =>
+  b.addEventListener('click', () => {
+    leavePhoto()
+    menu()
+  }),
+)
 
 // Quick race
 
