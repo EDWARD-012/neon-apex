@@ -142,7 +142,7 @@ export const PHOTO_TILE = { leather: 0.3, suede: 0.285 }
 let photos: Promise<PhotoTextures | null> | null = null
 
 export function photoTextures(): Promise<PhotoTextures | null> {
-  photos ??= Promise.all(['leather-normal', 'leather-rough', 'suede-normal', 'suede-rough'].map((name) => new TextureLoader().loadAsync(`/textures/cabin-${name}.jpg`).then(tiled)))
+  photos ??= Promise.all(['leather-normal', 'leather-rough', 'suede-normal', 'suede-rough'].map((name) => new TextureLoader().loadAsync(`${import.meta.env.BASE_URL}textures/cabin-${name}.jpg`).then(tiled)))
     .then(([leatherNormal, leatherRough, suedeNormal, suedeRough]) => ({ leatherNormal, leatherRough, suedeNormal, suedeRough }))
     .catch(() => null)
   return photos
